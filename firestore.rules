@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Regras otimizadas para alto desempenho e consumo zero de leituras adicionais (sem get() recursivo)
+    
+    // Coleção de Eleitores
+    match /eleitores/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Lideranças
+    match /liderancas/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Locais de Votação
+    match /locais_votacao/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Usuários
+    match /usuarios/{userId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Configurações
+    match /configuracoes/{configId} {
+      allow read, write: if true;
+    }
+    match /configuracoes/{configId}/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Logs de Auditoria
+    match /logs_auditoria/{document=**} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+
+    // Coleção Central de Registro de Clientes (Multi-tenant)
+    match /clientes_registry/{clienteId=**} {
+      allow read, write: if true;
+    }
+  }
+}

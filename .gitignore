@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.open-next/
+.wrangler/
+coverage/
+.DS_Store
+*.log
+bun.lock
+bun.lockb
+.env*
+!.env.example
