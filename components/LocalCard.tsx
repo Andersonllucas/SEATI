@@ -9,7 +9,8 @@ import {
   CheckCircle2,
   ChevronRight,
   Edit3,
-  Trash2
+  Trash2,
+  GitMerge
 } from 'lucide-react';
 
 interface LocalCardProps {
@@ -19,6 +20,7 @@ interface LocalCardProps {
   onViewVoters: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onAgregarSecao?: (secao: string, local: LocalVotacao) => void;
 }
 
 export const LocalCard = React.memo(function LocalCard({
@@ -27,7 +29,8 @@ export const LocalCard = React.memo(function LocalCard({
   onToggleSelect,
   onViewVoters,
   onEdit,
-  onDelete
+  onDelete,
+  onAgregarSecao
 }: LocalCardProps) {
   const secoesList = Array.isArray(local.secoes)
     ? local.secoes
@@ -111,7 +114,11 @@ export const LocalCard = React.memo(function LocalCard({
             {secoesList.slice(0, 8).map((sec) => (
               <span
                 key={sec}
-                className="px-1.5 py-0.5 bg-surface-container-low text-on-surface text-[10px] font-mono rounded border border-outline-variant/50"
+                onClick={onAgregarSecao ? () => onAgregarSecao(sec, local) : undefined}
+                title={onAgregarSecao ? `Clique para agregar a seção ${sec} a outra` : undefined}
+                className={`px-1.5 py-0.5 bg-surface-container-low text-on-surface text-[10px] font-mono rounded border border-outline-variant/50 transition-colors ${
+                  onAgregarSecao ? 'hover:border-secondary hover:text-secondary hover:bg-secondary/10 cursor-pointer' : ''
+                }`}
               >
                 {sec}
               </span>
@@ -143,6 +150,16 @@ export const LocalCard = React.memo(function LocalCard({
         </button>
 
         <div className="flex items-center gap-1">
+          {onAgregarSecao && (
+            <button
+              type="button"
+              onClick={() => onAgregarSecao(secoesList[0] || '', local)}
+              title="Agregar Seção deste local a outra seção"
+              className="p-1.5 text-on-surface-variant hover:text-secondary hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
+            >
+              <GitMerge className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onEdit}

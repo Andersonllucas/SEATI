@@ -11,7 +11,11 @@ import {
   serverTimestamp,
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager
+  persistentMultipleTabManager,
+  addDoc,
+  query,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 import { getAuth, Auth, setPersistence, browserSessionPersistence } from 'firebase/auth';
 import { CENTRAL_FIREBASE_CONFIG } from './centralFirebaseConfig';
@@ -21,7 +25,10 @@ import {
   TenantClient,
   TenantBootstrapOptions,
   TenantBootstrapResult,
-  TenantBackupData
+  TenantBackupData,
+  TenantRestoreOptions,
+  TenantRestoreResult,
+  TenantAuditLog
 } from './tenantTypes';
 import { resetCircuitBreaker } from './firestoreErrors';
 import { hashPassword } from './crypto';
@@ -399,7 +406,7 @@ export async function exportTenantBackup(
   const usuarios = usuariosSnap
     ? usuariosSnap.docs.map((d) => {
         const data = d.data();
-        const { senha, ...safeUser } = data as any;
+        const { senha: _senha, ...safeUser } = data as any;
         return { id: d.id, ...safeUser };
       })
     : [];
@@ -423,5 +430,200 @@ export async function exportTenantBackup(
     locais_votacao,
     usuarios
   };
+}
+
+/**
+ * Restaura um backup consolidado dos dados do tenant em formato JSON estruturado (Parte 8)
+ */
+export async function restoreTenantBackup(
+  client: TenantClient,
+  backup: TenantBackupData,
+  options: TenantRestoreOptions = {}
+): Promise<TenantRestoreResult> {
+  const {
+    restoreEleitores = true,
+    restoreLiderancas = true,
+    restoreLocais = true,
+    restoreUsuarios = true,
+    restoreConfiguracoes = true
+  } = options;
+
+  try {
+    const tempKey = `restore_${client.subdominio}_${client.firebaseConfig.projectId}`;
+    const bundle = getOrCreateFirebaseBundle(tempKey, client.firebaseConfig);
+    const targetDb = bundle.db;
+
+    let eleitoresRestaurados = 0;
+    let liderancasRestauradas = 0;
+    let locaisRestaurados = 0;
+    let usuariosRestaurados = 0;
+    let configuracoesRestauradas = false;
+    const errors: string[] = [];
+
+    // Helper para comitar em lotes de até 400 operações
+    const commitInBatches = async (
+      collectionName: string,
+      items: any[],
+      onItemCount: (c: number) => void
+    ) => {
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(targetDb);
+        for (const item of chunk) {
+          const docId = item.id || doc(collection(targetDb, collectionName)).id;
+          const { id: _unusedId, ...dataToSave } = item;
+          const ref = doc(targetDb, collectionName, docId);
+          batch.set(ref, dataToSave, { merge: true });
+        }
+        await batch.commit();
+        onItemCount(chunk.length);
+      }
+    };
+
+    // 1. Configurações
+    if (restoreConfiguracoes && backup.configuracoes) {
+      try {
+        const { id: _cfgId, ...cfgData } = backup.configuracoes;
+        await setDoc(doc(targetDb, 'configuracoes', 'geral'), cfgData, { merge: true });
+        configuracoesRestauradas = true;
+      } catch (err: any) {
+        errors.push(`Erro ao restaurar configurações: ${err?.message}`);
+      }
+    }
+
+    // 2. Locais de Votação
+    if (restoreLocais && Array.isArray(backup.locais_votacao) && backup.locais_votacao.length > 0) {
+      try {
+        await commitInBatches('locais_votacao', backup.locais_votacao, (count) => {
+          locaisRestaurados += count;
+        });
+      } catch (err: any) {
+        errors.push(`Erro ao restaurar locais de votação: ${err?.message}`);
+      }
+    }
+
+    // 3. Lideranças
+    if (restoreLiderancas && Array.isArray(backup.liderancas) && backup.liderancas.length > 0) {
+      try {
+        await commitInBatches('liderancas', backup.liderancas, (count) => {
+          liderancasRestauradas += count;
+        });
+      } catch (err: any) {
+        errors.push(`Erro ao restaurar lideranças: ${err?.message}`);
+      }
+    }
+
+    // 4. Eleitores
+    if (restoreEleitores && Array.isArray(backup.eleitores) && backup.eleitores.length > 0) {
+      try {
+        await commitInBatches('eleitores', backup.eleitores, (count) => {
+          eleitoresRestaurados += count;
+        });
+      } catch (err: any) {
+        errors.push(`Erro ao restaurar eleitores: ${err?.message}`);
+      }
+    }
+
+    // 5. Usuários
+    if (restoreUsuarios && Array.isArray(backup.usuarios) && backup.usuarios.length > 0) {
+      try {
+        await commitInBatches('usuarios', backup.usuarios, (count) => {
+          usuariosRestaurados += count;
+        });
+      } catch (err: any) {
+        errors.push(`Erro ao restaurar usuários: ${err?.message}`);
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      message: `Restauração concluída: ${eleitoresRestaurados} eleitores, ${liderancasRestauradas} lideranças, ${locaisRestaurados} locais e ${usuariosRestaurados} usuários restaurados.`,
+      eleitoresRestaurados,
+      liderancasRestauradas,
+      locaisRestaurados,
+      usuariosRestaurados,
+      configuracoesRestauradas,
+      errors: errors.length > 0 ? errors : undefined
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Falha geral na restauração: ${error?.message || 'Verifique as permissões do Firestore'}`,
+      eleitoresRestaurados: 0,
+      liderancasRestauradas: 0,
+      locaisRestaurados: 0,
+      usuariosRestaurados: 0,
+      configuracoesRestauradas: false,
+      errors: [error?.message || 'Erro desconhecido']
+    };
+  }
+}
+
+/**
+ * Registra uma ação administrativa no log central de auditoria (Parte 8)
+ */
+export async function recordCentralAuditLog(
+  log: Omit<TenantAuditLog, 'id' | 'timestamp'>
+): Promise<void> {
+  try {
+    const centralDb = getCentralDb();
+    const logsCol = collection(centralDb, 'clientes_audit_logs');
+    await addDoc(logsCol, {
+      ...log,
+      timestamp: serverTimestamp()
+    });
+  } catch (e) {
+    console.warn('Aviso: falha ao gravar log de auditoria central:', e);
+  }
+}
+
+/**
+ * Consulta os logs de auditoria central dos tenants (Parte 8)
+ */
+export async function getCentralAuditLogs(limitCount: number = 50): Promise<TenantAuditLog[]> {
+  try {
+    const centralDb = getCentralDb();
+    const q = query(
+      collection(centralDb, 'clientes_audit_logs'),
+      orderBy('timestamp', 'desc'),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data()
+    })) as TenantAuditLog[];
+  } catch (e) {
+    console.warn('Aviso ao consultar logs centrais:', e);
+    return [];
+  }
+}
+
+/**
+ * Testa a conexão e latência com o banco do cliente (Parte 8)
+ */
+export async function testTenantConnectionWithLatency(
+  config: TenantFirebaseConfig
+): Promise<{ success: boolean; message: string; latencyMs: number }> {
+  const start = Date.now();
+  try {
+    const tempKey = `test_${config.projectId}_${Date.now()}`;
+    const bundle = getOrCreateFirebaseBundle(tempKey, config);
+    await getCountFromServer(collection(bundle.db, 'configuracoes'));
+    const latency = Date.now() - start;
+    return {
+      success: true,
+      message: `Conectado com sucesso em ${latency}ms!`,
+      latencyMs: latency
+    };
+  } catch (error: any) {
+    const latency = Date.now() - start;
+    return {
+      success: false,
+      message: error?.message || 'Falha de conexão com o Firestore do cliente',
+      latencyMs: latency
+    };
+  }
 }
 

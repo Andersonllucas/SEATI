@@ -18,7 +18,11 @@ import {
   getCentralAuth,
   getTenantClientStats,
   bootstrapTenantDatabase,
-  exportTenantBackup
+  exportTenantBackup,
+  restoreTenantBackup,
+  recordCentralAuditLog,
+  getCentralAuditLogs,
+  testTenantConnectionWithLatency
 } from '@/lib/firebase';
 import {
   TenantClient,
@@ -26,7 +30,11 @@ import {
   TenantStats,
   TenantStatus,
   TenantBootstrapOptions,
-  TenantBootstrapResult
+  TenantBootstrapResult,
+  TenantBackupData,
+  TenantRestoreOptions,
+  TenantRestoreResult,
+  TenantAuditLog
 } from '@/lib/tenantTypes';
 import { CENTRAL_FIREBASE_CONFIG } from '@/lib/centralFirebaseConfig';
 import { handleFirestoreError, OperationType } from '@/lib/firestoreErrors';
@@ -59,7 +67,12 @@ import {
   Download,
   Copy,
   Check,
-  KeyRound
+  KeyRound,
+  Upload,
+  Activity,
+  FileText,
+  RotateCcw,
+  History
 } from 'lucide-react';
 import { useTenant } from '@/context/TenantContext';
 
@@ -153,6 +166,36 @@ export default function AdminMasterPage() {
 
   // Estado de exportação de backup (Parte 4)
   const [exportingSubdomain, setExportingSubdomain] = useState<string | null>(null);
+
+  // Aba ativa do Painel Master (Parte 8)
+  const [activeMasterTab, setActiveMasterTab] = useState<'clientes' | 'auditoria' | 'saude'>('clientes');
+
+  // Estados do Modal de Restauração de Backup (Parte 8)
+  const [isRestoreModalOpen, setIsRestoreModalOpen] = useState<boolean>(false);
+  const [restoreTargetClient, setRestoreTargetClient] = useState<TenantClient | null>(null);
+  const [restoreBackupData, setRestoreBackupData] = useState<TenantBackupData | null>(null);
+  const [restoreFileName, setRestoreFileName] = useState<string>('');
+  const [isReadingRestoreFile, setIsReadingRestoreFile] = useState<boolean>(false);
+  const [isRestoring, setIsRestoring] = useState<boolean>(false);
+  const [restoreOptions, setRestoreOptions] = useState<TenantRestoreOptions>({
+    restoreEleitores: true,
+    restoreLiderancas: true,
+    restoreLocais: true,
+    restoreUsuarios: true,
+    restoreConfiguracoes: true
+  });
+  const [restoreResult, setRestoreResult] = useState<TenantRestoreResult | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  // Estados da Central de Auditoria (Parte 8)
+  const [auditLogs, setAuditLogs] = useState<TenantAuditLog[]>([]);
+  const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState<boolean>(false);
+  const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
+  const [auditActionFilter, setAuditActionFilter] = useState<string>('todos');
+
+  // Estados de Diagnóstico de Conexão e Latência (Parte 8)
+  const [healthResults, setHealthResults] = useState<Record<string, { success: boolean; message: string; latencyMs: number }>>({});
+  const [isCheckingAllHealth, setIsCheckingAllHealth] = useState<boolean>(false);
 
   // 1. Verifica sessão ativa com o Firebase Auth Central ou sessão armazenada
   useEffect(() => {
@@ -422,6 +465,15 @@ export default function AdminMasterPage() {
         status: newStatus,
         atualizadoEm: serverTimestamp()
       });
+
+      // Grava auditoria (Parte 8)
+      recordCentralAuditLog({
+        tenantSubdominio: client.subdominio,
+        tenantNome: client.nome,
+        autorEmail: adminUser?.email || 'admin@master',
+        acao: 'status_alterado',
+        detalhes: `Status do cliente alterado para "${newStatus}".`
+      });
     } catch (err: any) {
       alert(`Erro ao alterar status: ${err?.message || 'Verifique as permissões do Firebase'}`);
     }
@@ -443,12 +495,20 @@ export default function AdminMasterPage() {
         method: 'DELETE'
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        return;
+      if (!res.ok || !data.success) {
+        // 2. Fallback direto no Firestore do navegador
+        const centralDb = getCentralDb();
+        await deleteDoc(doc(centralDb, 'clientes_registry', client.id));
       }
-      // 2. Fallback direto no Firestore do navegador
-      const centralDb = getCentralDb();
-      await deleteDoc(doc(centralDb, 'clientes_registry', client.id));
+
+      // Grava auditoria (Parte 8)
+      recordCentralAuditLog({
+        tenantSubdominio: client.subdominio,
+        tenantNome: client.nome,
+        autorEmail: adminUser?.email || 'admin@master',
+        acao: 'exclusao',
+        detalhes: `Cliente "${client.nome}" (${client.subdominio}) removido do registry.`
+      });
     } catch (err: any) {
       alert(`Erro ao excluir: ${err?.message || 'Verifique as permissões do Firebase'}`);
     }
@@ -662,6 +722,17 @@ export default function AdminMasterPage() {
         await updateDoc(docRef, clientData);
       }
 
+      // Grava auditoria (Parte 8)
+      recordCentralAuditLog({
+        tenantSubdominio: cleanSub,
+        tenantNome: cleanNome,
+        autorEmail: adminUser?.email || 'admin@master',
+        acao: editingClient ? 'edicao' : 'criacao',
+        detalhes: editingClient
+          ? `Configurações do cliente "${cleanNome}" atualizadas no painel master.`
+          : `Novo cliente "${cleanNome}" registrado com subdomínio "${cleanSub}".`
+      });
+
       setIsModalOpen(false);
     } catch (err: any) {
       console.error('Erro ao salvar cliente no registry:', err);
@@ -769,6 +840,15 @@ export default function AdminMasterPage() {
         setBootstrapResult(res);
         // Atualiza métricas do card imediatamente
         fetchClientStats(bootstrapTargetClient);
+
+        // Grava auditoria (Parte 8)
+        recordCentralAuditLog({
+          tenantSubdominio: bootstrapTargetClient.subdominio,
+          tenantNome: bootstrapTargetClient.nome,
+          autorEmail: adminUser?.email || 'admin@master',
+          acao: 'bootstrap',
+          detalhes: `Banco provisionado com sucesso: Admin "${res.adminEmail}", locais: ${res.locaisImportados || 0}.`
+        });
       } else {
         // 2. Se falhar no client, tenta via API do servidor
         const apiRes = await fetch('/api/admin/bootstrap-tenant', {
@@ -783,6 +863,15 @@ export default function AdminMasterPage() {
         if (apiRes.ok && apiData.success) {
           setBootstrapResult(apiData);
           fetchClientStats(bootstrapTargetClient);
+
+          // Grava auditoria (Parte 8)
+          recordCentralAuditLog({
+            tenantSubdominio: bootstrapTargetClient.subdominio,
+            tenantNome: bootstrapTargetClient.nome,
+            autorEmail: adminUser?.email || 'admin@master',
+            acao: 'bootstrap',
+            detalhes: `Banco provisionado via servidor: Admin "${apiData.adminEmail}", locais: ${apiData.locaisImportados || 0}.`
+          });
         } else {
           setBootstrapError(apiData.error || res.message || 'Falha ao provisionar banco do cliente.');
         }
@@ -821,11 +910,141 @@ export default function AdminMasterPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      // Grava log central de auditoria (Parte 8)
+      recordCentralAuditLog({
+        tenantSubdominio: client.subdominio,
+        tenantNome: client.nome,
+        autorEmail: adminUser?.email || 'admin@master',
+        acao: 'backup_exportado',
+        detalhes: `Backup consolidado exportado contendo ${backupData.metadata.totalEleitores} eleitores, ${backupData.metadata.totalLiderancas} lideranças, ${backupData.metadata.totalLocais} locais.`
+      });
     } catch (err: any) {
       alert(`Falha ao exportar backup: ${err?.message || 'Verifique as permissões de leitura'}`);
     } finally {
       setExportingSubdomain(null);
     }
+  };
+
+  // 13. Modal de Restauração de Backup (Parte 8)
+  const openRestoreModal = (client: TenantClient) => {
+    setRestoreTargetClient(client);
+    setRestoreBackupData(null);
+    setRestoreFileName('');
+    setRestoreError(null);
+    setRestoreResult(null);
+    setRestoreOptions({
+      restoreEleitores: true,
+      restoreLiderancas: true,
+      restoreLocais: true,
+      restoreUsuarios: true,
+      restoreConfiguracoes: true
+    });
+    setIsRestoreModalOpen(true);
+  };
+
+  const handleRestoreFileSelected = async (file: File) => {
+    setRestoreError(null);
+    setRestoreResult(null);
+    setRestoreFileName(file.name);
+    setIsReadingRestoreFile(true);
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Arquivo JSON inválido.');
+      }
+
+      // Validação de formato de backup do SCE ADTI
+      if (!parsed.metadata && !parsed.eleitores && !parsed.liderancas && !parsed.locais_votacao) {
+        throw new Error('O arquivo não parece ser um backup válido do SCE ADTI (ausência de metadados ou coleções reconhecidas).');
+      }
+
+      setRestoreBackupData(parsed as TenantBackupData);
+    } catch (err: any) {
+      setRestoreError(`Erro ao carregar arquivo de backup: ${err?.message || 'Formato JSON inválido'}`);
+      setRestoreBackupData(null);
+    } finally {
+      setIsReadingRestoreFile(false);
+    }
+  };
+
+  const handleExecuteRestore = async () => {
+    if (!restoreTargetClient || !restoreBackupData) return;
+    setIsRestoring(true);
+    setRestoreError(null);
+
+    try {
+      const result = await restoreTenantBackup(restoreTargetClient, restoreBackupData, restoreOptions);
+      setRestoreResult(result);
+
+      if (result.success) {
+        // Grava auditoria central
+        await recordCentralAuditLog({
+          tenantSubdominio: restoreTargetClient.subdominio,
+          tenantNome: restoreTargetClient.nome,
+          autorEmail: adminUser?.email || 'admin@master',
+          acao: 'backup_restaurado',
+          detalhes: `Backup restaurado no tenant: ${result.eleitoresRestaurados} eleitores, ${result.liderancasRestauradas} lideranças, ${result.locaisRestaurados} locais, ${result.usuariosRestaurados} usuários.`
+        });
+
+        // Recarrega contagens do cliente no cache de métricas
+        fetchClientStats(restoreTargetClient);
+      } else {
+        setRestoreError(result.message);
+      }
+    } catch (err: any) {
+      setRestoreError(`Falha durante restauração: ${err?.message || 'Erro inesperado'}`);
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  // 14. Carregar Logs de Auditoria Central (Parte 8)
+  const loadAuditLogs = async () => {
+    setIsLoadingAuditLogs(true);
+    try {
+      const logs = await getCentralAuditLogs(100);
+      setAuditLogs(logs);
+    } catch (err) {
+      console.warn('Erro ao carregar logs centrais:', err);
+    } finally {
+      setIsLoadingAuditLogs(false);
+    }
+  };
+
+  // Carrega logs de auditoria sempre que a aba é aberta
+  useEffect(() => {
+    if (activeMasterTab === 'auditoria' && isAuthenticated) {
+      loadAuditLogs();
+    }
+  }, [activeMasterTab, isAuthenticated]);
+
+  // 15. Diagnóstico de Saúde de Todos os Clientes (Parte 8)
+  const handleCheckAllHealth = async () => {
+    if (clients.length === 0) return;
+    setIsCheckingAllHealth(true);
+    const results: Record<string, { success: boolean; message: string; latencyMs: number }> = {};
+
+    await Promise.all(
+      clients.map(async (client) => {
+        try {
+          const res = await testTenantConnectionWithLatency(client.firebaseConfig);
+          results[client.subdominio] = res;
+        } catch (e: any) {
+          results[client.subdominio] = {
+            success: false,
+            message: e?.message || 'Falha de conexão',
+            latencyMs: 9999
+          };
+        }
+      })
+    );
+
+    setHealthResults(results);
+    setIsCheckingAllHealth(false);
   };
 
   // Filtros
@@ -837,6 +1056,21 @@ export default function AdminMasterPage() {
     const matchesStatus =
       statusFilter === 'todos' ? true : statusFilter === 'ativo' ? c.status === 'ativo' : c.status === 'inativo';
     return matchesSearch && matchesStatus;
+  });
+
+  // Filtros de Auditoria (Parte 8)
+  const filteredAuditLogs = auditLogs.filter((log) => {
+    const matchesSearch =
+      !auditSearchQuery ||
+      log.tenantNome.toLowerCase().includes(auditSearchQuery.toLowerCase()) ||
+      log.tenantSubdominio.toLowerCase().includes(auditSearchQuery.toLowerCase()) ||
+      log.autorEmail.toLowerCase().includes(auditSearchQuery.toLowerCase()) ||
+      log.detalhes.toLowerCase().includes(auditSearchQuery.toLowerCase());
+
+    const matchesAction =
+      auditActionFilter === 'todos' || log.acao === auditActionFilter;
+
+    return matchesSearch && matchesAction;
   });
 
   const totalAtivos = clients.filter((c) => c.status === 'ativo').length;
@@ -996,9 +1230,52 @@ export default function AdminMasterPage() {
         </div>
       </header>
 
+      {/* Navegação por Abas do Painel Master (Parte 8) */}
+      <div className="bg-surface-container-low border-b border-outline-variant/40 px-4 sm:px-8">
+        <div className="max-w-7xl mx-auto flex items-center gap-1 sm:gap-2 pt-1">
+          <button
+            onClick={() => setActiveMasterTab('clientes')}
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeMasterTab === 'clientes'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5" />
+            <span>Clientes & Bancos ({clients.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveMasterTab('auditoria')}
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeMasterTab === 'auditoria'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Auditoria & Logs Globais</span>
+          </button>
+
+          <button
+            onClick={() => setActiveMasterTab('saude')}
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeMasterTab === 'saude'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Diagnóstico de Saúde & Latência</span>
+          </button>
+        </div>
+      </div>
+
       {/* Conteúdo Principal */}
       <main className="max-w-7xl mx-auto px-4 sm:px-8 pt-6 space-y-6">
-        {/* KPI Cards */}
+        {activeMasterTab === 'clientes' && (
+          <>
+            {/* KPI Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-surface-container-low border border-outline-variant/50 rounded-2xl p-4 sm:p-5 shadow-xs">
             <div className="flex items-center justify-between text-on-surface-variant mb-2">
@@ -1257,6 +1534,13 @@ export default function AdminMasterPage() {
                         )}
                       </button>
                       <button
+                        onClick={() => openRestoreModal(client)}
+                        title="Restaurar Backup do cliente (Disaster Recovery / JSON)"
+                        className="p-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => toggleClientStatus(client)}
                         title={isAtivo ? 'Desativar este cliente' : 'Ativar este cliente'}
                         className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
@@ -1300,6 +1584,248 @@ export default function AdminMasterPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+          </>
+        )}
+
+        {/* VISÃO DE AUDITORIA CENTRAL (PARTE 8) */}
+        {activeMasterTab === 'auditoria' && (
+          <div className="space-y-4 animate-in fade-in duration-150">
+            {/* Cabeçalho e Filtros da Auditoria */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface-container-low border border-outline-variant/50 rounded-2xl p-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold font-display text-on-surface">
+                    Trilha Global de Auditoria
+                  </h2>
+                  <p className="text-xs text-on-surface-variant">
+                    Registro de ações administrativas em todos os clientes e bancos Firebase
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadAuditLogs}
+                  disabled={isLoadingAuditLogs}
+                  className="px-3 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline-variant text-xs font-semibold text-on-surface transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAuditLogs ? 'animate-spin' : ''}`} />
+                  <span>Atualizar Logs</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filtros de Auditoria */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface-container-low border border-outline-variant/50 rounded-2xl p-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={auditSearchQuery}
+                  onChange={(e) => setAuditSearchQuery(e.target.value)}
+                  placeholder="Filtrar por subdomínio, autor ou detalhes..."
+                  className="w-full pl-9 pr-4 py-1.5 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
+                {(['todos', 'criacao', 'edicao', 'status_alterado', 'bootstrap', 'backup_exportado', 'backup_restaurado'] as const).map((ac) => (
+                  <button
+                    key={ac}
+                    onClick={() => setAuditActionFilter(ac)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                      auditActionFilter === ac
+                        ? 'bg-primary text-on-primary shadow-xs'
+                        : 'bg-surface-container-lowest text-on-surface-variant hover:text-on-surface border border-outline-variant/40'
+                    }`}
+                  >
+                    {ac === 'todos' ? 'Todos' :
+                     ac === 'criacao' ? 'Criação' :
+                     ac === 'edicao' ? 'Edição' :
+                     ac === 'status_alterado' ? 'Status' :
+                     ac === 'bootstrap' ? 'Bootstrap' :
+                     ac === 'backup_exportado' ? 'Exportação' :
+                     'Restauração'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tabela de Auditoria */}
+            <div className="bg-surface-container-low border border-outline-variant/50 rounded-2xl overflow-hidden shadow-xs">
+              {isLoadingAuditLogs ? (
+                <div className="py-12 text-center space-y-2">
+                  <RefreshCw className="w-6 h-6 text-primary animate-spin mx-auto" />
+                  <p className="text-xs text-on-surface-variant">Carregando eventos de auditoria...</p>
+                </div>
+              ) : filteredAuditLogs.length === 0 ? (
+                <div className="py-12 text-center space-y-2 text-on-surface-variant text-xs">
+                  <FileText className="w-8 h-8 mx-auto opacity-40" />
+                  <p>Nenhum evento registrado com os filtros aplicados.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-surface-container border-b border-outline-variant/40 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">
+                        <th className="py-2.5 px-4">Data / Hora</th>
+                        <th className="py-2.5 px-4">Cliente / Subdomínio</th>
+                        <th className="py-2.5 px-4">Ação</th>
+                        <th className="py-2.5 px-4">Autor</th>
+                        <th className="py-2.5 px-4">Detalhes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30">
+                      {filteredAuditLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-surface-container-high/40 transition-colors">
+                          <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
+                            {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString('pt-BR') : 'Agora'}
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className="font-bold text-on-surface">{log.tenantNome}</span>
+                            <span className="block text-[10px] text-on-surface-variant font-mono">
+                              {log.tenantSubdominio}.adti.app.br
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                log.acao === 'backup_restaurado'
+                                  ? 'bg-purple-500/15 text-purple-700 border border-purple-500/30'
+                                  : log.acao === 'bootstrap'
+                                  ? 'bg-emerald-500/15 text-emerald-700 border border-emerald-500/30'
+                                  : log.acao === 'backup_exportado'
+                                  ? 'bg-blue-500/15 text-blue-700 border border-blue-500/30'
+                                  : log.acao === 'status_alterado'
+                                  ? 'bg-amber-500/15 text-amber-700 border border-amber-500/30'
+                                  : 'bg-primary/10 text-primary border border-primary/20'
+                              }`}
+                            >
+                              {log.acao}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
+                            {log.autorEmail}
+                          </td>
+                          <td className="py-3 px-4 text-xs text-on-surface">
+                            {log.detalhes}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VISÃO DE DIAGNÓSTICO DE SAÚDE (PARTE 8) */}
+        {activeMasterTab === 'saude' && (
+          <div className="space-y-4 animate-in fade-in duration-150">
+            {/* Header de Saúde */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface-container-low border border-outline-variant/50 rounded-2xl p-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold font-display text-on-surface">
+                    Diagnóstico de Conectividade & Latência do Firestore
+                  </h2>
+                  <p className="text-xs text-on-surface-variant">
+                    Teste em tempo real de latência de leitura e status do banco de dados de cada cliente
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCheckAllHealth}
+                disabled={isCheckingAllHealth}
+                className="px-4 py-2 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-all inline-flex items-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isCheckingAllHealth ? 'animate-spin' : ''}`} />
+                <span>{isCheckingAllHealth ? 'Testando Bancos...' : 'Testar Todos os Bancos Agora'}</span>
+              </button>
+            </div>
+
+            {/* Grid de Diagnósticos */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {clients.map((c) => {
+                const health = healthResults[c.subdominio];
+                return (
+                  <div
+                    key={c.id}
+                    className="p-4 rounded-2xl bg-surface-container-low border border-outline-variant/50 space-y-3 shadow-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-xs text-on-surface truncate">{c.nome}</h4>
+                        <span className="text-[10px] text-on-surface-variant font-mono block">
+                          {c.subdominio}.adti.app.br
+                        </span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        c.status === 'ativo' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'
+                      }`}>
+                        {c.status}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-surface-container-lowest border border-outline-variant/40 space-y-1 text-xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-on-surface-variant">Project ID:</span>
+                        <span className="font-mono font-semibold truncate max-w-[150px]">{c.firebaseConfig.projectId}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-on-surface-variant">Database:</span>
+                        <span className="font-mono">{c.firebaseConfig.firestoreDatabaseId || '(default)'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      {health ? (
+                        <div className="flex items-center gap-1.5 text-xs font-semibold">
+                          {health.success ? (
+                            <>
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                              <span className="text-emerald-700">Online ({health.latencyMs}ms)</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                              <span className="text-rose-600">Falha de Conexão</span>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-on-surface-variant italic">
+                          Aguardando teste
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const res = await testTenantConnectionWithLatency(c.firebaseConfig);
+                          setHealthResults((prev) => ({ ...prev, [c.subdominio]: res }));
+                        }}
+                        className="text-[11px] text-primary hover:underline font-bold cursor-pointer"
+                      >
+                        Testar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </main>
@@ -1596,6 +2122,223 @@ export default function AdminMasterPage() {
                       <>
                         <Wand2 className="w-4 h-4" />
                         <span>Executar Provisionamento</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE RESTAURAÇÃO DE BACKUP / DISASTER RECOVERY (PARTE 8) */}
+      {isRestoreModalOpen && restoreTargetClient && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="max-w-xl w-full bg-surface-container-low border border-outline-variant rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 my-8 animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-outline-variant/40 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold font-display text-on-surface">
+                    Restaurar Backup do Cliente
+                  </h2>
+                  <p className="text-xs text-on-surface-variant">
+                    {restoreTargetClient.nome} ({restoreTargetClient.subdominio}.adti.app.br)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsRestoreModalOpen(false)}
+                className="p-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {restoreResult ? (
+              /* Resultado de Sucesso */
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-sm text-emerald-700">
+                    <CheckCircle2 className="w-5 h-5 shrink-0" />
+                    <span>Backup restaurado com sucesso!</span>
+                  </div>
+                  <p className="text-xs text-emerald-900/80 leading-relaxed">
+                    {restoreResult.message}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 text-[10px] font-mono font-bold">
+                      {restoreResult.eleitoresRestaurados} eleitores
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 text-[10px] font-mono font-bold">
+                      {restoreResult.liderancasRestauradas} lideranças
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 text-[10px] font-mono font-bold">
+                      {restoreResult.locaisRestaurados} locais
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 text-[10px] font-mono font-bold">
+                      {restoreResult.usuariosRestaurados} usuários
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setIsRestoreModalOpen(false)}
+                    className="px-5 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Formulário / Upload */
+              <div className="space-y-4">
+                <div className="p-3.5 rounded-2xl bg-primary/5 border border-primary/20 text-xs text-on-surface-variant leading-relaxed flex items-start gap-2.5">
+                  <RotateCcw className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                  <span>
+                    Selecione um arquivo de backup exportado anteriormente no formato <strong>.json</strong>.
+                    Os dados serão gravados em lotes atômicos no Firestore do cliente selecionado.
+                  </span>
+                </div>
+
+                {restoreError && (
+                  <div className="p-3 rounded-xl bg-error/10 border border-error/30 text-error text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{restoreError}</span>
+                  </div>
+                )}
+
+                {/* Upload Input */}
+                <div className="border-2 border-dashed border-outline-variant/70 rounded-2xl p-5 text-center space-y-2 hover:border-primary/50 transition-colors">
+                  <Upload className="w-8 h-8 text-primary mx-auto opacity-70" />
+                  <div>
+                    <label className="text-xs font-bold text-primary hover:underline cursor-pointer">
+                      <span>Clique para escolher o arquivo de backup (.json)</span>
+                      <input
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleRestoreFileSelected(e.target.files[0]);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-[10px] text-on-surface-variant mt-0.5 font-mono">
+                      {restoreFileName ? restoreFileName : 'Ex: backup_clientea_2026-09-28.json'}
+                    </p>
+                  </div>
+                </div>
+
+                {isReadingRestoreFile && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-primary py-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Lendo e validando estrutura do arquivo JSON...</span>
+                  </div>
+                )}
+
+                {/* Preview dos Dados Contidos no Backup */}
+                {restoreBackupData && (
+                  <div className="space-y-3 bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/60 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between border-b border-outline-variant/30 pb-2">
+                      <span className="text-xs font-bold text-on-surface">Resumo do Arquivo de Backup:</span>
+                      <span className="text-[10px] text-on-surface-variant font-mono">
+                        {restoreBackupData.metadata?.exportedAt ? new Date(restoreBackupData.metadata.exportedAt).toLocaleString('pt-BR') : 'Data n/d'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                      <div className="p-2 rounded-xl bg-surface-container-low border border-outline-variant/40">
+                        <div className="text-sm font-bold text-primary">{restoreBackupData.eleitores?.length || 0}</div>
+                        <span className="text-[10px] text-on-surface-variant">Eleitores</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-surface-container-low border border-outline-variant/40">
+                        <div className="text-sm font-bold text-secondary">{restoreBackupData.liderancas?.length || 0}</div>
+                        <span className="text-[10px] text-on-surface-variant">Lideranças</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-surface-container-low border border-outline-variant/40">
+                        <div className="text-sm font-bold text-tertiary">{restoreBackupData.locais_votacao?.length || 0}</div>
+                        <span className="text-[10px] text-on-surface-variant">Locais</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-surface-container-low border border-outline-variant/40">
+                        <div className="text-sm font-bold text-on-surface">{restoreBackupData.usuarios?.length || 0}</div>
+                        <span className="text-[10px] text-on-surface-variant">Usuários</span>
+                      </div>
+                    </div>
+
+                    {/* Opções de Seleção do que Restaurar */}
+                    <div className="pt-2 border-t border-outline-variant/30 space-y-1.5 text-xs">
+                      <span className="font-semibold text-on-surface block mb-1">Selecione o que deseja restaurar:</span>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={restoreOptions.restoreEleitores}
+                          onChange={(e) => setRestoreOptions({ ...restoreOptions, restoreEleitores: e.target.checked })}
+                          className="w-3.5 h-3.5 rounded text-primary focus:ring-primary/20 cursor-pointer"
+                        />
+                        <span>Restaurar Eleitores ({restoreBackupData.eleitores?.length || 0})</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={restoreOptions.restoreLiderancas}
+                          onChange={(e) => setRestoreOptions({ ...restoreOptions, restoreLiderancas: e.target.checked })}
+                          className="w-3.5 h-3.5 rounded text-primary focus:ring-primary/20 cursor-pointer"
+                        />
+                        <span>Restaurar Lideranças ({restoreBackupData.liderancas?.length || 0})</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={restoreOptions.restoreLocais}
+                          onChange={(e) => setRestoreOptions({ ...restoreOptions, restoreLocais: e.target.checked })}
+                          className="w-3.5 h-3.5 rounded text-primary focus:ring-primary/20 cursor-pointer"
+                        />
+                        <span>Restaurar Locais de Votação ({restoreBackupData.locais_votacao?.length || 0})</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={restoreOptions.restoreConfiguracoes}
+                          onChange={(e) => setRestoreOptions({ ...restoreOptions, restoreConfiguracoes: e.target.checked })}
+                          className="w-3.5 h-3.5 rounded text-primary focus:ring-primary/20 cursor-pointer"
+                        />
+                        <span>Restaurar Parâmetros da Campanha</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-outline-variant/30">
+                  <button
+                    type="button"
+                    onClick={() => setIsRestoreModalOpen(false)}
+                    disabled={isRestoring}
+                    className="px-4 py-2.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline-variant text-on-surface text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteRestore}
+                    disabled={!restoreBackupData || isRestoring}
+                    className="px-5 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors inline-flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-sm"
+                  >
+                    {isRestoring ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Restaurando em Lote...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        <span>Iniciar Restauração</span>
                       </>
                     )}
                   </button>

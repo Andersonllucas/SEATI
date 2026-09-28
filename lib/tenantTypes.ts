@@ -78,3 +78,34 @@ export interface TenantBackupData {
   locais_votacao?: any[];
   usuarios?: any[];
 }
+
+export interface TenantRestoreOptions {
+  mode?: 'merge' | 'overwrite';
+  restoreEleitores?: boolean;
+  restoreLiderancas?: boolean;
+  restoreLocais?: boolean;
+  restoreUsuarios?: boolean;
+  restoreConfiguracoes?: boolean;
+}
+
+export interface TenantRestoreResult {
+  success: boolean;
+  message: string;
+  eleitoresRestaurados: number;
+  liderancasRestauradas: number;
+  locaisRestaurados: number;
+  usuariosRestaurados: number;
+  configuracoesRestauradas: boolean;
+  errors?: string[];
+}
+
+export interface TenantAuditLog {
+  id?: string;
+  timestamp: any;
+  tenantSubdominio: string;
+  tenantNome: string;
+  autorEmail: string;
+  acao: 'criacao' | 'edicao' | 'status_alterado' | 'bootstrap' | 'backup_exportado' | 'backup_restaurado' | 'exclusao';
+  detalhes: string;
+  ip?: string;
+}

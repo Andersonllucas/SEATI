@@ -19,7 +19,8 @@ import {
   ArrowRight,
   Database,
   Trash2,
-  Layers
+  Layers,
+  ExternalLink
 } from 'lucide-react';
 import { useCampaignData } from '@/context/CampaignContext';
 import {
@@ -480,7 +481,16 @@ export default function Importacao() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0 pl-9 sm:pl-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0 pl-9 sm:pl-0">
+                <a
+                  href="https://www.tse.jus.br/servicos-eleitorais/autoatendimento-eleitoral#/"
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Acessar o Autoatendimento Eleitoral e Serviços do TSE"
+                  className="px-3 py-1.5 border border-primary/30 bg-primary/10 rounded text-xs font-semibold text-primary hover:bg-primary/20 flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-primary" /> Portal TSE
+                </a>
                 <button
                   type="button"
                   onClick={() => downloadTemplate(importTarget, 'xlsx')}

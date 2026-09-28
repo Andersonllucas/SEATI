@@ -37,6 +37,7 @@ import { useCampaignData, LocalVotacao } from '@/context/CampaignContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
 import { exportLocaisReal } from '@/lib/importExportUtils';
+import { recordCentralAuditLog } from '@/lib/firebase';
 import {
   CIDADES_DISPONIVEIS,
   ESTADOS_BRASIL,
@@ -106,9 +107,11 @@ export default function LocaisVotacaoPage() {
     updateLocalVotacao,
     deleteLocalVotacao,
     batchDeleteLocais,
-    batchSaveLocais
+    batchSaveLocais,
+    batchUpdateEleitores
   } = useCampaignData();
-  const { solicitarSenhaMestre, registrarLog, systemConfig, atualizarConfiguracoes } = useAuth();
+  const { solicitarSenhaMestre, registrarLog, systemConfig, atualizarConfiguracoes, currentUser } = useAuth();
+  const { currentTenant, subdomain } = useTenant();
   const activeCity = systemConfig?.municipioPadrao || 'Teresina';
   const activeUf = systemConfig?.ufPadrao || 'PI';
 
@@ -185,6 +188,27 @@ export default function LocaisVotacaoPage() {
   const [selectedLocalToLink, setSelectedLocalToLink] = useState('');
   const [isLinkingSecao, setIsLinkingSecao] = useState(false);
 
+  // ==========================================
+  // PARTE 8: AGREGAR SEÇÃO ELEITORAL EM LOTE
+  // ==========================================
+  const [isAgregarModalOpen, setIsAgregarModalOpen] = useState(false);
+  const [origemKey, setOrigemKey] = useState<string>(''); // formato: "zona|secao"
+  const [destinoKey, setDestinoKey] = useState<string>(''); // formato: "zona|secao"
+  const [destinoSecaoCustom, setDestinoSecaoCustom] = useState<string>('');
+  const [destinoZonaCustom, setDestinoZonaCustom] = useState<string>('001');
+  const [isCustomDestino, setIsCustomDestino] = useState<boolean>(false);
+  const [removerSecaoOrigem, setRemoverSecaoOrigem] = useState<boolean>(true);
+  const [confirmacaoTexto, setConfirmacaoTexto] = useState<string>('');
+  const [isAgregando, setIsAgregando] = useState<boolean>(false);
+  const [resultadoAgregacao, setResultadoAgregacao] = useState<{
+    sucesso: boolean;
+    mensagem: string;
+    totalTransferidos: number;
+    origem: { zona: string; secao: string; localNome?: string };
+    destino: { zona: string; secao: string; localNome?: string };
+  } | null>(null);
+  const [agregarError, setAgregarError] = useState<string | null>(null);
+
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
   const showToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
@@ -202,6 +226,7 @@ export default function LocaisVotacaoPage() {
         else if (isCsvModalOpen) setIsCsvModalOpen(false);
         else if (isConflictModalOpen) setIsConflictModalOpen(false);
         else if (isPrintModalOpen) setIsPrintModalOpen(false);
+        else if (isAgregarModalOpen) setIsAgregarModalOpen(false);
         else if (viewPendingVotersItem) setViewPendingVotersItem(null);
         else if (linkModalItem) setLinkModalItem(null);
         else if (viewVotersLocal) setViewVotersLocal(null);
@@ -217,6 +242,7 @@ export default function LocaisVotacaoPage() {
     isCsvModalOpen,
     isConflictModalOpen,
     isPrintModalOpen,
+    isAgregarModalOpen,
     viewPendingVotersItem,
     linkModalItem,
     viewVotersLocal,
@@ -725,6 +751,245 @@ export default function LocaisVotacaoPage() {
     }
   };
 
+  // =========================================================================
+  // PARTE 8: MEMOIZED LISTS E HANDLERS PARA AGREGAR SEÇÃO ELEITORAL
+  // =========================================================================
+  const listaTodasSecoes = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        zona: string;
+        secao: string;
+        localNome?: string;
+        localId?: string;
+        totalEleitores: number;
+        bairro?: string;
+      }
+    >();
+
+    // 1. Mapeia a partir de locais_votacao cadastrados
+    locais.forEach((loc) => {
+      const z = (loc.zona || '001').replace(/\D/g, '').padStart(3, '0');
+      const secArray = toSecoesArray(loc.secoes);
+      secArray.forEach((s) => {
+        const secClean = s.replace(/\D/g, '').padStart(4, '0');
+        if (!secClean || secClean === '0000') return;
+        const key = `${z}|${secClean}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            zona: z,
+            secao: secClean,
+            localNome: loc.nome,
+            localId: loc.id,
+            totalEleitores: 0,
+            bairro: loc.bairro
+          });
+        }
+      });
+    });
+
+    // 2. Mapeia a partir dos eleitores vinculados
+    eleitores.forEach((el) => {
+      const z = (el.zona || '001').replace(/\D/g, '').padStart(3, '0');
+      const s = (el.secao || '').replace(/\D/g, '').padStart(4, '0');
+      if (!s || s === '0000') return;
+      const key = `${z}|${s}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.totalEleitores += 1;
+      } else {
+        map.set(key, {
+          zona: z,
+          secao: s,
+          localNome: 'Sem Local Mapeado',
+          totalEleitores: 1,
+          bairro: el.bairro
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.zona !== b.zona) return a.zona.localeCompare(b.zona);
+      return a.secao.localeCompare(b.secao);
+    });
+  }, [locais, eleitores]);
+
+  const secaoOrigemObj = useMemo(() => {
+    if (!origemKey) return null;
+    return listaTodasSecoes.find((s) => `${s.zona}|${s.secao}` === origemKey) || null;
+  }, [origemKey, listaTodasSecoes]);
+
+  const secaoDestinoObj = useMemo(() => {
+    if (!destinoKey) return null;
+    return listaTodasSecoes.find((s) => `${s.zona}|${s.secao}` === destinoKey) || null;
+  }, [destinoKey, listaTodasSecoes]);
+
+  const eleitoresTransferencia = useMemo(() => {
+    if (!secaoOrigemObj) return [];
+    const zOrigemClean = secaoOrigemObj.zona.replace(/\D/g, '');
+    const sOrigemClean = secaoOrigemObj.secao.replace(/\D/g, '');
+    return eleitores.filter((e) => {
+      const ez = (e.zona || '').replace(/\D/g, '');
+      const es = (e.secao || '').replace(/\D/g, '');
+      return ez === zOrigemClean && es === sOrigemClean;
+    });
+  }, [eleitores, secaoOrigemObj]);
+
+  const liderancasOrigem = useMemo(() => {
+    const map = new Map<string, number>();
+    eleitoresTransferencia.forEach((e) => {
+      const l = e.lideranca || 'Sem Liderança Vinculada';
+      map.set(l, (map.get(l) || 0) + 1);
+    });
+    return Array.from(map.entries()).map(([nome, qtd]) => ({ nome, qtd }));
+  }, [eleitoresTransferencia]);
+
+  const handleOpenAgregarModal = (
+    preSelectedSecao?: string,
+    preSelectedZona?: string,
+    _preSelectedLocalId?: string
+  ) => {
+    setResultadoAgregacao(null);
+    setAgregarError(null);
+    setConfirmacaoTexto('');
+    setRemoverSecaoOrigem(true);
+    setIsCustomDestino(false);
+    setDestinoSecaoCustom('');
+
+    if (preSelectedSecao) {
+      const zClean = (preSelectedZona || '001').replace(/\D/g, '').padStart(3, '0');
+      const sClean = preSelectedSecao.replace(/\D/g, '').padStart(4, '0');
+      setOrigemKey(`${zClean}|${sClean}`);
+    } else {
+      setOrigemKey('');
+    }
+    setDestinoKey('');
+    setIsAgregarModalOpen(true);
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('modal') === 'agregar') {
+        const pSecao = params.get('secao') || undefined;
+        const pZona = params.get('zona') || undefined;
+        handleOpenAgregarModal(pSecao, pZona);
+      }
+    }
+  }, []);
+
+  const handleExecutarAgregacao = async () => {
+    if (!secaoOrigemObj || !secaoDestinoObj) {
+      setAgregarError('Selecione uma seção de origem e uma seção de destino.');
+      return;
+    }
+
+    if (secaoOrigemObj.zona === secaoDestinoObj.zona && secaoOrigemObj.secao === secaoDestinoObj.secao) {
+      setAgregarError('A seção de origem não pode ser idêntica à seção de destino.');
+      return;
+    }
+
+    if (confirmacaoTexto.trim().toUpperCase() !== 'AGREGAR') {
+      setAgregarError('Digite a palavra AGREGAR em letras maiúsculas para confirmar.');
+      return;
+    }
+
+    solicitarSenhaMestre({
+      title: 'Confirmar Agregação Irreversível de Seção',
+      description: `Operação em Lote Irreversível: transferir ${eleitoresTransferencia.length} eleitor(es) da Seção ${secaoOrigemObj.secao} (Zona ${secaoOrigemObj.zona}) para a Seção ${secaoDestinoObj.secao} (Zona ${secaoDestinoObj.zona}). Digite a senha mestre para executar.`,
+      onSuccess: async () => {
+        setIsAgregando(true);
+        setAgregarError(null);
+
+        try {
+          const voterIds = eleitoresTransferencia.map((e) => e.id);
+
+          // 1. Atualiza todos os eleitores vinculados à seção de origem para a seção de destino
+          if (voterIds.length > 0) {
+            await batchUpdateEleitores(voterIds, {
+              zona: secaoDestinoObj.zona,
+              secao: secaoDestinoObj.secao
+            });
+          }
+
+          // 2. Atualiza os locais de votação
+          // a) Remove a seção do local de origem se a opção estiver marcada
+          if (removerSecaoOrigem && secaoOrigemObj.localId) {
+            const localOrigem = locais.find((l) => l.id === secaoOrigemObj.localId);
+            if (localOrigem) {
+              const secList = toSecoesArray(localOrigem.secoes);
+              const secOrigemClean = secaoOrigemObj.secao.replace(/\D/g, '');
+              const novasSecoes = secList.filter((s) => s.replace(/\D/g, '') !== secOrigemClean);
+              await updateLocalVotacao(localOrigem.id, {
+                secoes: novasSecoes
+              });
+            }
+          }
+
+          // b) Garante que a seção de destino conste no local de destino
+          if (secaoDestinoObj.localId) {
+            const localDestino = locais.find((l) => l.id === secaoDestinoObj.localId);
+            if (localDestino) {
+              const secList = toSecoesArray(localDestino.secoes);
+              const secDestinoClean = secaoDestinoObj.secao.replace(/\D/g, '');
+              const jaExiste = secList.some((s) => s.replace(/\D/g, '') === secDestinoClean);
+              if (!jaExiste) {
+                await updateLocalVotacao(localDestino.id, {
+                  secoes: [...secList, secaoDestinoObj.secao]
+                });
+              }
+            }
+          }
+
+          // 3. Auditoria Local da Campanha
+          await registrarLog({
+            tipo: 'ALTERACAO',
+            acao: `Seção eleitoral agregada: ${secaoOrigemObj.secao} (Z${secaoOrigemObj.zona}) ➔ ${secaoDestinoObj.secao} (Z${secaoDestinoObj.zona})`,
+            detalhes: `Agregação em lote irreversível executada. ${voterIds.length} eleitor(es) transferido(s). Local origem: "${secaoOrigemObj.localNome || 'N/A'}" | Local destino: "${secaoDestinoObj.localNome || 'N/A'}". ${removerSecaoOrigem ? 'Seção de origem removida do colégio de origem.' : ''}`,
+            entidade: 'Local de Votação',
+            entidadeId: secaoDestinoObj.localId || 'agregacao_secoes'
+          });
+
+          // 4. Auditoria Central Multi-Tenant
+          recordCentralAuditLog({
+            tenantSubdominio: subdomain || 'campanha',
+            tenantNome: currentTenant?.nome || 'Campanha',
+            autorEmail: currentUser?.email || 'admin@campanha',
+            acao: 'edicao',
+            detalhes: `Agregação de seção: ${secaoOrigemObj.secao} agregada a ${secaoDestinoObj.secao}. ${voterIds.length} eleitores transferidos.`
+          }).catch(() => {});
+
+          setResultadoAgregacao({
+            sucesso: true,
+            mensagem: `Agregação concluída com sucesso! ${voterIds.length} eleitor(es) transferido(s) para a Seção ${secaoDestinoObj.secao}.`,
+            totalTransferidos: voterIds.length,
+            origem: {
+              zona: secaoOrigemObj.zona,
+              secao: secaoOrigemObj.secao,
+              localNome: secaoOrigemObj.localNome
+            },
+            destino: {
+              zona: secaoDestinoObj.zona,
+              secao: secaoDestinoObj.secao,
+              localNome: secaoDestinoObj.localNome
+            }
+          });
+
+          showToast(
+            `Seção ${secaoOrigemObj.secao} agregada à Seção ${secaoDestinoObj.secao} com sucesso!`,
+            'success'
+          );
+        } catch (err: any) {
+          console.error('Erro na agregação:', err);
+          setAgregarError(err?.message || 'Falha ao executar agregação em lote.');
+          showToast('Erro ao transferir eleitores da seção.', 'error');
+        } finally {
+          setIsAgregando(false);
+        }
+      }
+    });
+  };
+
   // ==================== CROSS-MATCHING EXECUTION: OFFICIAL CATALOG ====================
   const handleImportOfficialCatalog = async () => {
     const selected = pacotesNaUf[selectedCidadeIdx] || CIDADES_DISPONIVEIS[0];
@@ -979,6 +1244,28 @@ export default function LocaisVotacaoPage() {
               <span>Conflitos Pendentes ({activeConflicts.length})</span>
             </button>
           )}
+
+          {/* Portal Oficial do TSE (Autoatendimento Eleitoral) */}
+          <a
+            href="https://www.tse.jus.br/servicos-eleitorais/autoatendimento-eleitoral#/"
+            target="_blank"
+            rel="noreferrer"
+            title="Acessar o Autoatendimento Eleitoral e Serviços do TSE"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-lg transition-colors cursor-pointer"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-primary" />
+            <span>Portal TSE (Autoatendimento)</span>
+          </a>
+
+          {/* Botão Agregar Seção Eleitoral (Parte 8) */}
+          <button
+            onClick={() => handleOpenAgregarModal()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-secondary/15 hover:bg-secondary/25 text-secondary border border-secondary/35 rounded-lg shadow-xs transition-colors cursor-pointer"
+            title="Agregar uma seção eleitoral a outra já existente (transferência em lote de eleitores)"
+          >
+            <GitMerge className="w-3.5 h-3.5 text-secondary" />
+            <span>Agregar Seção</span>
+          </button>
 
           {/* Official City Importer */}
           <button
@@ -1575,6 +1862,7 @@ export default function LocaisVotacaoPage() {
               onViewVoters={() => setViewVotersLocal(local)}
               onEdit={() => handleOpenEdit(local)}
               onDelete={() => setDeleteDialog(local)}
+              onAgregarSecao={(sec, loc) => handleOpenAgregarModal(sec, loc.zona, loc.id)}
             />
           ))}
         </div>
@@ -2008,10 +2296,10 @@ export default function LocaisVotacaoPage() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a
-                    href="https://dadosabertos.tse.jus.br/dataset/locais-de-votacao-2024"
+                    href="https://www.tse.jus.br/servicos-eleitorais/autoatendimento-eleitoral#/"
                     target="_blank"
                     rel="noreferrer"
-                    title="Acessar o portal oficial de dados abertos do Tribunal Superior Eleitoral (TSE)"
+                    title="Acessar o Autoatendimento Eleitoral e Serviços do TSE"
                     className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-primary bg-primary/10 hover:bg-primary/20 rounded-md transition-colors cursor-pointer"
                   >
                     <ExternalLink className="w-3 h-3" />
@@ -3045,6 +3333,347 @@ export default function LocaisVotacaoPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: AGREGAR SEÇÃO ELEITORAL A OUTRA JÁ EXISTENTE (PARTE 8)              */}
+      {/* ========================================================================= */}
+      {isAgregarModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-scrim/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-3xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl space-y-5 my-8">
+            {/* Cabeçalho */}
+            <div className="flex items-start justify-between border-b border-outline-variant/40 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-secondary/15 text-secondary flex items-center justify-center shrink-0 shadow-xs">
+                  <GitMerge className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold font-display text-on-surface flex items-center gap-2">
+                    <span>Agregar Seção Eleitoral</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-secondary/10 text-secondary border border-secondary/20">
+                      Operação em Lote
+                    </span>
+                  </h2>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Transfere todos os eleitores da seção de origem para a de destino com atualização automática nos locais de votação.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAgregarModalOpen(false)}
+                className="p-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant cursor-pointer transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tela de Sucesso */}
+            {resultadoAgregacao ? (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 space-y-2.5">
+                  <div className="flex items-center gap-2 font-bold text-sm text-emerald-700">
+                    <CheckCircle2 className="w-5 h-5 shrink-0" />
+                    <span>Seção agregada com sucesso!</span>
+                  </div>
+                  <p className="text-xs text-emerald-900/80 leading-relaxed">
+                    {resultadoAgregacao.mensagem}
+                  </p>
+                  <div className="p-3 bg-white/70 rounded-xl border border-emerald-500/20 text-xs font-mono space-y-1">
+                    <div>
+                      <span className="text-slate-500">Origem: </span>
+                      <strong>Zona {resultadoAgregacao.origem.zona} - Seção {resultadoAgregacao.origem.secao}</strong>
+                      {resultadoAgregacao.origem.localNome ? ` (${resultadoAgregacao.origem.localNome})` : ''}
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Destino: </span>
+                      <strong className="text-emerald-700">Zona {resultadoAgregacao.destino.zona} - Seção {resultadoAgregacao.destino.secao}</strong>
+                      {resultadoAgregacao.destino.localNome ? ` (${resultadoAgregacao.destino.localNome})` : ''}
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Total Migrado: </span>
+                      <strong className="text-emerald-700">{resultadoAgregacao.totalTransferidos} eleitor(es)</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAgregarModalOpen(false);
+                      setResultadoAgregacao(null);
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors cursor-pointer"
+                  >
+                    Concluir e Fechar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Formulário de Configuração da Agregação */
+              <div className="space-y-5">
+                {agregarError && (
+                  <div className="p-3 rounded-xl bg-error/10 border border-error/30 text-error text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{agregarError}</span>
+                  </div>
+                )}
+
+                {/* Grid 2 Colunas: Origem ➔ Destino */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* COLUNA 1: SEÇÃO DE ORIGEM */}
+                  <div className="bg-surface-container-low border border-outline-variant/60 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-800 text-[10px] font-bold flex items-center justify-center">
+                          1
+                        </span>
+                        Seção de Origem (Saída)
+                      </span>
+                      {secaoOrigemObj && (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-primary/10 text-primary">
+                          {eleitoresTransferencia.length} eleitores
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-on-surface-variant mb-1">
+                        Selecione a Seção a ser agregada:
+                      </label>
+                      <select
+                        value={origemKey}
+                        onChange={(e) => setOrigemKey(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary font-mono cursor-pointer"
+                      >
+                        <option value="">-- Escolha a seção de origem --</option>
+                        {listaTodasSecoes.map((s) => (
+                          <option key={`orig_${s.zona}_${s.secao}`} value={`${s.zona}|${s.secao}`}>
+                            Zona {s.zona} • Seção {s.secao} ({s.totalEleitores} eleitores) — {s.localNome || 'Sem local'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {secaoOrigemObj ? (
+                      <div className="p-3 rounded-xl bg-surface-container-lowest border border-outline-variant/40 space-y-1.5 text-xs animate-in fade-in duration-150">
+                        <div className="flex items-start justify-between gap-1">
+                          <span className="text-[11px] text-on-surface-variant">Colégio Atual:</span>
+                          <span className="font-semibold text-right text-[11px] truncate max-w-[160px]">
+                            {secaoOrigemObj.localNome || 'Não vinculado'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-on-surface-variant">Eleitores para transferir:</span>
+                          <strong className="text-amber-700 font-bold">{eleitoresTransferencia.length}</strong>
+                        </div>
+                        {liderancasOrigem.length > 0 && (
+                          <div className="pt-1 border-t border-outline-variant/30 text-[10px]">
+                            <span className="text-on-surface-variant block mb-1">Lideranças envolvidas:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {liderancasOrigem.slice(0, 3).map((l) => (
+                                <span key={l.nome} className="px-1.5 py-0.5 rounded bg-surface-container text-on-surface font-medium truncate max-w-[130px]">
+                                  {l.nome} ({l.qtd})
+                                </span>
+                              ))}
+                              {liderancasOrigem.length > 3 && (
+                                <span className="px-1.5 py-0.5 text-on-surface-variant">+{liderancasOrigem.length - 3}</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-xl bg-surface-container-lowest border border-dashed border-outline-variant text-center text-xs text-on-surface-variant">
+                        Escolha uma seção acima para ver o resumo dos eleitores.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* COLUNA 2: SEÇÃO DE DESTINO */}
+                  <div className="bg-surface-container-low border border-outline-variant/60 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-800 text-[10px] font-bold flex items-center justify-center">
+                          2
+                        </span>
+                        Seção de Destino (Recepção)
+                      </span>
+                      {secaoDestinoObj && (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700">
+                          Total: {secaoDestinoObj.totalEleitores + eleitoresTransferencia.length}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-semibold text-on-surface-variant">
+                          Selecione a Seção de destino:
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setIsCustomDestino(!isCustomDestino)}
+                          className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                        >
+                          {isCustomDestino ? 'Escolher da lista' : '+ Digitar nova seção'}
+                        </button>
+                      </div>
+
+                      {isCustomDestino ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            placeholder="Zona (ex: 001)"
+                            value={destinoZonaCustom}
+                            onChange={(e) => setDestinoZonaCustom(e.target.value.replace(/\D/g, '').padStart(3, '0'))}
+                            className="px-3 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs text-on-surface font-mono"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Seção (ex: 0150)"
+                            value={destinoSecaoCustom}
+                            onChange={(e) => {
+                              const clean = e.target.value.replace(/\D/g, '').padStart(4, '0');
+                              setDestinoSecaoCustom(clean);
+                              setDestinoKey(`${destinoZonaCustom}|${clean}`);
+                            }}
+                            className="px-3 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs text-on-surface font-mono"
+                          />
+                        </div>
+                      ) : (
+                        <select
+                          value={destinoKey}
+                          onChange={(e) => setDestinoKey(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary font-mono cursor-pointer"
+                        >
+                          <option value="">-- Escolha a seção de destino --</option>
+                          {listaTodasSecoes
+                            .filter((s) => `${s.zona}|${s.secao}` !== origemKey)
+                            .map((s) => (
+                              <option key={`dest_${s.zona}_${s.secao}`} value={`${s.zona}|${s.secao}`}>
+                                Zona {s.zona} • Seção {s.secao} ({s.totalEleitores} atuais) — {s.localNome || 'Sem local'}
+                              </option>
+                            ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {secaoDestinoObj ? (
+                      <div className="p-3 rounded-xl bg-surface-container-lowest border border-outline-variant/40 space-y-1.5 text-xs animate-in fade-in duration-150">
+                        <div className="flex items-start justify-between gap-1">
+                          <span className="text-[11px] text-on-surface-variant">Colégio de Destino:</span>
+                          <span className="font-semibold text-right text-[11px] truncate max-w-[160px]">
+                            {secaoDestinoObj.localNome || 'Não vinculado'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-on-surface-variant">Eleitores atuais na seção:</span>
+                          <span className="font-semibold">{secaoDestinoObj.totalEleitores}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-outline-variant/30">
+                          <span className="font-bold text-on-surface">Novo total consolidado:</span>
+                          <strong className="text-emerald-700 font-extrabold text-sm">
+                            {secaoDestinoObj.totalEleitores + eleitoresTransferencia.length} eleitores
+                          </strong>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-xl bg-surface-container-lowest border border-dashed border-outline-variant text-center text-xs text-on-surface-variant">
+                        Escolha uma seção de destino acima para ver a projeção.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Opções e Regras */}
+                <div className="p-4 rounded-2xl bg-surface-container-low border border-outline-variant/50 space-y-2.5">
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={removerSecaoOrigem}
+                      onChange={(e) => setRemoverSecaoOrigem(e.target.checked)}
+                      className="w-4 h-4 rounded text-primary focus:ring-primary/25 border-outline-variant mt-0.5 cursor-pointer accent-primary"
+                    />
+                    <div className="text-xs">
+                      <span className="font-bold text-on-surface block">
+                        Remover a seção de origem do local de votação ao final
+                      </span>
+                      <span className="text-[11px] text-on-surface-variant">
+                        Desvincula a Seção {secaoOrigemObj?.secao || 'origem'} do colégio eleitoral atual após transferir os eleitores.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Caixa de Confirmação Irreversível */}
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-3">
+                  <div className="flex items-start gap-2 text-amber-900 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>Atenção: Esta é uma operação em lote irreversível!</span>
+                  </div>
+                  <p className="text-amber-950/80 leading-relaxed text-[11px]">
+                    Todos os <strong>{eleitoresTransferencia.length}</strong> eleitor(es) vinculados à{' '}
+                    <strong>Seção {secaoOrigemObj?.secao || 'origem'} (Zona {secaoOrigemObj?.zona || '—'})</strong>{' '}
+                    serão transferidos permanentemente para a{' '}
+                    <strong>Seção {secaoDestinoObj?.secao || 'destino'} (Zona {secaoDestinoObj?.zona || '—'})</strong>.
+                  </p>
+
+                  <div className="pt-1">
+                    <label className="block text-[11px] font-bold text-amber-950 mb-1">
+                      Para confirmar, digite a palavra <span className="font-mono underline">AGREGAR</span> abaixo:
+                    </label>
+                    <input
+                      type="text"
+                      value={confirmacaoTexto}
+                      onChange={(e) => setConfirmacaoTexto(e.target.value)}
+                      placeholder="Digite AGREGAR"
+                      className="w-full sm:w-64 px-3 py-2 rounded-xl bg-white border border-amber-300 text-xs font-mono font-bold text-amber-950 uppercase focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                    />
+                  </div>
+                </div>
+
+                {/* Botões do Modal */}
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-outline-variant/40">
+                  <button
+                    type="button"
+                    onClick={() => setIsAgregarModalOpen(false)}
+                    disabled={isAgregando}
+                    className="px-4 py-2.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline-variant text-on-surface text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExecutarAgregacao}
+                    disabled={
+                      !secaoOrigemObj ||
+                      !secaoDestinoObj ||
+                      secaoOrigemObj.secao === secaoDestinoObj.secao ||
+                      confirmacaoTexto.trim().toUpperCase() !== 'AGREGAR' ||
+                      isAgregando
+                    }
+                    className="px-5 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-bold hover:bg-primary/90 transition-all inline-flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {isAgregando ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Transferindo Eleitores em Lote...</span>
+                      </>
+                    ) : (
+                      <>
+                        <GitMerge className="w-4 h-4" />
+                        <span>Executar Agregação em Lote</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
