@@ -16,8 +16,7 @@ import {
   Vote,
   LogOut,
   Globe,
-  ExternalLink,
-  ChevronRight
+  Sliders
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useCampaignUI } from '@/context/CampaignUIContext';
@@ -123,7 +122,8 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
         title: 'Inteligência & Gestão',
         items: [
           { href: '/importacao', icon: FileDown, label: 'Importação e Relatórios' },
-          { href: '/configuracoes', icon: Settings, label: 'Configurações' },
+          { href: '/configuracoes?tab=parametros', icon: Sliders, label: 'Parâmetros da Campanha' },
+          { href: '/configuracoes', icon: Settings, label: 'Configurações Gerais' },
         ],
       },
     ];
@@ -176,28 +176,14 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
       {/* 2. CARD DE CONTEXTO DA CAMPANHA ATIVA */}
       <div className="px-3 pt-3 pb-1">
         <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.07] transition-all">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Campanha Conectada
-              </span>
-            </div>
-            {isAdmin && (
-              <Link
-                href="/admin-master"
-                prefetch={true}
-                onClick={onNavigate}
-                title="Acessar o Painel Master de Campanhas"
-                className="text-[10px] font-semibold text-secondary-container hover:text-white transition-colors inline-flex items-center gap-0.5"
-              >
-                <span>Trocar</span>
-                <ChevronRight className="w-3 h-3" />
-              </Link>
-            )}
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Campanha Conectada
+            </span>
           </div>
           <p className="text-xs font-bold text-white truncate" title={activeCampaignName}>
             {activeCampaignName}

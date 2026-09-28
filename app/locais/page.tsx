@@ -31,9 +31,7 @@ import {
   Printer,
   ExternalLink,
   Link2,
-  Eye,
-  BookOpen,
-  FileCheck2
+  Eye
 } from 'lucide-react';
 import { useCampaignData, LocalVotacao } from '@/context/CampaignContext';
 import { useAuth } from '@/context/AuthContext';
@@ -2000,22 +1998,34 @@ export default function LocaisVotacaoPage() {
             </div>
 
             <div className="space-y-4 overflow-y-auto flex-1 pr-1 text-xs">
-              {/* Sample Download Bar */}
-              <div className="flex items-center justify-between p-3 bg-surface-container-low border border-outline-variant/60 rounded-xl">
+              {/* Sample Download Bar & TSE Open Data Portal Link */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-surface-container-low border border-outline-variant/60 rounded-xl gap-2">
                 <div className="flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-secondary" />
+                  <FileSpreadsheet className="w-4 h-4 text-secondary shrink-0" />
                   <span className="text-[11px] text-on-surface font-medium">
-                    Precisa de um arquivo modelo para preencher?
+                    Precisa de um arquivo modelo ou dados oficiais do TSE?
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleDownloadSampleCsv}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-secondary bg-secondary/10 hover:bg-secondary/20 rounded-md transition-colors cursor-pointer"
-                >
-                  <Download className="w-3 h-3" />
-                  <span>Baixar Modelo CSV</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <a
+                    href="https://dadosabertos.tse.jus.br/dataset/locais-de-votacao-2024"
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Acessar o portal oficial de dados abertos do Tribunal Superior Eleitoral (TSE)"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-primary bg-primary/10 hover:bg-primary/20 rounded-md transition-colors cursor-pointer"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Portal TSE</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSampleCsv}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-secondary bg-secondary/10 hover:bg-secondary/20 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Baixar Modelo CSV</span>
+                  </button>
+                </div>
               </div>
 
               {/* Upload Drop Zone */}

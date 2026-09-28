@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryFirestoreRest, getDocRest, setDocRest } from '@/lib/firestoreRest';
+import { queryFirestoreRest, getDocRest } from '@/lib/firestoreRest';
 import { verifyPassword } from '@/lib/crypto';
 import { createFirebaseCustomToken, getServiceAccountCredentials } from '@/lib/firebaseCustomToken';
 

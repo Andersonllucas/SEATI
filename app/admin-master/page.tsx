@@ -59,9 +59,7 @@ import {
   Download,
   Copy,
   Check,
-  KeyRound,
-  Layers,
-  FileDown
+  KeyRound
 } from 'lucide-react';
 import { useTenant } from '@/context/TenantContext';
 

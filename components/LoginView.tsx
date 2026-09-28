@@ -16,7 +16,9 @@ import {
   CheckCircle2,
   Clock,
   Globe,
-  Building2
+  Sparkles,
+  Shield,
+  Users
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
@@ -305,11 +307,62 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                 </label>
               </div>
 
+              {/* Quick Fill / Demo Credentials Buttons */}
+              <div className="pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Acesso Rápido de Demonstração</span>
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={submitting || sucesso || lockoutSeconds > 0}
+                    onClick={() => {
+                      const domain = (subdomain && subdomain !== 'admin' ? subdomain : 'demo');
+                      setEmail(`admin@${domain}.local`);
+                      setSenha('123456');
+                      setErro(null);
+                    }}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all cursor-pointer group disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                      <Shield className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Admin</span>
+                    </div>
+                    <span className="block text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                      admin@{(subdomain && subdomain !== 'admin' ? subdomain : 'demo')}.local
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={submitting || sucesso || lockoutSeconds > 0}
+                    onClick={() => {
+                      const domain = (subdomain && subdomain !== 'admin' ? subdomain : 'demo');
+                      setEmail(`operador@${domain}.local`);
+                      setSenha('123456');
+                      setErro(null);
+                    }}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-left transition-all cursor-pointer group disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-sky-300">
+                      <Users className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Operador</span>
+                    </div>
+                    <span className="block text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                      operador@{(subdomain && subdomain !== 'admin' ? subdomain : 'demo')}.local
+                    </span>
+                  </button>
+                </div>
+              </div>
+
               {/* Submit Button */}
               <button
                 type="submit"
                 disabled={submitting || sucesso || lockoutSeconds > 0}
-                className="w-full h-12 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:via-indigo-500 hover:to-blue-400 active:scale-[0.99] text-white font-bold text-base tracking-wide shadow-xl shadow-blue-600/35 hover:shadow-blue-500/50 border border-blue-400/40 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-3"
+                className="w-full h-12 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:via-indigo-500 hover:to-blue-400 active:scale-[0.99] text-white font-bold text-base tracking-wide shadow-xl shadow-blue-600/35 hover:shadow-blue-500/50 border border-blue-400/40 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
               >
                 {submitting ? (
                   <>
