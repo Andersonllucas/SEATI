@@ -18,6 +18,8 @@ interface TenantContextType {
   activeAuth: Auth;
   activeApp: FirebaseApp;
   tenantVersion: number;
+  setTenantError: (err: { reason: string; message: string; subdomain: string } | null) => void;
+  suspendTenant: (sub?: string) => void;
   setManualSubdomain: (subdomain: string) => void;
   switchToTenant: (subdomain: string) => void;
   reloadTenant: () => Promise<void>;
@@ -216,6 +218,11 @@ export function TenantProvider({
   };
 
   const resetToDefaultTenant = useCallback(() => {
+    // Se o cliente estiver desativado ou com acesso suspenso, não permite reabrir o banco central/demo
+    if (tenantError?.reason === 'inactive' || currentTenant?.status === 'inativo') {
+      console.warn('Tentativa de restaurar campanha padrão bloqueada: acesso do cliente suspenso.');
+      return;
+    }
     if (typeof window !== 'undefined') {
       localStorage.removeItem('seati_active_subdomain');
       localStorage.removeItem('adti_active_subdomain');
@@ -223,7 +230,17 @@ export function TenantProvider({
     }
     setTenantError(null);
     setSubdomain('demo');
-  }, []);
+  }, [tenantError, currentTenant]);
+
+  const suspendTenant = useCallback((sub?: string) => {
+    const targetSub = sub || subdomain;
+    setTenantError({
+      reason: 'inactive',
+      message: 'Acesso suspenso, contate o administrador.',
+      subdomain: targetSub
+    });
+    setCurrentTenant(null);
+  }, [subdomain]);
 
   return (
     <TenantContext.Provider
@@ -237,6 +254,8 @@ export function TenantProvider({
         activeAuth: getActiveAuth(),
         activeApp: getActiveApp(),
         tenantVersion,
+        setTenantError,
+        suspendTenant,
         setManualSubdomain,
         switchToTenant,
         reloadTenant,

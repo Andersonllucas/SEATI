@@ -36,6 +36,9 @@ export interface TenantBootstrapOptions {
   adminNome: string;
   adminEmail: string;
   adminSenha: string;
+  operadorNome?: string;
+  operadorEmail?: string;
+  operadorSenha?: string;
   metaVotos?: number;
   cargo?: string;
   anoEleicao?: string;
@@ -49,6 +52,8 @@ export interface TenantBootstrapResult {
   message: string;
   adminEmail?: string;
   adminSenha?: string;
+  operadorEmail?: string;
+  operadorSenha?: string;
   loginUrl?: string;
   collectionsCreated?: string[];
   locaisImportados?: number;

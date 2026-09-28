@@ -11,14 +11,15 @@ import { LoginView } from './LoginView';
 import { QuotaWarningBanner } from './QuotaWarningBanner';
 import { ToastContainer } from './ToastContainer';
 import { NotificationDrawer } from './NotificationDrawer';
-import { Vote } from 'lucide-react';
+import { PasswordChangePromptModal } from './PasswordChangePromptModal';
+import { Vote, LogOut, ShieldAlert } from 'lucide-react';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pathname = usePathname();
-  const { currentUser, isLoading, isAuthReady } = useAuth();
-  const { tenantError, isLoadingTenant, resetToDefaultTenant, isAdminMaster } = useTenant();
+  const { currentUser, isLoading, isAuthReady, logout } = useAuth();
+  const { tenantError, isLoadingTenant, isAdminMaster } = useTenant();
 
   React.useEffect(() => {
     setMounted(true);
@@ -52,29 +53,67 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Se o subdomínio não existe ou está inativo, exibe a mensagem de erro do tenant
   if (tenantError && !isLoadingTenant) {
+    const isInactive = tenantError.reason === 'inactive';
+
+    const handleExit = async () => {
+      try {
+        await logout();
+      } catch {}
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('adti_active_subdomain');
+        localStorage.removeItem('seati_active_subdomain');
+        localStorage.removeItem('gestao_eleitoral_user_id');
+        localStorage.removeItem('gestao_eleitoral_cached_user');
+        sessionStorage.removeItem('adti_admin_master_user');
+        document.cookie = 'adti_subdomain=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+        window.location.href = '/login';
+      }
+    };
+
     return (
       <div className="min-h-screen bg-surface-container-lowest flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-surface-container-low border border-outline-variant/60 rounded-2xl p-6 shadow-xl text-center space-y-4">
-          <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-600 mx-auto flex items-center justify-center">
-            <Vote className="w-6 h-6" />
+        <div className="max-w-md w-full bg-surface-container-low border border-outline-variant/60 rounded-2xl p-6 sm:p-8 shadow-xl text-center space-y-5">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 mx-auto flex items-center justify-center shadow-inner">
+            {isInactive ? <ShieldAlert className="w-7 h-7 text-amber-600" /> : <Vote className="w-7 h-7" />}
           </div>
-          <h2 className="text-lg font-bold font-display text-on-surface">
-            {tenantError.reason === 'inactive' ? 'Ambiente Desativado' : 'Ambiente Não Localizado'}
-          </h2>
-          <p className="text-xs text-on-surface-variant">{tenantError.message}</p>
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <button
-              onClick={resetToDefaultTenant}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors cursor-pointer"
-            >
-              Restaurar Campanha Padrão
-            </button>
-            <a
-              href="/admin-master"
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-outline-variant/60 text-xs font-semibold hover:bg-surface-container transition-colors text-on-surface"
-            >
-              Acessar Painel Master
-            </a>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold font-display text-on-surface">
+              {isInactive ? 'Acesso Suspenso' : 'Ambiente Não Localizado'}
+            </h2>
+            <p className="text-sm text-on-surface-variant leading-relaxed">
+              {isInactive
+                ? 'Acesso suspenso, contate o administrador.'
+                : tenantError.message}
+            </p>
+          </div>
+          <div className="pt-2 flex items-center justify-center">
+            {isInactive ? (
+              <button
+                type="button"
+                onClick={handleExit}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Sair / Encerrar Sessão</span>
+              </button>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={handleExit}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-semibold border border-outline-variant/50 transition-colors cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sair</span>
+                </button>
+                <a
+                  href="/admin-master"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors"
+                >
+                  Acessar Painel Master
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -130,6 +169,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <MasterPasswordModal />
+      <PasswordChangePromptModal />
       <ToastContainer />
       <NotificationDrawer />
     </div>

@@ -20,7 +20,7 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { getActiveDb, getActiveAuth } from '@/lib/firebase';
+import { getActiveDb, getActiveAuth, getCentralDb } from '@/lib/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { hashPassword, verifyPassword } from '@/lib/crypto';
 import { handleFirestoreError, OperationType, isCircuitBroken } from '@/lib/firestoreErrors';
@@ -41,6 +41,7 @@ export interface AppUser {
   dataCadastro?: any;
   ultimoAcesso?: any;
   cargo?: string;
+  senhaProvisoria?: boolean;
 }
 
 export interface LogAuditoria {
@@ -131,7 +132,7 @@ const DEFAULT_CONFIG: SystemConfig = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { currentTenant, subdomain, isLoadingTenant, activeDb, activeAuth, tenantVersion } = useTenant();
+  const { currentTenant, subdomain, isLoadingTenant, activeDb, activeAuth, tenantVersion, suspendTenant } = useTenant();
   const tenantKey = subdomain || currentTenant?.subdominio || 'central';
 
   // Inicialização estável e consistente entre SSR e o primeiro ciclo de hidratação no cliente
@@ -273,6 +274,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [tenantKey, tenantVersion, activeDb, activeAuth]);
 
+  // PARTE 5: Monitoramento em tempo real do status do cliente em clientes_registry (banco central)
+  // Enquanto uma sessão estiver ativa em um subdomínio de cliente, observa o campo status.
+  // Se mudar para inativo, força logout imediato e redireciona para a tela de acesso suspenso.
+  useEffect(() => {
+    if (!currentUser || !subdomain || subdomain === 'admin' || subdomain === 'demo') {
+      return;
+    }
+
+    const docId = currentTenant?.id || subdomain;
+    if (!docId) return;
+
+    let isListenerActive = true;
+    const centralDb = getCentralDb();
+    const clientDocRef = doc(centralDb, 'clientes_registry', docId);
+
+    const handleTenantSuspension = async () => {
+      console.warn(`[Segurança Multi-Tenant] Cliente "${subdomain}" desativado. Forçando desconexão imediata.`);
+
+      try {
+        const targetAuth = activeAuth || getActiveAuth();
+        await signOut(targetAuth);
+      } catch (err) {
+        console.warn('Erro ao deslogar do Firebase Auth durante suspensão:', err);
+      }
+
+      setCurrentUser(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('gestao_eleitoral_user_id');
+        localStorage.removeItem('gestao_eleitoral_cached_user');
+        localStorage.removeItem('adti_admin_master_user');
+        sessionStorage.removeItem('adti_admin_master_user');
+        sessionStorage.removeItem('gestao_eleitoral_user_id');
+        localStorage.setItem('gestao_eleitoral_logged_out', 'true');
+      }
+
+      suspendTenant(subdomain);
+
+      if (typeof window !== 'undefined' && window.location.pathname !== '/tenant-error') {
+        window.location.href = `/tenant-error?reason=inactive&subdomain=${encodeURIComponent(subdomain)}`;
+      }
+    };
+
+    const unsubscribe = onSnapshot(
+      clientDocRef,
+      async (snapshot) => {
+        if (!isListenerActive) return;
+
+        if (!snapshot.exists()) {
+          await handleTenantSuspension();
+          return;
+        }
+
+        const data = snapshot.data();
+        if (data && data.status === 'inativo') {
+          await handleTenantSuspension();
+        }
+      },
+      (error) => {
+        console.warn('[Segurança Multi-Tenant] Erro no listener do cliente:', error);
+      }
+    );
+
+    return () => {
+      isListenerActive = false;
+      unsubscribe();
+    };
+  }, [currentUser?.id, subdomain, currentTenant?.id, activeAuth, suspendTenant]);
+
   const currentUserId = currentUser?.id;
   const currentUserPerfil = currentUser?.perfil;
 
@@ -376,7 +445,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Se houver sessão autenticada, mantém dados do usuário atual sincronizados
         if (currentUser) {
           const found = dedupedUsers.find((u) => u.id === currentUser.id || u.email === currentUser.email);
-          if (found && (found.nome !== currentUser.nome || found.perfil !== currentUser.perfil || found.status !== currentUser.status)) {
+          if (found && (found.nome !== currentUser.nome || found.perfil !== currentUser.perfil || found.status !== currentUser.status || found.senhaProvisoria !== currentUser.senhaProvisoria)) {
             setCurrentUser(found);
             if (typeof window !== 'undefined') {
               localStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(found));

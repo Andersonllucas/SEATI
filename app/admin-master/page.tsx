@@ -143,6 +143,9 @@ export default function AdminMasterPage() {
   const [bootstrapAdminNome, setBootstrapAdminNome] = useState<string>('');
   const [bootstrapAdminEmail, setBootstrapAdminEmail] = useState<string>('');
   const [bootstrapAdminSenha, setBootstrapAdminSenha] = useState<string>('');
+  const [bootstrapOperadorNome, setBootstrapOperadorNome] = useState<string>('');
+  const [bootstrapOperadorEmail, setBootstrapOperadorEmail] = useState<string>('');
+  const [bootstrapOperadorSenha, setBootstrapOperadorSenha] = useState<string>('123456');
   const [bootstrapMetaVotos, setBootstrapMetaVotos] = useState<number>(5000);
   const [bootstrapImportarLocais, setBootstrapImportarLocais] = useState<boolean>(true);
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false);
@@ -611,6 +614,22 @@ export default function AdminMasterPage() {
 
       if (res.ok && data.success) {
         setIsModalOpen(false);
+        // Se for um novo cliente, provisiona automaticamente os usuários padrão (Administrador e Operador)
+        if (!editingClient) {
+          // Inicializa usuários padrão em segundo plano
+          bootstrapTenantDatabase(clientPayload.firebaseConfig, {
+            tenantId: docId,
+            subdominio: cleanSub,
+            nomeCampanha: cleanNome,
+            adminNome: `Administrador ${cleanNome}`,
+            adminEmail: `admin@${cleanSub}.local`,
+            adminSenha: '123456',
+            operadorNome: `Operador ${cleanNome}`,
+            operadorEmail: `operador@${cleanSub}.local`,
+            operadorSenha: '123456',
+            importarLocais: false
+          }).catch((err) => console.warn('Aviso no auto-provisionamento de usuários padrão:', err));
+        }
         return;
       }
 
@@ -628,6 +647,19 @@ export default function AdminMasterPage() {
           ...clientData,
           criadoEm: serverTimestamp()
         });
+        // Provisiona usuários padrão no novo banco
+        bootstrapTenantDatabase(clientPayload.firebaseConfig, {
+          tenantId: docId,
+          subdominio: cleanSub,
+          nomeCampanha: cleanNome,
+          adminNome: `Administrador ${cleanNome}`,
+          adminEmail: `admin@${cleanSub}.local`,
+          adminSenha: '123456',
+          operadorNome: `Operador ${cleanNome}`,
+          operadorEmail: `operador@${cleanSub}.local`,
+          operadorSenha: '123456',
+          importarLocais: false
+        }).catch((err) => console.warn('Aviso no auto-provisionamento de usuários padrão:', err));
       } else {
         await updateDoc(docRef, clientData);
       }
@@ -691,6 +723,9 @@ export default function AdminMasterPage() {
     setBootstrapAdminNome(`Administrador ${client.nome}`);
     setBootstrapAdminEmail(`admin@${client.subdominio}.adti.app.br`);
     setBootstrapAdminSenha(generateRandomPassword());
+    setBootstrapOperadorNome(`Operador ${client.nome}`);
+    setBootstrapOperadorEmail(`operador@${client.subdominio}.adti.app.br`);
+    setBootstrapOperadorSenha('123456');
     setBootstrapMetaVotos(5000);
     setBootstrapImportarLocais(true);
     setBootstrapResult(null);
@@ -717,6 +752,9 @@ export default function AdminMasterPage() {
       adminNome: bootstrapAdminNome.trim() || `Administrador ${bootstrapTargetClient.nome}`,
       adminEmail: bootstrapAdminEmail.trim().toLowerCase(),
       adminSenha: bootstrapAdminSenha.trim(),
+      operadorNome: bootstrapOperadorNome.trim() || `Operador ${bootstrapTargetClient.nome}`,
+      operadorEmail: bootstrapOperadorEmail.trim().toLowerCase(),
+      operadorSenha: bootstrapOperadorSenha.trim() || '123456',
       metaVotos: Number(bootstrapMetaVotos) || 5000,
       cargo: 'Prefeito / Vereador / Deputado',
       anoEleicao: '2026',
@@ -760,7 +798,7 @@ export default function AdminMasterPage() {
 
   const copyBootstrapCredentials = () => {
     if (!bootstrapTargetClient || !bootstrapResult) return;
-    const text = `🏛️ ACESSO À PLATAFORMA - SCE ADTI\nCampanha: ${bootstrapTargetClient.nome}\nLink de Acesso: https://${bootstrapTargetClient.subdominio}.adti.app.br/login\nE-mail: ${bootstrapResult.adminEmail}\nSenha Temporária: ${bootstrapResult.adminSenha}\n\n*Acesse e altere sua senha no primeiro login.*`;
+    const text = `🏛️ ACESSO À PLATAFORMA - SCE ADTI\nCampanha: ${bootstrapTargetClient.nome}\nLink de Acesso: https://${bootstrapTargetClient.subdominio}.adti.app.br/login\n\n👤 USUÁRIO ADMINISTRADOR:\nE-mail: ${bootstrapResult.adminEmail}\nSenha Provisória: ${bootstrapResult.adminSenha}\n\n👥 USUÁRIO OPERADOR:\nE-mail: ${bootstrapResult.operadorEmail || `operador@${bootstrapTargetClient.subdominio}.adti.app.br`}\nSenha Provisória: ${bootstrapResult.operadorSenha || '123456'}\n\n*Acesse e altere a senha provisória no primeiro login.*`;
 
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(text);
@@ -1330,7 +1368,7 @@ export default function AdminMasterPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
                       <KeyRound className="w-4 h-4 text-primary" />
-                      Credenciais de Acesso Inicial
+                      Credenciais Padrão Criadas (Admin + Operador)
                     </span>
                     <button
                       onClick={copyBootstrapCredentials}
@@ -1350,7 +1388,7 @@ export default function AdminMasterPage() {
                     </button>
                   </div>
 
-                  <div className="space-y-2 text-xs font-mono bg-surface-container-low p-3.5 rounded-xl border border-outline-variant/40">
+                  <div className="space-y-3 text-xs font-mono bg-surface-container-low p-3.5 rounded-xl border border-outline-variant/40">
                     <div>
                       <span className="text-on-surface-variant">Painel: </span>
                       <a
@@ -1362,13 +1400,35 @@ export default function AdminMasterPage() {
                         https://{bootstrapTargetClient.subdominio}.adti.app.br/login
                       </a>
                     </div>
-                    <div>
-                      <span className="text-on-surface-variant">E-mail: </span>
-                      <strong className="text-on-surface">{bootstrapResult.adminEmail}</strong>
+
+                    <div className="p-2.5 rounded-lg bg-surface-container-lowest border border-outline-variant/50 space-y-1">
+                      <div className="text-[11px] font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        <span>1. Perfil Administrador</span>
+                      </div>
+                      <div>
+                        <span className="text-on-surface-variant">E-mail: </span>
+                        <strong className="text-on-surface">{bootstrapResult.adminEmail}</strong>
+                      </div>
+                      <div>
+                        <span className="text-on-surface-variant">Senha Provisória: </span>
+                        <strong className="text-primary">{bootstrapResult.adminSenha}</strong>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-on-surface-variant">Senha Inicial: </span>
-                      <strong className="text-primary">{bootstrapResult.adminSenha}</strong>
+
+                    <div className="p-2.5 rounded-lg bg-surface-container-lowest border border-outline-variant/50 space-y-1">
+                      <div className="text-[11px] font-bold text-blue-700 uppercase tracking-wider flex items-center gap-1">
+                        <Users className="w-3 h-3" />
+                        <span>2. Perfil Operador</span>
+                      </div>
+                      <div>
+                        <span className="text-on-surface-variant">E-mail: </span>
+                        <strong className="text-on-surface">{bootstrapResult.operadorEmail || `operador@${bootstrapTargetClient.subdominio}.adti.app.br`}</strong>
+                      </div>
+                      <div>
+                        <span className="text-on-surface-variant">Senha Provisória: </span>
+                        <strong className="text-primary">{bootstrapResult.operadorSenha || '123456'}</strong>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1419,7 +1479,7 @@ export default function AdminMasterPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-on-surface-variant mb-1">
-                        E-mail de Login do Cliente *
+                        E-mail de Login do Administrador *
                       </label>
                       <input
                         type="email"
@@ -1434,7 +1494,7 @@ export default function AdminMasterPage() {
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-xs font-semibold text-on-surface-variant">
-                          Senha Inicial *
+                          Senha Provisória Admin *
                         </label>
                         <button
                           type="button"
@@ -1449,6 +1509,36 @@ export default function AdminMasterPage() {
                         required
                         value={bootstrapAdminSenha}
                         onChange={(e) => setBootstrapAdminSenha(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                        E-mail de Login do Operador *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={bootstrapOperadorEmail}
+                        onChange={(e) => setBootstrapOperadorEmail(e.target.value)}
+                        placeholder="operador@campanha.com.br"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                        Senha Provisória Operador *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={bootstrapOperadorSenha}
+                        onChange={(e) => setBootstrapOperadorSenha(e.target.value)}
+                        placeholder="123456"
                         className="w-full px-3.5 py-2.5 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 font-mono"
                       />
                     </div>

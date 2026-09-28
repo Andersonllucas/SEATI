@@ -286,21 +286,46 @@ export async function bootstrapTenantDatabase(
     );
     collectionsCreated.push('configuracoes');
 
-    // 2. Cria o usuário Administrador inicial do cliente
-    const cleanEmail = options.adminEmail.trim().toLowerCase();
-    const adminDocId = cleanEmail.replace(/[^a-z0-9_]/g, '_');
+    // 2. Cria os usuários padrão: Administrador e Operador da base
+    const cleanAdminEmail = options.adminEmail.trim().toLowerCase();
+    const adminDocId = cleanAdminEmail.replace(/[^a-z0-9_]/g, '_');
     const adminRef = doc(targetDb, 'usuarios', adminDocId);
-    const passwordHash = await hashPassword(options.adminSenha);
+    const adminPasswordHash = await hashPassword(options.adminSenha);
 
     await setDoc(
       adminRef,
       {
         id: adminDocId,
-        nome: options.adminNome.trim(),
-        email: cleanEmail,
-        senha: passwordHash,
+        nome: options.adminNome.trim() || `Administrador ${options.nomeCampanha}`,
+        email: cleanAdminEmail,
+        senha: adminPasswordHash,
         perfil: 'Administrador',
         status: 'Ativo',
+        senhaProvisoria: true,
+        criadoEm: new Date().toISOString(),
+        atualizadoEm: serverTimestamp()
+      },
+      { merge: true }
+    );
+
+    // Cria o usuário padrão com perfil "Operador"
+    const subClean = options.subdominio.trim().toLowerCase();
+    const cleanOperadorEmail = (options.operadorEmail || `operador@${subClean}.adti.app.br`).trim().toLowerCase();
+    const operadorDocId = cleanOperadorEmail.replace(/[^a-z0-9_]/g, '_');
+    const operadorRef = doc(targetDb, 'usuarios', operadorDocId);
+    const operadorSenha = options.operadorSenha || '123456';
+    const operadorPasswordHash = await hashPassword(operadorSenha);
+
+    await setDoc(
+      operadorRef,
+      {
+        id: operadorDocId,
+        nome: options.operadorNome?.trim() || `Operador ${options.nomeCampanha}`,
+        email: cleanOperadorEmail,
+        senha: operadorPasswordHash,
+        perfil: 'Operador',
+        status: 'Ativo',
+        senhaProvisoria: true,
         criadoEm: new Date().toISOString(),
         atualizadoEm: serverTimestamp()
       },
@@ -331,9 +356,11 @@ export async function bootstrapTenantDatabase(
 
     return {
       success: true,
-      message: `Banco do cliente "${options.nomeCampanha}" inicializado com sucesso!`,
-      adminEmail: cleanEmail,
+      message: `Banco do cliente "${options.nomeCampanha}" inicializado com sucesso com usuários Administrador e Operador!`,
+      adminEmail: cleanAdminEmail,
       adminSenha: options.adminSenha,
+      operadorEmail: cleanOperadorEmail,
+      operadorSenha: operadorSenha,
       loginUrl: `https://${options.subdominio}.adti.app.br/login`,
       collectionsCreated,
       locaisImportados

@@ -134,7 +134,8 @@ export async function POST(req: NextRequest) {
         perfil: userData.perfil,
         status: userData.status,
         telefone: userData.telefone || '',
-        cargo: userData.cargo || ''
+        cargo: userData.cargo || '',
+        senhaProvisoria: !!userData.senhaProvisoria
       }
     });
   } catch (error: any) {
