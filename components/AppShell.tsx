@@ -12,6 +12,7 @@ import { QuotaWarningBanner } from './QuotaWarningBanner';
 import { ToastContainer } from './ToastContainer';
 import { NotificationDrawer } from './NotificationDrawer';
 import { PasswordChangePromptModal } from './PasswordChangePromptModal';
+import { MasterImpersonationBanner } from './MasterImpersonationBanner';
 import { Vote, LogOut, ShieldAlert } from 'lucide-react';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -19,7 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pathname = usePathname();
   const { currentUser, isLoading, isAuthReady, logout } = useAuth();
-  const { tenantError, isLoadingTenant, isAdminMaster } = useTenant();
+  const { tenantError, isLoadingTenant } = useTenant();
 
   React.useEffect(() => {
     setMounted(true);
@@ -47,7 +48,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isTenantErrorPath = pathname?.startsWith('/tenant-error');
 
   // Rota do painel master ou tela de erro de subdomínio renderiza diretamente sem o layout de campanha
-  if (isAdminMasterPath || isTenantErrorPath || isAdminMaster) {
+  if (isAdminMasterPath || isTenantErrorPath) {
     return <>{children}</>;
   }
 
@@ -143,35 +144,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Mobile Sidebar Overlay */}
-      {isSidebarOpen && (
+    <div className="flex flex-col h-screen overflow-hidden bg-background">
+      {/* Banner de Modo Suporte Master quando acessando campanha de cliente */}
+      <MasterImpersonationBanner />
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Mobile Sidebar Overlay */}
+        {isSidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-black/50 z-30 md:hidden"
+            onClick={handleCloseMenu}
+          />
+        )}
+
+        {/* Persistent Sidebar */}
         <div 
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={handleCloseMenu}
-        />
-      )}
+          className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:inset-0 ${
+            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <Sidebar onNavigate={handleCloseMenu} />
+        </div>
 
-      {/* Persistent Sidebar */}
-      <div 
-        className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:inset-0 ${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <Sidebar onNavigate={handleCloseMenu} />
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <Topbar onMenuClick={handleOpenMenu} />
+          <QuotaWarningBanner />
+          <main className="flex-1 overflow-y-auto custom-scrollbar">
+            {children}
+          </main>
+        </div>
+        <MasterPasswordModal />
+        <PasswordChangePromptModal />
+        <ToastContainer />
+        <NotificationDrawer />
       </div>
-
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        <Topbar onMenuClick={handleOpenMenu} />
-        <QuotaWarningBanner />
-        <main className="flex-1 overflow-y-auto custom-scrollbar">
-          {children}
-        </main>
-      </div>
-      <MasterPasswordModal />
-      <PasswordChangePromptModal />
-      <ToastContainer />
-      <NotificationDrawer />
     </div>
   );
 }

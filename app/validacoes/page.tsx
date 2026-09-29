@@ -15,6 +15,8 @@ import {
   FileText
 } from 'lucide-react';
 import { useCampaignData, CpfConflictGroup, TituloConflictGroup } from '@/context/CampaignContext';
+import { useToast } from '@/context/ToastContext';
+import { useTenant } from '@/context/TenantContext';
 import Link from 'next/link';
 import { ConflictItem } from '@/components/ConflictItem';
 
@@ -29,10 +31,14 @@ export default function ValidacoesPage() {
     totalConflitos
   } = useCampaignData();
 
+  const { showToast } = useToast();
+  const { reloadTenant } = useTenant();
+
   const [conflictType, setConflictType] = useState<'cpf' | 'titulo'>('cpf');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedConflictIndex, setSelectedConflictIndex] = useState(0);
   const [isRevalidating, setIsRevalidating] = useState(false);
+  const [lastAuditTime, setLastAuditTime] = useState<string | null>(null);
 
   // Se não houver conflitos de CPF mas houver de Título, seleciona automaticamente a aba de Título
   useEffect(() => {
@@ -80,9 +86,39 @@ export default function ValidacoesPage() {
 
   const handleRevalidate = () => {
     setIsRevalidating(true);
+    // Sincroniza dados com o banco do cliente ativo
+    try {
+      reloadTenant();
+    } catch {}
+
     setTimeout(() => {
       setIsRevalidating(false);
-    }, 600);
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastAuditTime(timeStr);
+
+      const totalVoters = eleitores.length;
+      const totalCpf = cpfConflictGroups.length;
+      const totalTit = tituloConflictGroups.length;
+
+      if (totalConflitos > 0 || totalCpf > 0 || totalTit > 0) {
+        showToast({
+          type: 'warning',
+          title: 'Auditoria Concluída: Conflitos Detectados',
+          message: `${totalVoters} eleitor(es) auditados. Encontrado(s) ${totalCpf} grupo(s) de CPF e ${totalTit} de Título de Eleitor em colisão.`,
+          details: 'Use os cards e a listagem abaixo para transferir ou regularizar eleitores entre as lideranças.',
+          duration: 6000
+        });
+      } else {
+        showToast({
+          type: 'success',
+          title: 'Base 100% Íntegra',
+          message: `${totalVoters} eleitor(es) auditados com sucesso em tempo real. Nenhuma duplicidade encontrada.`,
+          details: 'A integridade matemática da campanha está confirmada.',
+          duration: 5000
+        });
+      }
+    }, 700);
   };
 
   return (
@@ -104,20 +140,30 @@ export default function ValidacoesPage() {
             Identifique e resolva colisões de CPF e Título de Eleitor entre lideranças para garantir a integridade matemática da campanha.
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleRevalidate}
-            disabled={isRevalidating}
-            className="px-4 py-2 border border-outline-variant bg-surface-container-lowest rounded-lg text-sm font-semibold text-primary hover:bg-surface-container flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRevalidating ? 'animate-spin' : ''}`} />
-            {isRevalidating ? 'Auditando...' : 'Revalidar Base'}
-          </button>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex flex-col items-end">
+            <button
+              type="button"
+              onClick={handleRevalidate}
+              disabled={isRevalidating}
+              title="Disparar auditoria completa e recálculo de integridade em tempo real"
+              className="px-4 py-2 border border-outline-variant bg-surface-container-lowest hover:bg-surface-container rounded-lg text-sm font-semibold text-primary flex items-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-60"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRevalidating ? 'animate-spin' : ''}`} />
+              <span>{isRevalidating ? 'Auditando...' : 'Revalidar Base'}</span>
+            </button>
+            {lastAuditTime && (
+              <span className="text-[10px] text-on-surface-variant font-mono mt-1">
+                Última auditoria às {lastAuditTime}
+              </span>
+            )}
+          </div>
           <Link
             href="/eleitores"
-            className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-semibold hover:bg-primary/90 flex items-center gap-1.5 shadow-xs transition-colors"
+            className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-semibold hover:bg-primary/90 flex items-center justify-center gap-1.5 shadow-xs transition-colors"
           >
-            Ver no Cadastro <ChevronRight className="w-4 h-4" />
+            <span>Ver no Cadastro</span>
+            <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
       </div>

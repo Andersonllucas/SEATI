@@ -161,14 +161,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Restaura estado inicial de cache local após montagem no cliente para evitar hydration mismatch
   useEffect(() => {
     try {
-      const isLoggedOut = localStorage.getItem('gestao_eleitoral_logged_out') === 'true';
-      if (!isLoggedOut) {
-        const cached = localStorage.getItem('gestao_eleitoral_cached_user');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed) {
-            setCurrentUser(parsed);
-            setIsAuthReady(true);
+      // 1. Verifica se há uma sessão de suporte master ativa para o tenant atual
+      const impSub = typeof window !== 'undefined' ? localStorage.getItem('adti_impersonating_tenant') : null;
+      const masterUserStr = typeof window !== 'undefined' ? (sessionStorage.getItem('adti_admin_master_user') || localStorage.getItem('adti_admin_master_user')) : null;
+
+      if (impSub && (impSub === tenantKey || impSub === subdomain) && masterUserStr) {
+        try {
+          const masterParsed = JSON.parse(masterUserStr);
+          const masterSupportUser: AppUser = {
+            id: `master_support_${impSub}`,
+            nome: `${masterParsed.nome || 'Administrador Master'} (Suporte)`,
+            email: masterParsed.email || 'master@adti.app.br',
+            perfil: 'Administrador' as UserRole,
+            status: 'Ativo' as UserStatus,
+            dataCadastro: new Date().toISOString()
+          };
+          setCurrentUser(masterSupportUser);
+          setIsAuthReady(true);
+          localStorage.removeItem('gestao_eleitoral_logged_out');
+        } catch {}
+      } else {
+        const isLoggedOut = localStorage.getItem('gestao_eleitoral_logged_out') === 'true';
+        if (!isLoggedOut) {
+          const cached = localStorage.getItem('gestao_eleitoral_cached_user');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed) {
+              setCurrentUser(parsed);
+              setIsAuthReady(true);
+            }
           }
         }
       }
@@ -191,7 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, 1200);
 
     return () => clearTimeout(safetyTimer);
-  }, [tenantKey, tenantVersion]);
+  }, [tenantKey, tenantVersion, subdomain, currentTenant?.nome]);
 
   // 0. Sincroniza sessão do Firebase Auth com os usuários da coleção `usuarios`
   useEffect(() => {
@@ -259,14 +280,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
             }
           } else {
-            // Firebase Auth sem sessão: apenas limpa se houver intenção explícita de logout
+            // Firebase Auth sem sessão: verifica se há sessão de suporte master ativa para este cliente
             if (typeof window !== 'undefined') {
-              const isLoggedOut = localStorage.getItem('gestao_eleitoral_logged_out') === 'true';
-              if (isLoggedOut) {
-                setCurrentUser(null);
-                localStorage.removeItem('gestao_eleitoral_user_id');
-                localStorage.removeItem('gestao_eleitoral_cached_user');
-                sessionStorage.removeItem('gestao_eleitoral_user_id');
+              const impSub = localStorage.getItem('adti_impersonating_tenant');
+              const masterUserStr = sessionStorage.getItem('adti_admin_master_user') || localStorage.getItem('adti_admin_master_user');
+
+              if (impSub && (impSub === tenantKey || impSub === subdomain) && masterUserStr) {
+                try {
+                  const masterParsed = JSON.parse(masterUserStr);
+                  const masterSupportUser: AppUser = {
+                    id: `master_support_${impSub}`,
+                    nome: `${masterParsed.nome || 'Administrador Master'} (Suporte)`,
+                    email: masterParsed.email || 'master@adti.app.br',
+                    perfil: 'Administrador' as UserRole,
+                    status: 'Ativo' as UserStatus,
+                    dataCadastro: new Date().toISOString()
+                  };
+                  setCurrentUser(masterSupportUser);
+                } catch {}
+              } else {
+                const isLoggedOut = localStorage.getItem('gestao_eleitoral_logged_out') === 'true';
+                if (isLoggedOut) {
+                  setCurrentUser(null);
+                  localStorage.removeItem('gestao_eleitoral_user_id');
+                  localStorage.removeItem('gestao_eleitoral_cached_user');
+                  sessionStorage.removeItem('gestao_eleitoral_user_id');
+                }
               }
             }
           }

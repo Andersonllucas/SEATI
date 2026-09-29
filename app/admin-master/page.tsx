@@ -18,6 +18,7 @@ import { signInWithCustomToken, signOut, onAuthStateChanged } from 'firebase/aut
 import {
   getCentralDb,
   getCentralAuth,
+  setActiveTenant,
   getTenantClientStats,
   bootstrapTenantDatabase,
   exportTenantBackup,
@@ -104,7 +105,7 @@ function isAuthorizedMasterUser(user?: { email?: string | null; perfil?: string 
 }
 
 export default function AdminMasterPage() {
-  const { subdomain: activeSubdomain, switchToTenant } = useTenant();
+  const { subdomain: activeSubdomain } = useTenant();
 
   // Autenticação master
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -121,12 +122,57 @@ export default function AdminMasterPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'todos' | 'ativo' | 'inativo'>('todos');
 
-  const handleAccessInCurrentTab = (client: TenantClient) => {
-    switchToTenant(client.subdominio);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('adti_active_subdomain', client.subdominio);
-      document.cookie = `adti_subdomain=${client.subdominio}; path=/; max-age=31536000; SameSite=Lax`;
-      window.location.href = `/?subdomain=${encodeURIComponent(client.subdominio)}`;
+  const [enteringClientSubdomain, setEnteringClientSubdomain] = useState<string | null>(null);
+
+  const handleAccessInCurrentTab = async (client: TenantClient) => {
+    setEnteringClientSubdomain(client.subdominio);
+    try {
+      // 1. Autoriza sessão de suporte via rota de impersonação segura
+      const res = await fetch('/api/admin/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subdomain: client.subdominio,
+          masterUser: adminUser
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Não foi possível entrar no painel deste cliente.');
+        setEnteringClientSubdomain(null);
+        return;
+      }
+
+      // 2. Grava estado de impersonação e subdomínio ativo no storage e cookies
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('adti_impersonating_tenant', client.subdominio);
+        localStorage.setItem('adti_impersonating_client', JSON.stringify(client));
+        localStorage.setItem('adti_active_subdomain', client.subdominio);
+        document.cookie = `adti_subdomain=${client.subdominio}; path=/; max-age=31536000; SameSite=Lax`;
+        localStorage.removeItem('gestao_eleitoral_logged_out');
+
+        // Salva o usuário autenticado de suporte master para evitar tela de login do cliente
+        if (data.user) {
+          localStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(data.user));
+          sessionStorage.setItem('gestao_eleitoral_user_id', data.user.id);
+        }
+
+        // Ativa o bundle Firebase correspondente para este cliente
+        setActiveTenant(client.subdominio, client.firebaseConfig);
+
+        // 3. Redireciona para o painel de campanha do cliente
+        const hostname = window.location.hostname.toLowerCase().trim();
+        if (hostname.endsWith('.adti.app.br')) {
+          window.location.href = `https://${client.subdominio}.adti.app.br/`;
+        } else {
+          window.location.href = `/?subdomain=${encodeURIComponent(client.subdominio)}`;
+        }
+      }
+    } catch (err: any) {
+      console.error('Erro ao acessar painel do cliente:', err);
+      alert('Falha ao conectar com o banco de dados do cliente.');
+      setEnteringClientSubdomain(null);
     }
   };
 
@@ -1617,12 +1663,22 @@ export default function AdminMasterPage() {
 
                     <div className="flex items-center gap-1.5">
                       <button
+                        disabled={enteringClientSubdomain === client.subdominio}
                         onClick={() => handleAccessInCurrentTab(client)}
-                        title="Alternar para este cliente e abrir o painel da campanha"
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary/90 text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+                        title={`Conectar ao banco de dados e entrar no painel de ${client.nome} (${client.firebaseConfig?.projectId || client.subdominio})`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary/90 text-xs font-semibold transition-colors cursor-pointer shadow-xs disabled:opacity-60"
                       >
-                        <LogIn className="w-3.5 h-3.5" />
-                        <span>Entrar no Painel</span>
+                        {enteringClientSubdomain === client.subdominio ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Conectando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <LogIn className="w-3.5 h-3.5" />
+                            <span>Entrar no Painel</span>
+                          </>
+                        )}
                       </button>
 
                       <a

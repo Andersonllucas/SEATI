@@ -52,7 +52,24 @@ export function TenantProvider({
     const searchParams = new URLSearchParams(window.location.search);
     const querySubdomain = searchParams.get('subdomain');
 
-    // Domínio mestre
+    // 1. Prioridade máxima: Subdomínio explícito na query string (?subdomain=...)
+    if (querySubdomain) {
+      const cleanSub = querySubdomain.toLowerCase().trim();
+      if (cleanSub === 'admin') {
+        setIsAdminMaster(true);
+        setSubdomain('admin');
+        setIsLoadingTenant(false);
+        return;
+      } else {
+        setIsAdminMaster(false);
+        setSubdomain(cleanSub);
+        localStorage.setItem('adti_active_subdomain', cleanSub);
+        document.cookie = `adti_subdomain=${cleanSub}; path=/; max-age=31536000; SameSite=Lax`;
+        return;
+      }
+    }
+
+    // 2. Domínio mestre ou rota /admin-master sem parâmetro explícito de cliente
     if (
       hostname === 'admin.adti.app.br' ||
       window.location.pathname.startsWith('/admin-master')
@@ -267,9 +284,14 @@ export function TenantProvider({
     if (typeof window !== 'undefined') {
       localStorage.setItem('adti_active_subdomain', cleaned);
       document.cookie = `adti_subdomain=${cleaned}; path=/; max-age=31536000; SameSite=Lax`;
-      const targetUrl = new URL(window.location.href);
-      targetUrl.searchParams.set('subdomain', cleaned);
-      window.location.href = targetUrl.toString();
+
+      const hostname = window.location.hostname.toLowerCase().trim();
+      if (hostname.endsWith('.adti.app.br')) {
+        window.location.href = `https://${cleaned}.adti.app.br/`;
+        return;
+      }
+
+      window.location.href = `/?subdomain=${encodeURIComponent(cleaned)}`;
     }
   }, []);
 
