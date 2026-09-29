@@ -176,7 +176,6 @@ export default function LocaisVotacaoPage() {
   const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
-  const { currentTenant, subdomain } = useTenant();
   const activeCampaignName = currentTenant?.nome || (subdomain && subdomain !== 'demo' ? `Campanha ${subdomain}` : 'Campanha Teresina 2026');
 
   // Estado para seções pendentes de cadastro (identificadas nos eleitores mas sem local cadastrado)

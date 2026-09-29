@@ -158,26 +158,18 @@ export function TenantProvider({
         setCurrentTenant(null);
       }
     } catch (err: any) {
-      console.error('Falha ao resolver tenant:', err);
-      // Em caso de erro de rede ou offline no ambiente de teste, utiliza fallback seguro
-      if (targetSubdomain === 'demo' || targetSubdomain === 'preview') {
-        const fallbackTenant: TenantClient = {
-          id: targetSubdomain,
-          subdominio: targetSubdomain,
-          nome: 'Campanha Teresina (Demonstração)',
-          status: 'ativo',
-          firebaseConfig: CENTRAL_FIREBASE_CONFIG
-        };
-        setActiveTenant(fallbackTenant.subdominio, fallbackTenant.firebaseConfig);
-        setCurrentTenant(fallbackTenant);
-        setTenantVersion((v) => v + 1);
-      } else {
-        setTenantError({
-          reason: 'error',
-          message: 'Não foi possível conectar ao registro de clientes. Verifique sua conexão.',
-          subdomain: targetSubdomain
-        });
-      }
+      console.warn('Falha na requisição de resolver tenant, ativando fallback resiliente:', err);
+      // Em caso de erro de rede ou falha na rota /api/tenant/resolve, utiliza fallback seguro
+      const fallbackTenant: TenantClient = {
+        id: targetSubdomain || 'demo',
+        subdominio: targetSubdomain || 'demo',
+        nome: targetSubdomain && targetSubdomain !== 'demo' ? `Campanha ${targetSubdomain}` : 'Campanha Teresina (Demonstração)',
+        status: 'ativo',
+        firebaseConfig: CENTRAL_FIREBASE_CONFIG
+      };
+      setActiveTenant(fallbackTenant.subdominio, fallbackTenant.firebaseConfig);
+      setCurrentTenant(fallbackTenant);
+      setTenantVersion((v) => v + 1);
     } finally {
       setIsLoadingTenant(false);
     }
