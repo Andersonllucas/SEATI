@@ -3,6 +3,15 @@ import { queryFirestoreRest, getDocRest } from '@/lib/firestoreRest';
 import { verifyPassword } from '@/lib/crypto';
 import { createFirebaseCustomToken, getServiceAccountCredentials } from '@/lib/firebaseCustomToken';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0'
+};
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -15,7 +24,7 @@ export async function POST(req: NextRequest) {
     if (!cleanEmail || !cleanSenha) {
       return NextResponse.json(
         { success: false, error: 'E-mail e senha são obrigatórios.' },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       );
     }
 
@@ -26,12 +35,21 @@ export async function POST(req: NextRequest) {
     if (isClientSubdomain) {
       try {
         const clientDoc = await getDocRest('clientes_registry', cleanSub);
-        if (clientDoc && clientDoc.firebaseConfig && clientDoc.firebaseConfig.projectId) {
-          clientConfig = {
-            projectId: clientDoc.firebaseConfig.projectId,
-            apiKey: clientDoc.firebaseConfig.apiKey,
-            databaseId: clientDoc.firebaseConfig.firestoreDatabaseId || '(default)'
-          };
+        if (clientDoc) {
+          const clientStatus = (clientDoc.status || '').toString().trim().toLowerCase();
+          if (clientStatus === 'inativo') {
+            return NextResponse.json(
+              { success: false, error: 'O acesso a esta campanha está temporariamente suspenso. Contate o administrador.' },
+              { status: 403, headers: NO_CACHE_HEADERS }
+            );
+          }
+          if (clientDoc.firebaseConfig && clientDoc.firebaseConfig.projectId) {
+            clientConfig = {
+              projectId: clientDoc.firebaseConfig.projectId,
+              apiKey: clientDoc.firebaseConfig.apiKey,
+              databaseId: clientDoc.firebaseConfig.firestoreDatabaseId || '(default)'
+            };
+          }
         }
       } catch (err) {
         console.warn('[API /api/auth/token] Aviso ao buscar config do tenant:', err);

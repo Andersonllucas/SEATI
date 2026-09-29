@@ -42,5 +42,10 @@ service cloud.firestore {
     match /clientes_registry/{clienteId=**} {
       allow read, write: if true;
     }
+
+    // Coleção Central de Logs de Auditoria do Admin Master
+    match /clientes_audit_logs/{logId=**} {
+      allow read, write: if true;
+    }
   }
 }

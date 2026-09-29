@@ -2,9 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { TenantClient } from '@/lib/tenantTypes';
-import { setActiveTenant, getActiveDb, getActiveAuth, getActiveApp } from '@/lib/firebase';
+import { setActiveTenant, getActiveDb, getActiveAuth, getActiveApp, getCentralDb } from '@/lib/firebase';
 import { CENTRAL_FIREBASE_CONFIG } from '@/lib/centralFirebaseConfig';
-import { Firestore } from 'firebase/firestore';
+import { Firestore, doc, onSnapshot } from 'firebase/firestore';
 import { Auth } from 'firebase/auth';
 import { FirebaseApp } from 'firebase/app';
 
@@ -127,7 +127,9 @@ export function TenantProvider({
     setTenantError(null);
 
     try {
-      const response = await fetch(`/api/tenant/resolve?subdomain=${encodeURIComponent(targetSubdomain)}`);
+      const response = await fetch(`/api/tenant/resolve?subdomain=${encodeURIComponent(targetSubdomain)}`, {
+        cache: 'no-store'
+      });
       const data = await response.json();
 
       if (data.isAdminDomain) {
@@ -180,6 +182,74 @@ export function TenantProvider({
       resolveTenant(subdomain);
     }
   }, [subdomain, resolveTenant]);
+
+  // Monitoramento em tempo real do status do cliente no clientes_registry (banco central)
+  // Garante que, ao ativar ou desativar no Admin Master, a tela de login ou erro reflita imediatamente
+  useEffect(() => {
+    if (!subdomain || subdomain === 'admin' || subdomain === 'demo' || subdomain === 'preview') {
+      return;
+    }
+
+    let isListenerActive = true;
+    try {
+      const centralDb = getCentralDb();
+      const docRef = doc(centralDb, 'clientes_registry', subdomain);
+
+      const unsubscribe = onSnapshot(
+        docRef,
+        (snapshot) => {
+          if (!isListenerActive) return;
+
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            const rawStatus = (data.status || '').toString().trim().toLowerCase();
+
+            if (rawStatus === 'ativo') {
+              // Cliente foi reativado no Admin Master! Limpa o erro e reativa o bundle
+              setTenantError(null);
+              const restoredClient: TenantClient = {
+                id: snapshot.id,
+                subdominio: data.subdominio || subdomain,
+                nome: data.nome || `Campanha ${subdomain}`,
+                status: 'ativo',
+                firebaseConfig: data.firebaseConfig || CENTRAL_FIREBASE_CONFIG
+              };
+              setActiveTenant(restoredClient.subdominio, restoredClient.firebaseConfig);
+              setCurrentTenant(restoredClient);
+              setTenantVersion((v) => v + 1);
+
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('adti_active_subdomain', restoredClient.subdominio);
+                document.cookie = `adti_subdomain=${restoredClient.subdominio}; path=/; max-age=31536000; SameSite=Lax`;
+                // Se estava na tela de erro de suspensão, redireciona para o login
+                if (window.location.pathname === '/tenant-error') {
+                  window.location.href = '/login';
+                }
+              }
+            } else if (rawStatus === 'inativo') {
+              // Cliente foi suspenso
+              setTenantError({
+                reason: 'inactive',
+                message: `O acesso para "${data.nome || subdomain}" está temporariamente inativo.`,
+                subdomain
+              });
+              setCurrentTenant(null);
+            }
+          }
+        },
+        (error) => {
+          console.warn('[TenantContext] Aviso no listener de sincronização de status:', error);
+        }
+      );
+
+      return () => {
+        isListenerActive = false;
+        unsubscribe();
+      };
+    } catch (err) {
+      console.warn('[TenantContext] Não foi possível vincular listener do Firestore central:', err);
+    }
+  }, [subdomain]);
 
   const setManualSubdomain = (newSub: string) => {
     const cleaned = newSub.trim().toLowerCase();

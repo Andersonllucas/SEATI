@@ -158,7 +158,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
               <Vote className="w-9 h-9" />
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-display">
-              {currentTenant?.nome || 'SCE - ADTI'}
+              {currentTenant?.nome || 'SEATI'}
             </h1>
             <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-slate-400 max-w-sm mx-auto flex-wrap">
               <span>Gestão Eleitoral &bull; Acesso Seguro</span>

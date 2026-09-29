@@ -1,8 +1,8 @@
 'use client';
 
-import React, { Suspense } from 'react';
+import React, { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ShieldAlert, AlertCircle, ArrowLeft, ExternalLink, HelpCircle, LogOut } from 'lucide-react';
+import { ShieldAlert, AlertCircle, ArrowLeft, ExternalLink, HelpCircle, LogOut, RefreshCw } from 'lucide-react';
 
 function TenantErrorContent() {
   const searchParams = useSearchParams();
@@ -11,6 +11,36 @@ function TenantErrorContent() {
   const customMessage = searchParams.get('message');
 
   const isInactive = reason === 'inactive';
+  const [isChecking, setIsChecking] = useState(false);
+
+  const checkStatus = useCallback(async () => {
+    if (!subdomain || subdomain === 'desconhecido') return;
+    setIsChecking(true);
+    try {
+      const res = await fetch(`/api/tenant/resolve?subdomain=${encodeURIComponent(subdomain)}`, {
+        cache: 'no-store'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && data.client && data.client.status === 'ativo') {
+        // Cliente foi reativado! Redireciona para o login
+        document.cookie = `adti_subdomain=${subdomain}; path=/; max-age=31536000; SameSite=Lax`;
+        window.location.href = '/login';
+      }
+    } catch {
+      // Ignora erro transitório de rede
+    } finally {
+      setIsChecking(false);
+    }
+  }, [subdomain]);
+
+  // Monitora periodicamente quando o cliente estiver inativo para redirecionar automaticamente assim que for reativado
+  useEffect(() => {
+    if (!isInactive || !subdomain || subdomain === 'desconhecido') return;
+    const interval = setInterval(() => {
+      checkStatus();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isInactive, subdomain, checkStatus]);
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -63,8 +93,8 @@ function TenantErrorContent() {
             {isInactive ? (
               <>
                 <li>O acesso a este ambiente foi temporariamente suspenso pela coordenação.</li>
-                <li>Entre em contato com o administrador responsável pela sua campanha.</li>
-                <li>Para encerrar esta sessão com segurança, utilize o botão abaixo.</li>
+                <li>Assim que a conta for reativada pelo Administrador Master, este painel desbloqueará automaticamente.</li>
+                <li>Você também pode clicar em <strong>&quot;Verificar Novamente&quot;</strong> para consultar o status atual.</li>
               </>
             ) : (
               <>
@@ -78,13 +108,23 @@ function TenantErrorContent() {
 
         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
           {isInactive ? (
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold shadow-xs hover:bg-primary/90 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Sair / Encerrar Sessão</span>
-            </button>
+            <>
+              <button
+                onClick={checkStatus}
+                disabled={isChecking}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold shadow-xs hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`} />
+                <span>{isChecking ? 'Consultando...' : 'Verificar Novamente'}</span>
+              </button>
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-semibold border border-outline-variant/50 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sair / Encerrar Sessão</span>
+              </button>
+            </>
           ) : (
             <>
               <a

@@ -295,7 +295,7 @@ function DashboardContent() {
             </div>
           </div>
           <Link
-            href="/importacao"
+            href="/validacoes"
             prefetch={true}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-error text-white text-xs font-semibold hover:opacity-95 transition-opacity shrink-0"
           >

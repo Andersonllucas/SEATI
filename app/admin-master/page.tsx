@@ -10,7 +10,9 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
-  query
+  query,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 import { signInWithCustomToken, signOut, onAuthStateChanged } from 'firebase/auth';
 import {
@@ -442,9 +444,15 @@ export default function AdminMasterPage() {
   // 4. Alternar status ativo/inativo
   const toggleClientStatus = async (client: TenantClient) => {
     const newStatus: TenantStatus = client.status === 'ativo' ? 'inativo' : 'ativo';
+
+    // 1. Atualização otimista na interface do Master
+    setClients((prev) =>
+      prev.map((c) => (c.id === client.id ? { ...c, status: newStatus } : c))
+    );
+
     try {
-      // 1. Tenta salvar via API segura no servidor
-      const res = await fetch('/api/admin/clients', {
+      // 2. Salva via API segura no servidor
+      await fetch('/api/admin/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -454,19 +462,20 @@ export default function AdminMasterPage() {
           status: newStatus,
           firebaseConfig: client.firebaseConfig
         })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        return;
-      }
-      // 2. Fallback direto no Firestore do navegador
-      const centralDb = getCentralDb();
-      await updateDoc(doc(centralDb, 'clientes_registry', client.id), {
-        status: newStatus,
-        atualizadoEm: serverTimestamp()
-      });
+      }).catch((err) => console.warn('Aviso ao sincronizar via API:', err));
 
-      // Grava auditoria (Parte 8)
+      // 3. Atualiza diretamente no Firestore central via SDK para disparo imediato dos listeners
+      try {
+        const centralDb = getCentralDb();
+        await updateDoc(doc(centralDb, 'clientes_registry', client.id), {
+          status: newStatus,
+          atualizadoEm: serverTimestamp()
+        });
+      } catch (dbErr) {
+        console.warn('Atualização direta no Firestore central:', dbErr);
+      }
+
+      // 4. Grava auditoria (Parte 8)
       recordCentralAuditLog({
         tenantSubdominio: client.subdominio,
         tenantNome: client.nome,
@@ -475,6 +484,10 @@ export default function AdminMasterPage() {
         detalhes: `Status do cliente alterado para "${newStatus}".`
       });
     } catch (err: any) {
+      // Reverte em caso de erro crítico
+      setClients((prev) =>
+        prev.map((c) => (c.id === client.id ? { ...c, status: client.status } : c))
+      );
       alert(`Erro ao alterar status: ${err?.message || 'Verifique as permissões do Firebase'}`);
     }
   };
@@ -885,7 +898,7 @@ export default function AdminMasterPage() {
 
   const copyBootstrapCredentials = () => {
     if (!bootstrapTargetClient || !bootstrapResult) return;
-    const text = `🏛️ ACESSO À PLATAFORMA - SCE ADTI\nCampanha: ${bootstrapTargetClient.nome}\nLink de Acesso: https://${bootstrapTargetClient.subdominio}.adti.app.br/login\n\n👤 USUÁRIO ADMINISTRADOR:\nE-mail: ${bootstrapResult.adminEmail}\nSenha Provisória: ${bootstrapResult.adminSenha}\n\n👥 USUÁRIO OPERADOR:\nE-mail: ${bootstrapResult.operadorEmail || `operador@${bootstrapTargetClient.subdominio}.adti.app.br`}\nSenha Provisória: ${bootstrapResult.operadorSenha || '123456'}\n\n*Acesse e altere a senha provisória no primeiro login.*`;
+    const text = `🏛️ ACESSO À PLATAFORMA - SEATI\nCampanha: ${bootstrapTargetClient.nome}\nLink de Acesso: https://${bootstrapTargetClient.subdominio}.adti.app.br/login\n\n👤 USUÁRIO ADMINISTRADOR:\nE-mail: ${bootstrapResult.adminEmail}\nSenha Provisória: ${bootstrapResult.adminSenha}\n\n👥 USUÁRIO OPERADOR:\nE-mail: ${bootstrapResult.operadorEmail || `operador@${bootstrapTargetClient.subdominio}.adti.app.br`}\nSenha Provisória: ${bootstrapResult.operadorSenha || '123456'}\n\n*Acesse e altere a senha provisória no primeiro login.*`;
 
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(text);
@@ -957,9 +970,9 @@ export default function AdminMasterPage() {
         throw new Error('Arquivo JSON inválido.');
       }
 
-      // Validação de formato de backup do SCE ADTI
+      // Validação de formato de backup do SEATI
       if (!parsed.metadata && !parsed.eleitores && !parsed.liderancas && !parsed.locais_votacao) {
-        throw new Error('O arquivo não parece ser um backup válido do SCE ADTI (ausência de metadados ou coleções reconhecidas).');
+        throw new Error('O arquivo não parece ser um backup válido do SEATI (ausência de metadados ou coleções reconhecidas).');
       }
 
       setRestoreBackupData(parsed as TenantBackupData);
@@ -1015,11 +1028,53 @@ export default function AdminMasterPage() {
     }
   };
 
-  // Carrega logs de auditoria sempre que a aba é aberta
+  // Carrega logs de auditoria e mantém escuta em tempo real sempre que a aba é aberta
   useEffect(() => {
-    if (activeMasterTab === 'auditoria' && isAuthenticated) {
-      loadAuditLogs();
+    if (activeMasterTab !== 'auditoria' || !isAuthenticated) return;
+
+    loadAuditLogs();
+
+    let unsubscribe: (() => void) | undefined;
+    try {
+      const centralDb = getCentralDb();
+      const q = query(
+        collection(centralDb, 'logs_auditoria'),
+        orderBy('data', 'desc'),
+        limit(100)
+      );
+      unsubscribe = onSnapshot(
+        q,
+        (snap) => {
+          if (!snap.empty) {
+            const realtimeLogs = snap.docs.map((d) => {
+              const data = d.data();
+              return {
+                id: d.id,
+                timestamp: data.data || data.timestamp || new Date().toISOString(),
+                tenantSubdominio: data.tenantSubdominio || data.subdominio || 'central',
+                tenantNome: data.tenantNome || (data.subdominio ? `Campanha ${data.subdominio}` : 'Banco Central / Demonstração'),
+                autorEmail: data.autorEmail || data.usuarioEmail || 'sistema@campanha.com',
+                usuarioNome: data.usuarioNome || 'Usuário do Sistema',
+                acao: data.acao || 'Ação registrada',
+                detalhes: data.detalhes || '',
+                tipo: data.tipo || 'SISTEMA',
+                entidade: data.entidade || ''
+              };
+            }) as TenantAuditLog[];
+            setAuditLogs(realtimeLogs);
+          }
+        },
+        (error) => {
+          console.warn('[Auditoria] Listener em tempo real:', error?.message);
+        }
+      );
+    } catch (err) {
+      console.warn('[Auditoria] Falha ao inicializar listener em tempo real:', err);
     }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [activeMasterTab, isAuthenticated]);
 
   // 15. Diagnóstico de Saúde de Todos os Clientes (Parte 8)
@@ -1635,7 +1690,7 @@ export default function AdminMasterPage() {
               </div>
 
               <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
-                {(['todos', 'criacao', 'edicao', 'status_alterado', 'bootstrap', 'backup_exportado', 'backup_restaurado'] as const).map((ac) => (
+                {(['todos', 'criacao', 'edicao', 'status_alterado', 'bootstrap', 'backup_exportado', 'backup_restaurado', 'exclusao'] as const).map((ac) => (
                   <button
                     key={ac}
                     onClick={() => setAuditActionFilter(ac)}
@@ -1651,7 +1706,8 @@ export default function AdminMasterPage() {
                      ac === 'status_alterado' ? 'Status' :
                      ac === 'bootstrap' ? 'Bootstrap' :
                      ac === 'backup_exportado' ? 'Exportação' :
-                     'Restauração'}
+                     ac === 'backup_restaurado' ? 'Restauração' :
+                     'Exclusão'}
                   </button>
                 ))}
               </div>
@@ -1682,42 +1738,62 @@ export default function AdminMasterPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant/30">
-                      {filteredAuditLogs.map((log) => (
-                        <tr key={log.id} className="hover:bg-surface-container-high/40 transition-colors">
-                          <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
-                            {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString('pt-BR') : 'Agora'}
-                          </td>
-                          <td className="py-3 px-4 whitespace-nowrap">
-                            <span className="font-bold text-on-surface">{log.tenantNome}</span>
-                            <span className="block text-[10px] text-on-surface-variant font-mono">
-                              {log.tenantSubdominio}.adti.app.br
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 whitespace-nowrap">
-                            <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
-                                log.acao === 'backup_restaurado'
-                                  ? 'bg-purple-500/15 text-purple-700 border border-purple-500/30'
-                                  : log.acao === 'bootstrap'
-                                  ? 'bg-emerald-500/15 text-emerald-700 border border-emerald-500/30'
-                                  : log.acao === 'backup_exportado'
-                                  ? 'bg-blue-500/15 text-blue-700 border border-blue-500/30'
-                                  : log.acao === 'status_alterado'
-                                  ? 'bg-amber-500/15 text-amber-700 border border-amber-500/30'
-                                  : 'bg-primary/10 text-primary border border-primary/20'
-                              }`}
-                            >
-                              {log.acao}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
-                            {log.autorEmail}
-                          </td>
-                          <td className="py-3 px-4 text-xs text-on-surface">
-                            {log.detalhes}
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredAuditLogs.map((log) => {
+                        const dateDisplay = (() => {
+                          const ts = log.timestamp;
+                          if (!ts) return 'Agora';
+                          if (ts?.toDate && typeof ts.toDate === 'function') {
+                            return ts.toDate().toLocaleString('pt-BR');
+                          }
+                          if (typeof ts === 'string' || typeof ts === 'number') {
+                            const d = new Date(ts);
+                            if (!isNaN(d.getTime())) return d.toLocaleString('pt-BR');
+                          }
+                          if (ts?.seconds) {
+                            return new Date(ts.seconds * 1000).toLocaleString('pt-BR');
+                          }
+                          return 'Agora';
+                        })();
+
+                        return (
+                          <tr key={log.id} className="hover:bg-surface-container-high/40 transition-colors">
+                            <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
+                              {dateDisplay}
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <span className="font-bold text-on-surface">{log.tenantNome}</span>
+                              <span className="block text-[10px] text-on-surface-variant font-mono">
+                                {log.tenantSubdominio}.adti.app.br
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <span
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                  log.acao === 'backup_restaurado'
+                                    ? 'bg-purple-500/15 text-purple-700 border border-purple-500/30'
+                                    : log.acao === 'bootstrap'
+                                    ? 'bg-emerald-500/15 text-emerald-700 border border-emerald-500/30'
+                                    : log.acao === 'backup_exportado'
+                                    ? 'bg-blue-500/15 text-blue-700 border border-blue-500/30'
+                                    : log.acao === 'status_alterado'
+                                    ? 'bg-amber-500/15 text-amber-700 border border-amber-500/30'
+                                    : log.acao === 'exclusao'
+                                    ? 'bg-rose-500/15 text-rose-700 border border-rose-500/30'
+                                    : 'bg-primary/10 text-primary border border-primary/20'
+                                }`}
+                              >
+                                {log.acao}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
+                              {log.autorEmail}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-on-surface">
+                              {log.detalhes}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

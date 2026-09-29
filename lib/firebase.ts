@@ -566,15 +566,32 @@ export async function restoreTenantBackup(
 export async function recordCentralAuditLog(
   log: Omit<TenantAuditLog, 'id' | 'timestamp'>
 ): Promise<void> {
+  // 1. Gravação resiliente via API do servidor (Service Account / Firestore REST)
+  try {
+    if (typeof window !== 'undefined') {
+      fetch('/api/admin/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(log)
+      }).catch((apiErr) => console.warn('Aviso ao enviar auditoria via API:', apiErr));
+    }
+  } catch (err) {
+    console.warn('Falha silenciosa ao acionar rota de auditoria:', err);
+  }
+
+  // 2. Gravação direta no Firestore central via SDK do cliente
   try {
     const centralDb = getCentralDb();
-    const logsCol = collection(centralDb, 'clientes_audit_logs');
+    const logsCol = collection(centralDb, 'logs_auditoria');
     await addDoc(logsCol, {
       ...log,
+      tipo: 'ADMIN_MASTER',
+      entidade: 'Cliente / Tenant',
+      data: new Date().toISOString(),
       timestamp: serverTimestamp()
     });
   } catch (e) {
-    console.warn('Aviso: falha ao gravar log de auditoria central:', e);
+    console.warn('Aviso: falha ao gravar log de auditoria central via SDK:', e);
   }
 }
 
@@ -582,20 +599,49 @@ export async function recordCentralAuditLog(
  * Consulta os logs de auditoria central dos tenants (Parte 8)
  */
 export async function getCentralAuditLogs(limitCount: number = 50): Promise<TenantAuditLog[]> {
+  // 1. Tenta carregar via API REST do servidor (rápido, ordenado e sem bloqueios de regras)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch(`/api/admin/audit?limit=${limitCount}`, {
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.success && Array.isArray(data.logs)) {
+          return data.logs as TenantAuditLog[];
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Consulta de auditoria via API falhou, tentando SDK:', apiErr);
+    }
+  }
+
+  // 2. Fallback via SDK Firestore do cliente
   try {
     const centralDb = getCentralDb();
     const q = query(
-      collection(centralDb, 'clientes_audit_logs'),
-      orderBy('timestamp', 'desc'),
+      collection(centralDb, 'logs_auditoria'),
+      orderBy('data', 'desc'),
       limit(limitCount)
     );
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data()
-    })) as TenantAuditLog[];
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        timestamp: data.data || data.timestamp || new Date().toISOString(),
+        tenantSubdominio: data.tenantSubdominio || data.subdominio || 'central',
+        tenantNome: data.tenantNome || (data.subdominio ? `Campanha ${data.subdominio}` : 'Banco Central / Demonstração'),
+        autorEmail: data.autorEmail || data.usuarioEmail || 'sistema@campanha.com',
+        usuarioNome: data.usuarioNome || 'Usuário do Sistema',
+        acao: data.acao || 'Ação registrada',
+        detalhes: data.detalhes || '',
+        tipo: data.tipo || 'SISTEMA',
+        entidade: data.entidade || ''
+      };
+    }) as TenantAuditLog[];
   } catch (e) {
-    console.warn('Aviso ao consultar logs centrais:', e);
+    console.warn('Aviso ao consultar logs centrais via SDK:', e);
     return [];
   }
 }

@@ -117,7 +117,7 @@ export async function middleware(request: NextRequest) {
     const resolveUrl = new URL(`/api/tenant/resolve?subdomain=${encodeURIComponent(subdomain)}`, request.url);
     const resolveRes = await fetch(resolveUrl.toString(), {
       headers: { 'Accept': 'application/json' },
-      next: { revalidate: 60 } // Cache curto de 60 segundos no edge worker
+      cache: 'no-store'
     });
 
     const contentType = resolveRes.headers.get('content-type') || '';

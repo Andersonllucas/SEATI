@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setDocRest, deleteDocRest, getDocRest, queryFirestoreRest } from '@/lib/firestoreRest';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0'
+};
+
 export async function GET() {
   try {
     const clients = await queryFirestoreRest('clientes_registry', undefined, 100);
     return NextResponse.json({
       success: true,
       clients
-    });
+    }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error?.message || 'Falha ao buscar clientes.' },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }
@@ -70,7 +79,7 @@ export async function POST(req: NextRequest) {
     if (!saved) {
       return NextResponse.json(
         { success: false, error: 'Não foi possível salvar o cliente no banco central.' },
-        { status: 500 }
+        { status: 500, headers: NO_CACHE_HEADERS }
       );
     }
 
@@ -78,12 +87,12 @@ export async function POST(req: NextRequest) {
       success: true,
       client: clientPayload,
       message: 'Cliente salvo com sucesso!'
-    });
+    }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('Erro na API /api/admin/clients (POST):', error);
     return NextResponse.json(
       { success: false, error: error?.message || 'Falha ao processar cadastro do cliente.' },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }

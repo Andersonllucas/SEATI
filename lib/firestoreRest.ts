@@ -83,7 +83,18 @@ let lastFailedAttemptTime = 0;
 const FAILED_RETRY_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora de cooldown se a chave falhar
 
 // Obtém token de acesso OAuth2 usando a Service Account para operações com permissão de administrador
-export async function getServiceAccountAccessToken(): Promise<string | null> {
+export async function getServiceAccountAccessToken(targetProjectId?: string): Promise<string | null> {
+  const sa = getServiceAccountCredentials();
+  if (!sa || !sa.clientEmail || !sa.privateKey) {
+    return null;
+  }
+
+  // Se o projeto de destino for especificado e for diferente do projeto da Service Account,
+  // evita enviar token inválido para outro projeto Google Cloud
+  if (targetProjectId && sa.projectId && sa.projectId !== targetProjectId) {
+    return null;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   if (cachedAccessToken && cachedAccessToken.expiresAt > now + 60) {
     return cachedAccessToken.token;
@@ -91,11 +102,6 @@ export async function getServiceAccountAccessToken(): Promise<string | null> {
 
   // Se a tentativa anterior falhou (ex: chave revogada no Google Cloud), opera direto via API Key
   if (lastFailedAttemptTime > 0 && Date.now() - lastFailedAttemptTime < FAILED_RETRY_COOLDOWN_MS) {
-    return null;
-  }
-
-  const sa = getServiceAccountCredentials();
-  if (!sa || !sa.clientEmail || !sa.privateKey) {
     return null;
   }
 
@@ -187,10 +193,11 @@ export async function queryFirestoreRest(
   collectionId: string,
   fieldFilter?: { field: string; op: 'EQUAL' | 'GREATER_THAN' | 'LESS_THAN'; value: string | number | boolean },
   limitCount: number = 50,
-  cfg?: FirestoreRestConfig
+  cfg?: FirestoreRestConfig,
+  orderByOption?: { field: string; direction: 'ASCENDING' | 'DESCENDING' }
 ): Promise<any[]> {
   const c = resolveConfig(cfg);
-  const token = await getServiceAccountAccessToken();
+  const token = await getServiceAccountAccessToken(c.projectId);
   const url = `https://firestore.googleapis.com/v1/projects/${c.projectId}/databases/${c.databaseId}/documents:runQuery${
     !token && c.apiKey ? `?key=${c.apiKey}` : ''
   }`;
@@ -198,6 +205,15 @@ export async function queryFirestoreRest(
   const structuredQuery: any = {
     from: [{ collectionId }]
   };
+
+  if (orderByOption) {
+    structuredQuery.orderBy = [
+      {
+        field: { fieldPath: orderByOption.field },
+        direction: orderByOption.direction
+      }
+    ];
+  }
 
   if (fieldFilter) {
     let valueField: any = {};
@@ -226,6 +242,7 @@ export async function queryFirestoreRest(
   const res = await fetch(url, {
     method: 'POST',
     headers: getBaseHeaders(token),
+    cache: 'no-store',
     body: JSON.stringify({ structuredQuery })
   });
 
@@ -257,14 +274,15 @@ export async function getDocRest(
   cfg?: FirestoreRestConfig
 ): Promise<any | null> {
   const c = resolveConfig(cfg);
-  const token = await getServiceAccountAccessToken();
+  const token = await getServiceAccountAccessToken(c.projectId);
   const url = `https://firestore.googleapis.com/v1/projects/${c.projectId}/databases/${c.databaseId}/documents/${collectionId}/${encodeURIComponent(docId)}${
     !token && c.apiKey ? `?key=${c.apiKey}` : ''
   }`;
 
   const res = await fetch(url, {
     method: 'GET',
-    headers: getBaseHeaders(token)
+    headers: getBaseHeaders(token),
+    cache: 'no-store'
   });
 
   if (res.status === 404) {
@@ -291,7 +309,7 @@ export async function setDocRest(
   cfg?: FirestoreRestConfig
 ): Promise<boolean> {
   const c = resolveConfig(cfg);
-  const token = await getServiceAccountAccessToken();
+  const token = await getServiceAccountAccessToken(c.projectId);
   const url = `https://firestore.googleapis.com/v1/projects/${c.projectId}/databases/${c.databaseId}/documents/${collectionId}/${encodeURIComponent(docId)}${
     !token && c.apiKey ? `?key=${c.apiKey}` : ''
   }`;
@@ -299,14 +317,16 @@ export async function setDocRest(
   const res = await fetch(url, {
     method: 'PATCH',
     headers: getBaseHeaders(token),
+    cache: 'no-store',
     body: JSON.stringify({
       fields: toFirestoreFields(data)
     })
   });
 
   if (!res.ok) {
-    console.warn(`[firestoreRest] setDoc em ${collectionId}/${docId} falhou (status ${res.status}):`, await res.text());
-    return false;
+    const errText = await res.text();
+    console.warn(`[firestoreRest] setDoc em ${collectionId}/${docId} falhou (status ${res.status}):`, errText);
+    throw new Error(`Firestore REST ${res.status}: ${errText}`);
   }
   return true;
 }
@@ -320,7 +340,7 @@ export async function addDocRest(
   cfg?: FirestoreRestConfig
 ): Promise<string | null> {
   const c = resolveConfig(cfg);
-  const token = await getServiceAccountAccessToken();
+  const token = await getServiceAccountAccessToken(c.projectId);
   const url = `https://firestore.googleapis.com/v1/projects/${c.projectId}/databases/${c.databaseId}/documents/${collectionId}${
     !token && c.apiKey ? `?key=${c.apiKey}` : ''
   }`;
@@ -328,6 +348,7 @@ export async function addDocRest(
   const res = await fetch(url, {
     method: 'POST',
     headers: getBaseHeaders(token),
+    cache: 'no-store',
     body: JSON.stringify({
       fields: toFirestoreFields(data)
     })
@@ -351,14 +372,15 @@ export async function deleteDocRest(
   cfg?: FirestoreRestConfig
 ): Promise<boolean> {
   const c = resolveConfig(cfg);
-  const token = await getServiceAccountAccessToken();
+  const token = await getServiceAccountAccessToken(c.projectId);
   const url = `https://firestore.googleapis.com/v1/projects/${c.projectId}/databases/${c.databaseId}/documents/${collectionId}/${encodeURIComponent(docId)}${
     !token && c.apiKey ? `?key=${c.apiKey}` : ''
   }`;
 
   const res = await fetch(url, {
     method: 'DELETE',
-    headers: getBaseHeaders(token)
+    headers: getBaseHeaders(token),
+    cache: 'no-store'
   });
 
   if (!res.ok && res.status !== 404) {

@@ -36,12 +36,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'SCE - ADTI',
+  title: 'SEATI',
   description: 'Sistema de Gestão Eleitoral e Articulação Política - Gestão de Eleitores, Lideranças e Sub-lideranças',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'SCE - ADTI',
+    title: 'SEATI',
   },
   icons: {
     apple: '/apple-touch-icon.png',

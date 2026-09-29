@@ -3,12 +3,24 @@ import { getDocRest, queryFirestoreRest } from '@/lib/firestoreRest';
 import { CENTRAL_FIREBASE_CONFIG } from '@/lib/centralFirebaseConfig';
 import { TenantClient } from '@/lib/tenantTypes';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0'
+};
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const rawSubdomain = searchParams.get('subdomain');
 
   if (!rawSubdomain) {
-    return NextResponse.json({ success: false, error: 'Subdomínio não informado' }, { status: 400 });
+    return NextResponse.json(
+      { success: false, error: 'Subdomínio não informado' },
+      { status: 400, headers: NO_CACHE_HEADERS }
+    );
   }
 
   const subdomain = rawSubdomain.trim().toLowerCase();
@@ -19,7 +31,7 @@ export async function GET(request: NextRequest) {
       success: true,
       isAdminDomain: true,
       subdomain: 'admin'
-    });
+    }, { headers: NO_CACHE_HEADERS });
   }
 
   // Subdomínios padrão em preview/dev ('demo', 'preview', 'teresina'):
@@ -37,7 +49,7 @@ export async function GET(request: NextRequest) {
         criadoEm: new Date().toISOString(),
         atualizadoEm: new Date().toISOString()
       }
-    });
+    }, { headers: NO_CACHE_HEADERS });
   }
 
   try {
@@ -81,24 +93,25 @@ export async function GET(request: NextRequest) {
         reason: 'not_found',
         subdomain,
         message: `Cliente com subdomínio "${subdomain}" não foi localizado no cadastro.`
-      }, { status: 404 });
+      }, { status: 404, headers: NO_CACHE_HEADERS });
     }
 
-    if (clientData.status !== 'ativo') {
+    const currentStatus = (clientData.status || '').toString().trim().toLowerCase();
+    if (currentStatus !== 'ativo') {
       return NextResponse.json({
         success: false,
         reason: 'inactive',
         subdomain,
         nome: clientData.nome,
         message: `O acesso para "${clientData.nome}" (${subdomain}.adti.app.br) está temporariamente inativo.`
-      }, { status: 403 });
+      }, { status: 403, headers: NO_CACHE_HEADERS });
     }
 
     return NextResponse.json({
       success: true,
       subdomain,
       client: clientData
-    });
+    }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('Erro ao resolver subdomínio no clientes_registry:', error);
     return NextResponse.json({
@@ -106,6 +119,6 @@ export async function GET(request: NextRequest) {
       reason: 'error',
       subdomain,
       error: error?.message || 'Erro ao consultar clientes_registry'
-    }, { status: 500 });
+    }, { status: 500, headers: NO_CACHE_HEADERS });
   }
 }
