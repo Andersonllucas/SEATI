@@ -4,28 +4,26 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Search,
-  UserPlus,
   Menu,
   ShieldCheck,
   User as UserIcon,
   ChevronDown,
-  Settings,
   Users,
   History,
   LogOut,
   Globe,
   Bell,
-  Sliders
+  Sliders,
+  UserPlus
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/context/ToastContext';
 import { useRouter } from 'next/navigation';
+import { ConfigurableHeaderButtons } from '@/components/ConfigurableHeaderButtons';
 
 export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter();
   const { currentUser, isAdmin, logout } = useAuth();
-  const { currentTenant, subdomain } = useTenant();
   const { unreadCount, setIsNotificationDrawerOpen } = useToast();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -61,37 +59,38 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
-        {/* Indicador de Campanha / Banco Ativo */}
-        <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container border border-outline-variant/60 text-xs">
-          <Globe className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="font-semibold text-on-surface truncate max-w-[150px]">
-            {currentTenant ? currentTenant.nome : (subdomain && subdomain !== 'demo' ? `Campanha (${subdomain})` : 'Campanha Teresina')}
-          </span>
-          <span className="text-[10px] font-mono text-on-surface-variant bg-surface-container-highest px-1.5 py-0.5 rounded shrink-0">
-            {currentTenant?.firebaseConfig.projectId || 'seati-d0096'}
-          </span>
-        </div>
+        {/* Botões Configuráveis (posicionados do lado esquerdo do botão Novo Eleitor) */}
+        <ConfigurableHeaderButtons />
 
+        {/* Botão Novo Eleitor */}
         <Link
           href="/eleitores"
           prefetch={true}
           className="hidden sm:flex items-center gap-2 h-9 px-4 rounded-lg bg-primary text-on-primary hover:bg-secondary transition-colors text-sm font-semibold shadow-sm cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
-          Novo Eleitor
+          <span>Novo Eleitor</span>
         </Link>
 
         {/* Botão Central de Notificações & Alertas */}
         <button
           type="button"
           onClick={() => setIsNotificationDrawerOpen(true)}
-          className="relative p-2 rounded-xl border border-outline-variant/50 hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-all cursor-pointer flex items-center justify-center"
-          title="Ver Histórico de Alertas e Notificações"
-          aria-label="Abrir central de alertas"
+          className={`relative p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
+            unreadCount > 0
+              ? 'border-primary/50 bg-primary/10 text-primary hover:bg-primary/20 shadow-sm ring-1 ring-primary/20'
+              : 'border-outline-variant/50 hover:bg-surface-container text-on-surface-variant hover:text-on-surface'
+          }`}
+          title={
+            unreadCount > 0
+              ? `${unreadCount} notificação(ões) pendente(s) - Clique para abrir`
+              : 'Central de Alertas e Notificações'
+          }
+          aria-label="Abrir central de alertas e notificações"
         >
-          <Bell className="w-5 h-5" />
+          <Bell className={`w-5 h-5 transition-transform ${unreadCount > 0 ? 'text-primary scale-105' : ''}`} />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-md animate-pulse">
+            <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-lg ring-2 ring-surface animate-pulse">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}

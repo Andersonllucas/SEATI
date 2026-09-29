@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useAuth, AppUser, UserRole, UserStatus, LogTipo } from '@/context/AuthContext';
 import { ESTADOS_BRASIL, CIDADES_DISPONIVEIS } from '@/lib/locaisCatalog';
+import { HeaderButtonsManager } from '@/components/HeaderButtonsManager';
 
 function ConfiguracoesContent() {
   const searchParams = useSearchParams();
@@ -524,7 +525,7 @@ function ConfiguracoesContent() {
           }`}
         >
           <Sliders className="w-4 h-4" />
-          Parâmetros da Campanha
+          Configurações Gerais & Parâmetros
         </button>
       </div>
 
@@ -1018,9 +1019,14 @@ function ConfiguracoesContent() {
         </div>
       )}
 
-      {/* ABA 4: PARÂMETROS DA CAMPANHA */}
+      {/* ABA 4: CONFIGURAÇÕES GERAIS & PARÂMETROS */}
       {activeTab === 'parametros' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-200">
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Gerenciador de Botões Rápidos do Cabeçalho (Exclusivo Administrador) */}
+          <HeaderButtonsManager />
+
+          {/* Regras e Metas da Campanha */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-surface-container-lowest border border-outline-variant/70 rounded-xl p-6 shadow-sm space-y-4">
             <div className="flex items-center gap-3 border-b border-outline-variant/40 pb-4">
               <div className="p-2 bg-surface-container-low rounded text-secondary">
@@ -1202,6 +1208,7 @@ function ConfiguracoesContent() {
                 Salvar Alterações
               </button>
             </div>
+          </div>
           </div>
         </div>
       )}

@@ -58,6 +58,15 @@ export interface LogAuditoria {
   entidadeId?: string;
 }
 
+export interface CustomHeaderButton {
+  id: string;
+  label: string;
+  url: string;
+  targetBlank?: boolean;
+  variant?: 'primary' | 'secondary' | 'outline' | 'surface';
+  icon?: 'link' | 'user' | 'chat' | 'file' | 'globe' | 'star' | 'external';
+}
+
 export interface SystemConfig {
   nomeCampanha: string;
   candidatoNome: string;
@@ -71,6 +80,7 @@ export interface SystemConfig {
   municipioPadrao: string;
   ufPadrao: string;
   contatoSuporte: string;
+  botoesCabecalho?: CustomHeaderButton[];
   atualizadoPor?: string;
   dataAtualizacao?: any;
 }
@@ -126,7 +136,8 @@ const DEFAULT_CONFIG: SystemConfig = {
   bloqueioTituloDuplicado: true,
   municipioPadrao: 'Teresina',
   ufPadrao: 'PI',
-  contatoSuporte: '(86) 99999-0000'
+  contatoSuporte: '(86) 99999-0000',
+  botoesCabecalho: []
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -561,6 +572,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           }).catch(() => {});
+        }
+
+        // Notifica em tempo real a Central de Alertas (ícone do sino)
+        // Apenas para alterações e exclusões (sem cadastros ou eventos internos de firestore)
+        if (typeof window !== 'undefined' && (params.tipo === 'ALTERACAO' || params.tipo === 'EXCLUSAO')) {
+          try {
+            window.dispatchEvent(
+              new CustomEvent('app:notification', {
+                detail: {
+                  type: params.tipo === 'ALTERACAO' ? 'info' : 'warn',
+                  title: params.acao,
+                  message: params.detalhes || params.acao,
+                  details: `Registro auditado: ${params.entidade || 'Sistema'}`,
+                  tipo: params.tipo
+                }
+              })
+            );
+          } catch {}
         }
       } catch (err) {
         console.warn('Registro de log completado em contingência:', err);
