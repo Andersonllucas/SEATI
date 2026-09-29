@@ -5,7 +5,10 @@
   "packageManager": "npm@10.8.2",
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
-    "build": "next build",
+    "build": "opennextjs-cloudflare build",
+    "build:worker": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && wrangler deploy",
     "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "eslint .",
     "clean": "next clean"
