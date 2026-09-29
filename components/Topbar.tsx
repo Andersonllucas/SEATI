@@ -14,7 +14,8 @@ import {
   History,
   LogOut,
   Globe,
-  Bell
+  Bell,
+  Sliders
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
@@ -162,12 +163,12 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
               {/* Ações de navegação do usuário */}
               <div className="p-2 space-y-0.5">
                 <Link
-                  href="/configuracoes"
+                  href="/configuracoes?tab=parametros"
                   prefetch={true}
                   onClick={() => setIsDropdownOpen(false)}
                   className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-on-surface hover:bg-surface-container transition-colors"
                 >
-                  <Settings className="w-4 h-4 text-primary" />
+                  <Sliders className="w-4 h-4 text-primary" />
                   <span>Configurações da Campanha</span>
                 </Link>
 

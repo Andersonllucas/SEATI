@@ -15,8 +15,7 @@ import {
   HelpCircle,
   Vote,
   LogOut,
-  Globe,
-  Sliders
+  Globe
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useCampaignUI } from '@/context/CampaignUIContext';
@@ -122,7 +121,6 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
         title: 'Inteligência & Gestão',
         items: [
           { href: '/importacao', icon: FileDown, label: 'Importação e Relatórios' },
-          { href: '/configuracoes?tab=parametros', icon: Sliders, label: 'Parâmetros da Campanha' },
           { href: '/configuracoes', icon: Settings, label: 'Configurações Gerais' },
         ],
       },
