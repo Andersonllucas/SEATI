@@ -128,23 +128,8 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
       },
     ];
 
-    if (isAdmin) {
-      sections.push({
-        id: 'administracao',
-        title: 'Administração',
-        items: [
-          {
-            href: '/admin-master',
-            icon: Globe,
-            label: 'Painel Master Multi-Tenant',
-            badge: 'Master',
-          },
-        ],
-      });
-    }
-
     return sections;
-  }, [isAdmin, totalConflitosCount]);
+  }, [totalConflitosCount]);
 
   const activeCampaignName = currentTenant?.nome || (subdomain && subdomain !== 'demo' ? `Campanha ${subdomain}` : 'Campanha Teresina 2026');
   const activeSubdomain = currentTenant?.subdominio || subdomain || 'demo';

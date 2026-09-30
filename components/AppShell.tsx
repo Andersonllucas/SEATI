@@ -20,7 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pathname = usePathname();
   const { currentUser, isLoading, isAuthReady, logout } = useAuth();
-  const { tenantError, isLoadingTenant } = useTenant();
+  const { tenantError, isLoadingTenant, isAdminMaster, subdomain } = useTenant();
 
   React.useEffect(() => {
     setMounted(true);
@@ -46,13 +46,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === '/login';
   const isAdminMasterPath = pathname?.startsWith('/admin-master');
   const isTenantErrorPath = pathname?.startsWith('/tenant-error');
+  // Se estiver no domínio master, em rota /admin-master ou com subdomínio 'admin', isola 100%
+  const isMaster = isAdminMaster || subdomain === 'admin' || isAdminMasterPath;
   const isPublicRegistrationPath =
     pathname === '/cadastro-externo' ||
     pathname?.startsWith('/cadastro-externo/') ||
     pathname === '/campo' ||
     pathname?.startsWith('/campo/');
 
-  // Rotas de cadastro externo para equipe de campo (sem autenticação, isoladas do painel administrativo)
+  // 1. Rotas de cadastro externo para equipe de campo (sem autenticação, isoladas do painel administrativo)
   if (isPublicRegistrationPath) {
     return (
       <div className="min-h-screen bg-surface-container-lowest">
@@ -62,8 +64,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Rota do painel master ou tela de erro de subdomínio renderiza diretamente sem o layout de campanha
-  if (isAdminMasterPath || isTenantErrorPath) {
+  // 2. ROTA EXCLUSIVA DO PAINEL MASTER OU TELA DE ERRO (100% ISOLADAS DO SISTEMA DE CAMPANHA)
+  // O painel master roda de forma totalmente autônoma, sem barra lateral de campanha, topo ou login de eleitores
+  if (isMaster || isTenantErrorPath) {
     return <>{children}</>;
   }
 

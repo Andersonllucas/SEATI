@@ -25,12 +25,12 @@ export async function middleware(request: NextRequest) {
     requestHeaders.set('x-is-admin-domain', 'true');
     requestHeaders.set('x-tenant-subdomain', 'admin');
 
-    // Se estiver acessando a raiz do domínio admin, reescreve diretamente para o painel /admin-master
-    if (pathname === '/') {
+    // Se estiver acessando a raiz ou rota interna que não seja /admin-master, redireciona para o painel isolado
+    if (pathname !== '/admin-master') {
       const url = request.nextUrl.clone();
       url.pathname = '/admin-master';
-      return NextResponse.rewrite(url, {
-        request: { headers: requestHeaders }
+      return NextResponse.redirect(url, {
+        headers: requestHeaders
       });
     }
 
@@ -49,22 +49,27 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Se o primeiro rótulo for "admin", redireciona para a área master
+  // Se o primeiro rótulo for "admin", redireciona para a área master isolada
   if (subdomain === 'admin') {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set('x-is-admin-domain', 'true');
     requestHeaders.set('x-tenant-subdomain', 'admin');
 
-    if (pathname === '/') {
+    if (pathname !== '/admin-master') {
       const url = request.nextUrl.clone();
       url.pathname = '/admin-master';
-      return NextResponse.rewrite(url, {
-        request: { headers: requestHeaders }
+      return NextResponse.redirect(url, {
+        headers: requestHeaders
       });
     }
     return NextResponse.next({
       request: { headers: requestHeaders }
     });
+  }
+
+  // Se for domínio de cliente (*.adti.app.br) e tentar acessar /admin-master, redireciona para o domínio exclusivo
+  if (subdomain && subdomain !== 'admin' && pathname.startsWith('/admin-master')) {
+    return NextResponse.redirect('https://admin.adti.app.br/admin-master');
   }
 
   // Suporte a ambientes de desenvolvimento ou preview Cloud Run

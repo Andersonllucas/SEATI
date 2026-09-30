@@ -11,7 +11,6 @@ import {
   Users,
   History,
   LogOut,
-  Globe,
   Bell,
   Sliders
 } from 'lucide-react';
@@ -179,15 +178,6 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
                     >
                       <History className="w-4 h-4 text-outline" />
                       <span>Trilha de Auditoria</span>
-                    </Link>
-                    <Link
-                      href="/admin-master"
-                      prefetch={true}
-                      onClick={() => setIsDropdownOpen(false)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
-                    >
-                      <Globe className="w-4 h-4 text-primary" />
-                      <span>Painel Master (Clientes & Bancos)</span>
                     </Link>
                   </>
                 )}
