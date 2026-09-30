@@ -794,6 +794,57 @@ export default function Eleitores() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
+      {/* Top Banner & Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-semibold text-secondary uppercase tracking-wider">
+              Gestão Territorial
+            </span>
+            <span className="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full font-medium">
+              Base Eleitoral
+            </span>
+          </div>
+          <h1 className="text-xl md:text-2xl text-on-surface font-bold tracking-tight">
+            Base de Eleitores
+          </h1>
+          <p className="text-sm text-on-surface-variant mt-0.5">
+            Cadastre novos eleitores, audite duplicidades de CPF e gerencie a vinculação com lideranças.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="px-4 py-2 bg-primary text-on-primary hover:bg-secondary rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-md hover:shadow-lg cursor-pointer"
+            title="Abrir cadastro de novo eleitor no formulário lateral"
+          >
+            <UserPlus className="w-4 h-4 text-primary-fixed" />
+            <span>Novo Eleitor</span>
+          </button>
+
+          <Link
+            href="/cadastro-em-massa"
+            className="px-3.5 py-2 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Ambiente otimizado para cadastro contínuo de vários eleitores"
+          >
+            <Zap className="w-3.5 h-3.5 text-secondary" />
+            <span>Cadastro em Lote</span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => setIsShareFieldModalOpen(true)}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            title="Gerar link público ou QR Code para a equipe de campo"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Link de Campo</span>
+          </button>
+        </div>
+      </div>
+
       {/* Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 shrink-0">
         <Metric title="Total de Eleitores" value={eleitores.length.toString()} sub="Cadastrados no banco" />
@@ -980,12 +1031,23 @@ export default function Eleitores() {
               />
             </div>
 
+            {/* Botão Novo Eleitor (Abre o Drawer Lateral à Direita) */}
+            <button
+              type="button"
+              onClick={handleOpenCreate}
+              className="px-3.5 py-2 bg-primary text-on-primary rounded-md text-xs font-bold flex items-center gap-1.5 hover:bg-secondary transition-colors shadow-sm cursor-pointer"
+              title="Cadastrar novo eleitor individualmente (abre formulário lateral à direita)"
+            >
+              <UserPlus className="w-4 h-4 text-primary-fixed" />
+              <span>Novo Eleitor</span>
+            </button>
+
             <Link
               href="/cadastro-em-massa"
-              className="px-3.5 py-2 bg-primary text-on-primary rounded-md text-xs font-semibold flex items-center gap-1.5 hover:bg-secondary transition-colors shadow-sm"
+              className="px-3.5 py-2 bg-surface-container-high border border-outline-variant/60 text-on-surface hover:bg-surface-container-highest rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
               title="Ambiente otimizado para cadastro contínuo de vários eleitores"
             >
-              <Zap className="w-4 h-4 text-primary-fixed" /> Cadastro em Lote
+              <Zap className="w-4 h-4 text-secondary" /> Cadastro em Lote
             </Link>
 
             <button
