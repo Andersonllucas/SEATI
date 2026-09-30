@@ -11,6 +11,7 @@ import {
   MapPin,
   ShieldAlert,
   FileDown,
+  Printer,
   Settings,
   HelpCircle,
   Vote,
@@ -122,7 +123,8 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
         id: 'gestao',
         title: 'Inteligência & Gestão',
         items: [
-          { href: '/importacao', icon: FileDown, label: 'Importação e Relatórios' },
+          { href: '/relatorios', icon: Printer, label: 'Central de Relatórios', badge: 'Impressão' },
+          { href: '/importacao', icon: FileDown, label: 'Importação de Dados' },
           { href: '/configuracoes', icon: Settings, label: 'Configurações Gerais' },
         ],
       },

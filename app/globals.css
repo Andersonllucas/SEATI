@@ -79,4 +79,89 @@ h1, h2, h3, h4, h5, h6, .font-display {
   to { width: 0%; }
 }
 
+/* ========================================================
+   ESTILOS DE IMPRESSÃO PROFISSIONAL (A4 / FOLHA DE CAMPO)
+   ======================================================== */
+@media print {
+  @page {
+    size: auto;
+    margin: 10mm 8mm;
+  }
+
+  /* Oculta completamente elementos de navegação e controles */
+  aside,
+  header,
+  nav,
+  .no-print,
+  [data-no-print="true"],
+  button,
+  .print-hidden {
+    display: none !important;
+  }
+
+  body,
+  html,
+  main,
+  #app-main-content {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .print-container {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Exibe cabeçalho oficial de impressão */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Tabela de impressão com bordas nítidas e compactas */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 8pt !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+  }
+
+  th {
+    background-color: #001428 !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-weight: 700 !important;
+    padding: 4px 6px !important;
+    border: 1px solid #94a3b8 !important;
+  }
+
+  td {
+    padding: 3.5px 6px !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  /* Impede quebras desnecessárias */
+  .break-inside-avoid {
+    page-break-inside: avoid !important;
+  }
+}
+
 
