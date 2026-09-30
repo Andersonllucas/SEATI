@@ -81,6 +81,7 @@ export interface SystemConfig {
   ufPadrao: string;
   contatoSuporte: string;
   botoesCabecalho?: CustomHeaderButton[];
+  senhaCadastroLiderancaCampo?: string;
   atualizadoPor?: string;
   dataAtualizacao?: any;
 }
@@ -137,7 +138,8 @@ const DEFAULT_CONFIG: SystemConfig = {
   municipioPadrao: 'Teresina',
   ufPadrao: 'PI',
   contatoSuporte: '(86) 99999-0000',
-  botoesCabecalho: []
+  botoesCabecalho: [],
+  senhaCadastroLiderancaCampo: '123456'
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

@@ -32,6 +32,7 @@ export interface Eleitor {
   secao: string;
   bairro: string;
   cidade?: string;
+  estado?: string;
   endereco?: string;
   cep?: string;
   liderancaId?: string;
@@ -67,6 +68,17 @@ export const cleanCpfUtil = (cpf?: string): string => {
 export const cleanTituloUtil = (titulo?: string): string => {
   if (!titulo) return '';
   return titulo.replace(/\D/g, '');
+};
+
+/**
+ * Formata o Título de Eleitor em 3 blocos de 4 dígitos: 0000.0000.0000
+ */
+export const formatTituloUtil = (val?: string): string => {
+  if (!val) return '';
+  const digits = val.replace(/\D/g, '').slice(0, 12);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 8) return `${digits.slice(0, 4)}.${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}.${digits.slice(4, 8)}.${digits.slice(8, 12)}`;
 };
 
 function sanitizeFirestoreData<T extends Record<string, any>>(data: T): T {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   UserPlus,
   Edit,
@@ -20,15 +20,13 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  Plus,
-  MapPin,
   Download,
   MessageSquare,
   Phone,
   Copy,
   FileText,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Share2
 } from 'lucide-react';
 import {
   collection,
@@ -41,9 +39,13 @@ import {
 import { getActiveDb } from '@/lib/firebase';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { useCampaignData, Eleitor } from '@/context/CampaignContext';
+import { useTenant } from '@/context/TenantContext';
+import { useCampaignData, Eleitor, formatTituloUtil } from '@/context/CampaignContext';
 import { exportVotersReal } from '@/lib/importExportUtils';
+import { ESTADOS_BRASIL } from '@/lib/locaisCatalog';
 import { VoterRow } from '@/components/VoterRow';
+import { BairroSelector } from '@/components/BairroSelector';
+import { ShareFieldLinkModal } from '@/components/ShareFieldLinkModal';
 
 const STATUS_OPTIONS = [
   {
@@ -110,6 +112,7 @@ export default function Eleitores() {
     batchUpdateEleitores
   } = useCampaignData();
   const { solicitarSenhaMestre, registrarLog } = useAuth();
+  const { currentTenant } = useTenant();
   const loading = !isLoaded;
 
   // Estado de aviso permanente no topo da página de eleitores
@@ -183,6 +186,7 @@ export default function Eleitores() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLiderancaFilter, setSelectedLiderancaFilter] = useState('todas');
   const [statusFilter, setStatusFilter] = useState('todos');
+  const [isShareFieldModalOpen, setIsShareFieldModalOpen] = useState(false);
 
   // Form State
   const [nome, setNome] = useState('');
@@ -190,8 +194,8 @@ export default function Eleitores() {
   const [tituloEleitor, setTituloEleitor] = useState('');
   const [telefone, setTelefone] = useState('');
   const [bairro, setBairro] = useState('');
-  const [isBairroDropdownOpen, setIsBairroDropdownOpen] = useState(false);
-  const bairroContainerRef = useRef<HTMLDivElement>(null);
+  const [cidade, setCidade] = useState('');
+  const [estado, setEstado] = useState('');
   const [zona, setZona] = useState('');
   const [secao, setSecao] = useState('');
   const [formStatus, setFormStatus] = useState<string>('Validado');
@@ -214,27 +218,6 @@ export default function Eleitores() {
     (locais || []).forEach((loc) => addBairro(loc.bairro));
     return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [eleitores, liderancas, locais]);
-
-  // Bairros filtrados conforme o termo digitado
-  const filteredBairros = useMemo(() => {
-    const term = (bairro || '').trim().toLowerCase();
-    if (!term) return registeredBairros;
-    return registeredBairros.filter((b) => b.toLowerCase().includes(term));
-  }, [registeredBairros, bairro]);
-
-  // Fechar dropdown de bairros ao clicar fora
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        bairroContainerRef.current &&
-        !bairroContainerRef.current.contains(event.target as Node)
-      ) {
-        setIsBairroDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const liderancasPrincipais = useMemo(
     () => liderancas.filter((l) => l.tipo === 'Liderança Principal'),
@@ -276,7 +259,6 @@ export default function Eleitores() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (duplicateConfirmModal) setDuplicateConfirmModal(null);
-        else if (isBairroDropdownOpen) setIsBairroDropdownOpen(false);
         else if (isDrawerOpen) setIsDrawerOpen(false);
         else if (confirmDialog) setConfirmDialog(null);
         else if (isConflictModalOpen) setIsConflictModalOpen(false);
@@ -290,7 +272,6 @@ export default function Eleitores() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     duplicateConfirmModal,
-    isBairroDropdownOpen,
     isDrawerOpen,
     confirmDialog,
     isConflictModalOpen,
@@ -309,7 +290,8 @@ export default function Eleitores() {
     setTituloEleitor('');
     setTelefone('');
     setBairro('');
-    setIsBairroDropdownOpen(false);
+    setCidade(currentTenant?.cidade || '');
+    setEstado(currentTenant?.uf || 'SP');
     setZona('');
     setSecao('');
     setFormStatus('Validado');
@@ -322,11 +304,12 @@ export default function Eleitores() {
     setDrawerFormError(null);
     setDuplicateConfirmModal(null);
     setNome(eleitor.nome || '');
-    setCpf(formatCPF(eleitor.cpf || ''));
-    setTituloEleitor(eleitor.tituloEleitor || '');
+    setCpf(eleitor.cpf ? formatCPF(eleitor.cpf) : '');
+    setTituloEleitor(formatTituloUtil(eleitor.tituloEleitor || ''));
     setTelefone(eleitor.telefone || '');
     setBairro(eleitor.bairro || '');
-    setIsBairroDropdownOpen(false);
+    setCidade(eleitor.cidade || currentTenant?.cidade || '');
+    setEstado(eleitor.estado || currentTenant?.uf || 'SP');
     setZona(eleitor.zona || '');
     setSecao(eleitor.secao || '');
     setFormStatus(eleitor.status || 'Validado');
@@ -422,10 +405,11 @@ export default function Eleitores() {
       return;
     }
 
-    if (!cleanCpfDigits || cleanCpfDigits.length !== 11) {
+    // CPF não é mais obrigatório: se digitado, deve ter 11 dígitos
+    if (cleanCpfDigits && cleanCpfDigits.length !== 11) {
       setDrawerFormError({
         title: 'CPF Incompleto (Exige 11 Dígitos)',
-        message: `O CPF informado possui ${cleanCpfDigits.length} dígitos. Verifique o número digitado.`
+        message: `O CPF informado possui ${cleanCpfDigits.length} dígitos. Caso deseje informar o CPF, digite os 11 números ou deixe em branco.`
       });
       return;
     }
@@ -448,13 +432,16 @@ export default function Eleitores() {
 
     const selectedLider = liderancas.find((l) => l.id === selectedLiderId);
     const liderancaNome = selectedLider ? selectedLider.nome : 'Sem Liderança Definida';
+    const formattedTitulo = formatTituloUtil(trimmedTitulo);
 
     const payload: Partial<Eleitor> = {
       nome: trimmedNome,
-      cpf: formatCPF(cleanCpfDigits),
-      tituloEleitor: trimmedTitulo,
+      cpf: cleanCpfDigits ? formatCPF(cleanCpfDigits) : '',
+      tituloEleitor: formattedTitulo,
       telefone: telefone.trim(),
       bairro: bairro.trim(),
+      cidade: cidade.trim(),
+      estado: estado.trim(),
       zona: trimmedZona,
       secao: trimmedSecao,
       lideranca: liderancaNome,
@@ -463,9 +450,9 @@ export default function Eleitores() {
     };
 
     // 2. Verificação de conflito em tempo real (CPF ou Título de Eleitor)
-    const existingCpfMatch = eleitores.find(
-      (v) => cleanCpf(v.cpf) === cleanCpfDigits && v.id !== editingId
-    );
+    const existingCpfMatch = cleanCpfDigits.length === 11
+      ? eleitores.find((v) => cleanCpf(v.cpf) === cleanCpfDigits && v.id !== editingId)
+      : null;
 
     const existingTituloMatch = cleanTituloDigits.length >= 5
       ? eleitores.find(
@@ -995,17 +982,19 @@ export default function Eleitores() {
 
             <Link
               href="/cadastro-em-massa"
-              className="px-3 py-2 bg-secondary text-on-primary rounded-md text-xs font-semibold flex items-center gap-1.5 hover:bg-secondary/90 transition-colors shadow-sm"
+              className="px-3.5 py-2 bg-primary text-on-primary rounded-md text-xs font-semibold flex items-center gap-1.5 hover:bg-secondary transition-colors shadow-sm"
               title="Ambiente otimizado para cadastro contínuo de vários eleitores"
             >
-              <Zap className="w-4 h-4 text-primary-fixed" /> Cadastro em Massa
+              <Zap className="w-4 h-4 text-primary-fixed" /> Cadastro em Lote
             </Link>
 
             <button
-              onClick={handleOpenCreate}
-              className="px-3.5 py-2 bg-primary-container text-on-primary rounded-md text-xs font-semibold flex items-center gap-1.5 hover:bg-secondary transition-colors shadow-sm"
+              type="button"
+              onClick={() => setIsShareFieldModalOpen(true)}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              title="Gerar link público ou QR Code para a equipe de campo cadastrar eleitores sem login"
             >
-              <UserPlus className="w-4 h-4" /> Novo Eleitor
+              <Share2 className="w-4 h-4" /> Link de Campo
             </button>
           </div>
         </div>
@@ -1188,6 +1177,21 @@ export default function Eleitores() {
                       <p className="text-xs text-on-surface-variant">
                         Cadastre um novo eleitor vinculado a uma liderança ou altere os filtros de busca.
                       </p>
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          type="button"
+                          onClick={handleOpenCreate}
+                          className="px-3.5 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-semibold hover:bg-secondary transition-colors cursor-pointer shadow-xs"
+                        >
+                          + Cadastrar Eleitor
+                        </button>
+                        <Link
+                          href="/cadastro-em-massa"
+                          className="px-3 py-1.5 border border-outline-variant bg-surface rounded-lg text-xs font-semibold text-on-surface hover:bg-surface-container transition-colors"
+                        >
+                          Ir para Cadastro em Lote
+                        </Link>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -1344,15 +1348,14 @@ export default function Eleitores() {
               <div>
                 <div className="flex justify-between items-end mb-1.5">
                   <label className="block text-xs font-semibold text-on-surface">
-                    CPF Oficial <span className="text-error">*</span>
+                    CPF Oficial <span className="text-[11px] text-on-surface-variant font-normal">(Opcional)</span>
                   </label>
                 </div>
                 <input
                   type="text"
-                  required
                   value={cpf}
                   onChange={(e) => setCpf(formatCPF(e.target.value))}
-                  placeholder="000.000.000-00"
+                  placeholder="000.000.000-00 (opcional)"
                   className={`w-full h-10 border rounded-md px-3 text-sm outline-none font-mono placeholder:text-outline/70 bg-surface text-on-surface ${
                     liveCpfConflict
                       ? 'border-error ring-1 ring-error'
@@ -1369,8 +1372,8 @@ export default function Eleitores() {
                   type="text"
                   required
                   value={tituloEleitor}
-                  onChange={(e) => setTituloEleitor(e.target.value)}
-                  placeholder="0000 0000 0000"
+                  onChange={(e) => setTituloEleitor(formatTituloUtil(e.target.value))}
+                  placeholder="0000.0000.0000"
                   className={`w-full h-10 border rounded-md px-3 text-sm outline-none font-mono placeholder:text-outline/70 bg-surface text-on-surface ${
                     liveTituloConflict
                       ? 'border-error ring-1 ring-error'
@@ -1446,121 +1449,51 @@ export default function Eleitores() {
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="relative" ref={bairroContainerRef}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-on-surface">
-                    Bairro / Localidade
-                  </label>
-                  {registeredBairros.length > 0 && (
-                    <span className="text-[10px] text-on-surface-variant font-medium">
-                      {registeredBairros.length} cadastrados
-                    </span>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={bairro}
-                    onChange={(e) => {
-                      setBairro(e.target.value);
-                      setIsBairroDropdownOpen(true);
-                    }}
-                    onFocus={() => setIsBairroDropdownOpen(true)}
-                    placeholder="Selecione ou digite..."
-                    className="w-full h-10 border border-outline-variant rounded-md pl-3 pr-8 text-sm focus:border-secondary outline-none placeholder:text-outline/70 bg-surface text-on-surface"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setIsBairroDropdownOpen((prev) => !prev)}
-                    title="Abrir seleção de bairros cadastrados"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-variant/40 transition-colors"
-                  >
-                    <ChevronDown
-                      className={`w-4 h-4 transition-transform duration-200 ${
-                        isBairroDropdownOpen ? 'rotate-180 text-secondary' : ''
-                      }`}
-                    />
-                  </button>
-                </div>
+            {/* Estado e Cidade do Eleitor */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 text-on-surface">
+                  Estado (UF)
+                </label>
+                <select
+                  value={estado}
+                  onChange={(e) => setEstado(e.target.value)}
+                  className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none bg-surface text-on-surface font-medium cursor-pointer"
+                >
+                  <option value="">Selecione UF...</option>
+                  {ESTADOS_BRASIL.map((est) => (
+                    <option key={est.uf} value={est.uf}>
+                      {est.uf} - {est.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold mb-1.5 text-on-surface">
+                  Cidade / Município
+                </label>
+                <input
+                  type="text"
+                  value={cidade}
+                  onChange={(e) => setCidade(e.target.value)}
+                  placeholder="Cidade do eleitor..."
+                  className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none placeholder:text-outline/70 bg-surface text-on-surface"
+                />
+              </div>
+            </div>
 
-                {/* Dropdown com a lista completa de bairros e opção de adicionar manual */}
-                {isBairroDropdownOpen && (
-                  <div className="absolute left-0 top-full mt-1 w-72 max-w-[90vw] bg-surface border border-outline-variant rounded-lg shadow-xl z-50 overflow-hidden text-xs">
-                    <div className="p-2 bg-surface-variant/40 border-b border-outline-variant flex items-center justify-between">
-                      <span className="font-semibold text-on-surface text-[11px] flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-secondary" />
-                        Bairros Cadastrados ({filteredBairros.length})
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setIsBairroDropdownOpen(false)}
-                        className="text-on-surface-variant hover:text-on-surface p-0.5"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="max-h-52 overflow-y-auto divide-y divide-outline-variant/30">
-                      {/* Opção rápida de adicionar o texto digitado manualmente se não for exato */}
-                      {bairro.trim() &&
-                        !registeredBairros.some(
-                          (b) => b.toLowerCase() === bairro.trim().toLowerCase()
-                        ) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsBairroDropdownOpen(false);
-                            }}
-                            className="w-full text-left px-3 py-2 bg-secondary/10 hover:bg-secondary/20 text-secondary font-medium flex items-center gap-1.5 transition-colors"
-                          >
-                            <Plus className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">
-                              Usar novo: <strong>&ldquo;{bairro.trim()}&rdquo;</strong>
-                            </span>
-                          </button>
-                        )}
-
-                      {filteredBairros.length > 0 ? (
-                        filteredBairros.map((b) => {
-                          const isSelected =
-                            b.toLowerCase() === (bairro || '').trim().toLowerCase();
-                          return (
-                            <button
-                              key={b}
-                              type="button"
-                              onClick={() => {
-                                setBairro(b);
-                                setIsBairroDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-surface-variant/50 transition-colors ${
-                                isSelected
-                                  ? 'bg-secondary/10 font-bold text-secondary'
-                                  : 'text-on-surface'
-                              }`}
-                            >
-                              <span className="truncate">{b}</span>
-                              {isSelected && (
-                                <Check className="w-3.5 h-3.5 text-secondary shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="px-3 py-3 text-center text-on-surface-variant">
-                          <p>Nenhum bairro cadastrado com esse nome.</p>
-                          <p className="mt-1 text-[11px] text-secondary font-medium">
-                            Você pode continuar digitando manualmente.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-1.5 bg-surface-variant/20 border-t border-outline-variant/40 text-[10px] text-on-surface-variant flex items-center justify-between">
-                      <span>Clique em um bairro ou digite livremente</span>
-                    </div>
-                  </div>
-                )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 text-on-surface">
+                  Bairro / Localidade
+                </label>
+                <BairroSelector
+                  value={bairro}
+                  onChange={setBairro}
+                  bairrosList={registeredBairros}
+                  placeholder="Selecione ou digite o bairro..."
+                  className="bg-surface text-on-surface border-outline-variant focus:border-secondary"
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold mb-1.5 text-on-surface">
@@ -2582,6 +2515,12 @@ export default function Eleitores() {
           </div>
         </div>
       )}
+
+      {/* Modal para Gerar e Compartilhar Link de Campo */}
+      <ShareFieldLinkModal
+        isOpen={isShareFieldModalOpen}
+        onClose={() => setIsShareFieldModalOpen(false)}
+      />
     </div>
   );
 }

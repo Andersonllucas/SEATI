@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Eleitor } from '@/context/CampaignContext';
+import { Eleitor, formatTituloUtil } from '@/context/CampaignContext';
 import {
   AlertTriangle,
   MessageCircle,
@@ -66,7 +66,9 @@ export const VoterRow = React.memo(function VoterRow({
         </p>
       </td>
       <td className="py-3 px-4">
-        <span className="font-mono text-sm font-semibold text-on-surface">{eleitor.cpf}</span>
+        <span className="font-mono text-sm font-semibold text-on-surface">
+          {eleitor.cpf ? eleitor.cpf : <span className="text-outline text-xs font-normal italic">Não informado</span>}
+        </span>
         {isConflict ? (
           <button
             type="button"
@@ -86,7 +88,7 @@ export const VoterRow = React.memo(function VoterRow({
       </td>
       <td className="py-3 px-4">
         <span className="font-mono text-xs font-semibold text-on-surface">
-          {eleitor.tituloEleitor ? eleitor.tituloEleitor : '-'}
+          {eleitor.tituloEleitor ? formatTituloUtil(eleitor.tituloEleitor) : '-'}
         </span>
         {isTituloConflict && (
           <span

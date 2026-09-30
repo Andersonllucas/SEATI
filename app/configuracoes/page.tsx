@@ -100,6 +100,12 @@ function ConfiguracoesContent() {
   const [mostrarNovaSenha, setMostrarNovaSenha] = useState(false);
   const [feedbackSenhaMestre, setFeedbackSenhaMestre] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // State para Senha de Liderança em Campo
+  const [senhaLiderancaCampo, setSenhaLiderancaCampo] = useState(systemConfig.senhaCadastroLiderancaCampo || '123456');
+  const [mostrarSenhaLiderancaCampo, setMostrarSenhaLiderancaCampo] = useState(false);
+  const [feedbackSenhaLideranca, setFeedbackSenhaLideranca] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isSavingSenhaLideranca, setIsSavingSenhaLideranca] = useState(false);
+
   // State para Logs
   const [filtroTipoLog, setFiltroTipoLog] = useState<'TODOS' | LogTipo>('TODOS');
   const [buscaLog, setBuscaLog] = useState('');
@@ -364,6 +370,28 @@ function ConfiguracoesContent() {
       setConfirmaSenhaMestre('');
     } catch (err: any) {
       setFeedbackSenhaMestre({ type: 'error', text: err?.message || 'Erro ao atualizar senha mestre.' });
+    }
+  };
+
+  // Atualizar Senha de Cadastro de Liderança em Campo
+  const handleUpdateSenhaLiderancaCampo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFeedbackSenhaLideranca(null);
+    if (!senhaLiderancaCampo || senhaLiderancaCampo.trim().length < 3) {
+      setFeedbackSenhaLideranca({ type: 'error', text: 'A senha de autorização deve ter no mínimo 3 caracteres.' });
+      return;
+    }
+    try {
+      setIsSavingSenhaLideranca(true);
+      await atualizarConfiguracoes({
+        senhaCadastroLiderancaCampo: senhaLiderancaCampo.trim()
+      });
+      setFeedbackSenhaLideranca({ type: 'success', text: 'Senha para cadastro de liderança em campo atualizada com sucesso!' });
+      setTimeout(() => setFeedbackSenhaLideranca(null), 4000);
+    } catch (err: any) {
+      setFeedbackSenhaLideranca({ type: 'error', text: err?.message || 'Erro ao salvar senha.' });
+    } finally {
+      setIsSavingSenhaLideranca(false);
     }
   };
 
@@ -818,6 +846,82 @@ function ConfiguracoesContent() {
                 </div>
               </form>
             </div>
+
+            {/* Card de Senha para Cadastro de Liderança em Campo */}
+            <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-6 shadow-sm">
+              <div className="flex items-center gap-3 border-b border-outline-variant/40 pb-4 mb-5">
+                <div className="p-2.5 bg-emerald-100 text-emerald-800 rounded-xl">
+                  <ShieldCheck className="w-6 h-6 text-emerald-700" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-primary">Senha de Liderança em Campo</h2>
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-700 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                      Página Externa
+                    </span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Defina a senha exigida na página pública (<code className="bg-surface-container px-1 py-0.5 rounded text-[11px] font-mono">/cadastro-externo</code>) para autorizar o cadastro de novas Lideranças e Sub-lideranças pela equipe de campo.
+                  </p>
+                </div>
+              </div>
+
+              {/* Informação e Formulário */}
+              <form onSubmit={handleUpdateSenhaLiderancaCampo} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1">
+                    Senha de Autorização para Equipe de Campo:
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-1">
+                      <input
+                        type={mostrarSenhaLiderancaCampo ? 'text' : 'password'}
+                        value={senhaLiderancaCampo}
+                        onChange={(e) => setSenhaLiderancaCampo(e.target.value)}
+                        placeholder="Ex: lider2026, 123456..."
+                        className="w-full h-10 bg-surface border border-outline-variant rounded-lg pl-3 pr-10 text-xs font-mono font-semibold text-on-surface focus:outline-none focus:border-secondary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMostrarSenhaLiderancaCampo(!mostrarSenhaLiderancaCampo)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface cursor-pointer p-0.5"
+                      >
+                        {mostrarSenhaLiderancaCampo ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSavingSenhaLideranca}
+                      className="px-5 py-2.5 bg-primary hover:bg-secondary text-on-primary text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-2 shrink-0 disabled:opacity-60"
+                    >
+                      <Lock className="w-4 h-4" />
+                      {isSavingSenhaLideranca ? 'Salvando...' : 'Salvar Senha'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-on-surface-variant mt-1.5 leading-relaxed">
+                    Envie esta senha para os articuladores responsáveis pela captação de lideranças na rua. Eleitores continuam sendo cadastrados livremente sem necessidade de senha.
+                  </p>
+                </div>
+
+                {feedbackSenhaLideranca && (
+                  <div
+                    className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                      feedbackSenhaLideranca.type === 'success'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                        : 'bg-error-container text-on-error-container border border-error/30'
+                    }`}
+                  >
+                    {feedbackSenhaLideranca.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-error" />
+                    )}
+                    {feedbackSenhaLideranca.text}
+                  </div>
+                )}
+              </form>
+            </div>
           </div>
 
           {/* Card Lateral Explicativo */}
@@ -852,6 +956,24 @@ function ConfiguracoesContent() {
                   <span className="w-2 h-2 rounded-full bg-error shrink-0"></span>
                   <span>Exclusão de Usuários do Sistema</span>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-5 shadow-sm">
+              <h3 className="text-sm font-bold text-emerald-800 dark:text-emerald-400 flex items-center gap-2 mb-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                Segurança na Página de Campo
+              </h3>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                A página externa <code className="bg-surface-container px-1 py-0.5 rounded text-[11px] font-mono">/campo</code> foi desenhada para facilitar a coleta rápida sem senhas para <strong>Eleitores</strong>.
+              </p>
+              <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-on-surface space-y-1">
+                <p className="font-bold text-emerald-800 dark:text-emerald-300">
+                  Por que a Liderança exige senha?
+                </p>
+                <p className="text-on-surface-variant text-[11px] leading-relaxed">
+                  Para evitar que voluntários criem lideranças duplicadas ou desordenadas. Apenas articuladores autorizados em posse da senha podem registrar novos líderes e sub-líderes na rua.
+                </p>
               </div>
             </div>
           </div>

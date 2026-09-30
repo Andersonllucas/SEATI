@@ -13,8 +13,7 @@ import {
   LogOut,
   Globe,
   Bell,
-  Sliders,
-  UserPlus
+  Sliders
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -59,18 +58,8 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
-        {/* Botões Configuráveis (posicionados do lado esquerdo do botão Novo Eleitor) */}
+        {/* Botões Rápidos Configuráveis */}
         <ConfigurableHeaderButtons />
-
-        {/* Botão Novo Eleitor */}
-        <Link
-          href="/eleitores"
-          prefetch={true}
-          className="hidden sm:flex items-center gap-2 h-9 px-4 rounded-lg bg-primary text-on-primary hover:bg-secondary transition-colors text-sm font-semibold shadow-sm cursor-pointer"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Novo Eleitor</span>
-        </Link>
 
         {/* Botão Central de Notificações & Alertas */}
         <button

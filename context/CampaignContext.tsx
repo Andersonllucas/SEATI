@@ -8,7 +8,8 @@ import {
   CpfConflictGroup,
   TituloConflictGroup,
   cleanCpfUtil,
-  cleanTituloUtil
+  cleanTituloUtil,
+  formatTituloUtil
 } from './VoterContext';
 import { LeaderProvider, useLeaders, Lideranca } from './LeaderContext';
 import { LocationProvider, useLocations, LocalVotacao, LOCAIS_PRESET_DEFAULT } from './LocationContext';
@@ -25,7 +26,8 @@ export {
   useCampaignUI,
   LOCAIS_PRESET_DEFAULT,
   cleanCpfUtil,
-  cleanTituloUtil
+  cleanTituloUtil,
+  formatTituloUtil
 };
 
 export type { Eleitor, Lideranca, LocalVotacao, CpfConflictGroup, TituloConflictGroup };

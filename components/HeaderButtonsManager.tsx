@@ -242,7 +242,7 @@ export function HeaderButtonsManager() {
               </span>
             </h2>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              Configure botões rápidos personalizados que aparecem à esquerda do botão &quot;Novo Eleitor&quot;.
+              Configure botões rápidos personalizados que aparecem no cabeçalho superior do sistema.
             </p>
           </div>
         </div>
@@ -406,7 +406,7 @@ export function HeaderButtonsManager() {
       <div className="space-y-3">
         <div className="flex items-center justify-between text-xs text-on-surface-variant font-semibold">
           <span>Botões Atualmente Visíveis no Cabeçalho ({currentButtons.length})</span>
-          <span className="text-[11px]">Posição: À esquerda de &quot;Novo Eleitor&quot;</span>
+          <span className="text-[11px]">Posição: Barra Superior</span>
         </div>
 
         {currentButtons.length === 0 ? (
@@ -414,7 +414,7 @@ export function HeaderButtonsManager() {
             <SlidersHorizontal className="w-8 h-8 mx-auto mb-2 text-outline" />
             <p className="text-xs font-bold text-on-surface">Nenhum botão configurável ativo no momento</p>
             <p className="text-[11px] text-on-surface-variant mt-1 max-w-md mx-auto">
-              Ao adicionar um botão aqui, ele aparecerá imediatamente no cabeçalho superior de todos os usuários da campanha, à esquerda de &quot;Novo Eleitor&quot;.
+              Ao adicionar um botão aqui, ele aparecerá imediatamente no cabeçalho superior de todos os usuários da campanha.
             </p>
             <button
               type="button"

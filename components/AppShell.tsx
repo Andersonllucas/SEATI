@@ -46,6 +46,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === '/login';
   const isAdminMasterPath = pathname?.startsWith('/admin-master');
   const isTenantErrorPath = pathname?.startsWith('/tenant-error');
+  const isPublicRegistrationPath =
+    pathname === '/cadastro-externo' ||
+    pathname?.startsWith('/cadastro-externo/') ||
+    pathname === '/campo' ||
+    pathname?.startsWith('/campo/');
+
+  // Rotas de cadastro externo para equipe de campo (sem autenticação, isoladas do painel administrativo)
+  if (isPublicRegistrationPath) {
+    return (
+      <div className="min-h-screen bg-surface-container-lowest">
+        {children}
+        <ToastContainer />
+      </div>
+    );
+  }
 
   // Rota do painel master ou tela de erro de subdomínio renderiza diretamente sem o layout de campanha
   if (isAdminMasterPath || isTenantErrorPath) {

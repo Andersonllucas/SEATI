@@ -21,9 +21,7 @@ import {
   Sparkles,
   X,
   FileCheck,
-  ChevronDown,
-  Check,
-  MapPin
+  Share2
 } from 'lucide-react';
 import {
   collection,
@@ -34,9 +32,12 @@ import {
 } from 'firebase/firestore';
 import { getActiveDb } from '@/lib/firebase';
 import Link from 'next/link';
-import { useCampaignData } from '@/context/CampaignContext';
+import { useCampaignData, formatTituloUtil } from '@/context/CampaignContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
+import { ESTADOS_BRASIL } from '@/lib/locaisCatalog';
+import { BairroSelector } from '@/components/BairroSelector';
+import { ShareFieldLinkModal } from '@/components/ShareFieldLinkModal';
 
 interface EleitorCadastradoSessao {
   id: string;
@@ -67,7 +68,7 @@ interface GridRow {
 
 export default function CadastroEmMassaPage() {
   const { solicitarSenhaMestre, registrarLog } = useAuth();
-  const { activeDb } = useTenant();
+  const { activeDb, currentTenant } = useTenant();
   const targetDb = activeDb || getActiveDb();
   // Mode: 'continuous' (single fast keyboard form) or 'grid' (spreadsheet multi-row)
   const [activeMode, setActiveMode] = useState<'continuous' | 'grid'>('continuous');
@@ -133,12 +134,25 @@ export default function CadastroEmMassaPage() {
   const [tituloEleitor, setTituloEleitor] = useState('');
   const [telefone, setTelefone] = useState('');
   const [bairro, setBairro] = useState('');
+  const [cidade, setCidade] = useState('');
+  const [estado, setEstado] = useState('SP');
   const [zona, setZona] = useState('001');
   const [secao, setSecao] = useState('0042');
   const [customLiderancaId, setCustomLiderancaId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState<{ nome: string; lideranca: string } | null>(null);
   const [tituloDuplicateWarning, setTituloDuplicateWarning] = useState<{ nome: string; lideranca: string; titulo: string } | null>(null);
+  const [isShareFieldModalOpen, setIsShareFieldModalOpen] = useState(false);
+
+  // Inicializar cidade e estado da campanha
+  useEffect(() => {
+    if (currentTenant?.cidade && !cidade) {
+      setCidade(currentTenant.cidade);
+    }
+    if (currentTenant?.uf && (!estado || estado === 'SP')) {
+      setEstado(currentTenant.uf);
+    }
+  }, [currentTenant]);
 
   // Sticky Context (Values that remain locked between consecutive registrations)
   const [isContextLocked, setIsContextLocked] = useState(true);
@@ -147,52 +161,19 @@ export default function CadastroEmMassaPage() {
   const [defaultZona, setDefaultZona] = useState('001');
   const [defaultSecao, setDefaultSecao] = useState('0042');
 
-  // Controle de dropdown de bairros
-  const [isBairroDropdownOpen, setIsBairroDropdownOpen] = useState(false);
-  const bairroContainerRef = useRef<HTMLDivElement>(null);
-  const [isDefaultBairroDropdownOpen, setIsDefaultBairroDropdownOpen] = useState(false);
-  const defaultBairroContainerRef = useRef<HTMLDivElement>(null);
-
-  // Filtros de bairros digitados
-  const filteredBairros = useMemo(() => {
-    const term = (bairro || '').trim().toLowerCase();
-    if (!term) return registeredBairros;
-    return registeredBairros.filter((b) => b.toLowerCase().includes(term));
-  }, [registeredBairros, bairro]);
-
-  const filteredDefaultBairros = useMemo(() => {
-    const term = (defaultBairro || '').trim().toLowerCase();
-    if (!term) return registeredBairros;
-    return registeredBairros.filter((b) => b.toLowerCase().includes(term));
-  }, [registeredBairros, defaultBairro]);
-
-  // Fechar dropdowns ao clicar fora
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        bairroContainerRef.current &&
-        !bairroContainerRef.current.contains(event.target as Node)
-      ) {
-        setIsBairroDropdownOpen(false);
-      }
-      if (
-        defaultBairroContainerRef.current &&
-        !defaultBairroContainerRef.current.contains(event.target as Node)
-      ) {
-        setIsDefaultBairroDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const defaultLiderancaId = stickyLiderancaId || (liderancas.length > 0 ? liderancas[0].id : '');
   const setDefaultLiderancaId = setStickyLiderancaId;
   const liderancaId = customLiderancaId || defaultLiderancaId;
   const setLiderancaId = setCustomLiderancaId;
 
-  // Audio Feedback Toggle
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  // Audio Feedback Toggle com persistência no LocalStorage
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('adti_bulk_sound_enabled');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
 
   // Session Statistics & Log
   const [sessionCount, setSessionCount] = useState(0);
@@ -223,18 +204,16 @@ export default function CadastroEmMassaPage() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isBairroDropdownOpen) setIsBairroDropdownOpen(false);
-        else if (isDefaultBairroDropdownOpen) setIsDefaultBairroDropdownOpen(false);
-        else if (deleteDialog) setDeleteDialog(null);
+        if (deleteDialog) setDeleteDialog(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isBairroDropdownOpen, isDefaultBairroDropdownOpen, deleteDialog]);
+  }, [deleteDialog]);
 
   // 1. Play subtle harmonic beep for rapid auditory feedback
-  const playSuccessSound = useCallback(() => {
-    if (!soundEnabled) return;
+  const playSuccessSound = useCallback((forcePlay = false) => {
+    if (!soundEnabled && !forcePlay) return;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
@@ -259,6 +238,46 @@ export default function CadastroEmMassaPage() {
       // Audio might be blocked by autoplay policies until user interaction, ignore gracefully
     }
   }, [soundEnabled]);
+
+  // 2. Play warning beep for validation errors or duplications
+  const playAlertSound = useCallback(() => {
+    if (!soundEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(330, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.16);
+
+      gain.gain.setValueAtTime(0.09, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.20);
+    } catch {}
+  }, [soundEnabled]);
+
+  // Toggle do som com feedback sonoro imediato
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('adti_bulk_sound_enabled', String(next));
+    }
+    if (next) {
+      playSuccessSound(true);
+      setToastMessage({ text: 'Feedback sonoro ativado (bipe harmônico)', type: 'success' });
+    } else {
+      setToastMessage({ text: 'Feedback sonoro desativado (modo silencioso)', type: 'warn' });
+    }
+  };
 
   // Mask CPF: 000.000.000-00
   const formatCPF = (val: string) => {
@@ -296,10 +315,11 @@ export default function CadastroEmMassaPage() {
     }
   };
 
-  // Check Titulo in real time
+  // Check Titulo in real time com pontuação automática (3 blocos de 4 números)
   const handleTituloChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    setTituloEleitor(raw);
+    const formatted = formatTituloUtil(raw);
+    setTituloEleitor(formatted);
 
     const clean = raw.replace(/\D/g, '');
     if (clean.length >= 5) {
@@ -328,18 +348,22 @@ export default function CadastroEmMassaPage() {
     const trimmedTitulo = tituloEleitor.trim();
 
     if (!trimmedNome) {
+      playAlertSound();
       setToastMessage({ text: 'Por favor, digite o Nome Completo do eleitor.', type: 'warn' });
       nomeInputRef.current?.focus();
       return;
     }
 
-    if (!cleanCpf || cleanCpf.length < 11) {
-      setToastMessage({ text: 'Informe um CPF válido com 11 dígitos.', type: 'warn' });
+    // CPF não é obrigatório: se digitado, valida 11 dígitos
+    if (cleanCpf && cleanCpf.length < 11) {
+      playAlertSound();
+      setToastMessage({ text: 'O CPF digitado deve conter 11 dígitos ou ser deixado em branco.', type: 'warn' });
       cpfInputRef.current?.focus();
       return;
     }
 
     if (!trimmedTitulo) {
+      playAlertSound();
       setToastMessage({ text: 'Informe o Número do Título de Eleitor (obrigatório).', type: 'warn' });
       tituloInputRef.current?.focus();
       return;
@@ -350,13 +374,16 @@ export default function CadastroEmMassaPage() {
       const targetLeader = liderancas.find((l) => l.id === liderancaId) || liderancas[0];
       const leaderName = targetLeader ? targetLeader.nome : 'Sem Liderança';
       const leaderId = targetLeader ? targetLeader.id : '';
+      const formattedTitulo = formatTituloUtil(trimmedTitulo);
 
       const newDocRef = await addDoc(collection(targetDb, 'eleitores'), {
         nome: trimmedNome,
-        cpf: cpf,
-        tituloEleitor: trimmedTitulo,
+        cpf: cleanCpf ? cpf : '',
+        tituloEleitor: formattedTitulo,
         telefone: telefone || '',
         bairro: (bairro || defaultBairro || '').trim(),
+        cidade: (cidade || currentTenant?.cidade || '').trim(),
+        estado: (estado || currentTenant?.uf || 'SP').trim(),
         zona: zona || defaultZona || '001',
         secao: secao || defaultSecao || '0042',
         lideranca: leaderName,
@@ -377,8 +404,8 @@ export default function CadastroEmMassaPage() {
         {
           id: newDocRef.id,
           nome: trimmedNome,
-          cpf: cpf,
-          tituloEleitor: trimmedTitulo,
+          cpf: cleanCpf ? cpf : '',
+          tituloEleitor: formattedTitulo,
           telefone: telefone,
           bairro: (bairro || defaultBairro || '').trim(),
           lideranca: leaderName,
@@ -392,7 +419,7 @@ export default function CadastroEmMassaPage() {
       await registrarLog({
         tipo: 'ALTERACAO',
         acao: `Cadastro contínuo de eleitor: ${trimmedNome}`,
-        detalhes: `CPF: ${cpf} | Título: ${trimmedTitulo} | Liderança: ${leaderName || '-'} | Bairro: ${bairro || defaultBairro || '-'}`,
+        detalhes: `CPF: ${cleanCpf ? cpf : 'Não informado'} | Título: ${formattedTitulo} | Liderança: ${leaderName || '-'} | Bairro: ${bairro || defaultBairro || '-'} | Cidade: ${cidade || currentTenant?.cidade || '-'}`,
         entidade: 'Eleitor',
         entidadeId: newDocRef.id
       });
@@ -452,6 +479,8 @@ export default function CadastroEmMassaPage() {
 
         if (field === 'cpf') {
           updated.cpf = formatCPF(value);
+        } else if (field === 'tituloEleitor') {
+          updated.tituloEleitor = formatTituloUtil(value);
         } else if (field === 'telefone') {
           updated.telefone = formatPhone(value);
         } else if (field === 'liderancaId') {
@@ -459,9 +488,10 @@ export default function CadastroEmMassaPage() {
           updated.liderancaNome = leader ? leader.nome : '';
         }
 
-        // Validate on the fly
+        // Validate on the fly: CPF é opcional
         const cleanCpf = updated.cpf.replace(/\D/g, '');
-        if (updated.nome.trim() && cleanCpf.length === 11 && updated.tituloEleitor.trim()) {
+        const hasValidCpf = !cleanCpf || cleanCpf.length === 11;
+        if (updated.nome.trim() && updated.tituloEleitor.trim() && hasValidCpf) {
           updated.status = 'valid';
           updated.errorMsg = undefined;
         } else if (!updated.nome.trim() && !cleanCpf && !updated.tituloEleitor.trim()) {
@@ -519,12 +549,16 @@ export default function CadastroEmMassaPage() {
 
   const handleSaveAllGrid = async () => {
     const validRows = gridRows.filter(
-      (r) => r.nome.trim() && r.cpf.replace(/\D/g, '').length === 11 && r.tituloEleitor.trim()
+      (r) => {
+        const cleanC = r.cpf.replace(/\D/g, '');
+        const hasValidCpf = !cleanC || cleanC.length === 11;
+        return r.nome.trim() && r.tituloEleitor.trim() && hasValidCpf;
+      }
     );
 
     if (validRows.length === 0) {
       setToastMessage({
-        text: 'Nenhuma linha preenchida com Nome, CPF válido (11 dígitos) e Número do Título.',
+        text: 'Nenhuma linha preenchida com Nome e Número do Título (e CPF com 11 dígitos, se informado).',
         type: 'warn'
       });
       return;
@@ -538,13 +572,17 @@ export default function CadastroEmMassaPage() {
       try {
         const leader = liderancas.find((l) => l.id === row.liderancaId) || liderancas[0];
         const leaderName = leader ? leader.nome : 'Sem Liderança';
+        const cleanC = row.cpf.replace(/\D/g, '');
+        const formattedTit = formatTituloUtil(row.tituloEleitor.trim());
 
         const docRef = await addDoc(collection(targetDb, 'eleitores'), {
           nome: row.nome.trim(),
-          cpf: row.cpf,
-          tituloEleitor: row.tituloEleitor.trim(),
+          cpf: cleanC ? row.cpf : '',
+          tituloEleitor: formattedTit,
           telefone: row.telefone || '',
           bairro: (row.bairro || defaultBairro || '').trim(),
+          cidade: (currentTenant?.cidade || '').trim(),
+          estado: (currentTenant?.uf || 'SP').trim(),
           zona: row.zona || defaultZona || '001',
           secao: row.secao || defaultSecao || '0042',
           lideranca: leaderName,
@@ -556,8 +594,8 @@ export default function CadastroEmMassaPage() {
         newlySaved.push({
           id: docRef.id,
           nome: row.nome.trim(),
-          cpf: row.cpf,
-          tituloEleitor: row.tituloEleitor.trim(),
+          cpf: cleanC ? row.cpf : '',
+          tituloEleitor: formattedTit,
           telefone: row.telefone,
           bairro: (row.bairro || defaultBairro || '').trim(),
           lideranca: leaderName,
@@ -695,15 +733,36 @@ export default function CadastroEmMassaPage() {
           {/* Sound Toggle */}
           <button
             type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+            onClick={toggleSound}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
               soundEnabled
-                ? 'bg-primary-container text-on-primary border-primary/30'
-                : 'bg-surface-container text-on-surface-variant border-outline-variant'
+                ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'
+                : 'bg-surface-container text-on-surface-variant border-outline-variant hover:bg-surface-container-high'
             }`}
-            title={soundEnabled ? 'Feedback sonoro ativado' : 'Feedback sonoro desativado'}
+            title={soundEnabled ? 'Feedback sonoro ativado (clique para silenciar)' : 'Feedback sonoro desativado (clique para ativar)'}
           >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            {soundEnabled ? (
+              <>
+                <Volume2 className="w-4 h-4 text-primary animate-pulse" />
+                <span>Som Ativo</span>
+              </>
+            ) : (
+              <>
+                <VolumeX className="w-4 h-4 text-on-surface-variant" />
+                <span>Mudo</span>
+              </>
+            )}
+          </button>
+
+          {/* Botão de Link para Equipe de Campo */}
+          <button
+            type="button"
+            onClick={() => setIsShareFieldModalOpen(true)}
+            className="px-3.5 py-1.5 rounded-xl border border-emerald-500/50 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all cursor-pointer shadow-xs"
+            title="Gerar link externo para equipe de rua/campo cadastrar sem login"
+          >
+            <Share2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>Link Equipe de Campo</span>
           </button>
 
           {/* Return to General List Link */}
@@ -814,100 +873,21 @@ export default function CadastroEmMassaPage() {
           </div>
 
           {/* Bairro Padrão */}
-          <div className="relative" ref={defaultBairroContainerRef}>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] uppercase font-bold text-on-surface-variant">
-                Bairro Padrão
-              </label>
-              {registeredBairros.length > 0 && (
-                <span className="text-[9px] text-on-surface-variant">
-                  {registeredBairros.length} no sistema
-                </span>
-              )}
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Selecione ou digite..."
-                value={defaultBairro}
-                onChange={(e) => {
-                  setDefaultBairro(e.target.value);
-                  if (isContextLocked) setBairro(e.target.value);
-                  setIsDefaultBairroDropdownOpen(true);
-                }}
-                onFocus={() => setIsDefaultBairroDropdownOpen(true)}
-                className="w-full h-9 bg-surface-container-lowest border border-outline-variant/60 rounded-lg pl-3 pr-7 text-xs text-on-surface focus:outline-none focus:border-secondary"
-              />
-              <button
-                type="button"
-                onClick={() => setIsDefaultBairroDropdownOpen((prev) => !prev)}
-                title="Abrir lista de bairros cadastrados"
-                tabIndex={-1}
-                className="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-variant/40 transition-colors"
-              >
-                <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                    isDefaultBairroDropdownOpen ? 'rotate-180 text-secondary' : ''
-                  }`}
-                />
-              </button>
-            </div>
-
-            {isDefaultBairroDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1 w-full min-w-[220px] bg-surface border border-outline-variant rounded-lg shadow-xl z-50 overflow-hidden text-xs">
-                <div className="p-1.5 bg-surface-variant/30 border-b border-outline-variant/60 flex items-center justify-between">
-                  <span className="font-semibold text-on-surface text-[10px] flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-secondary" />
-                    Bairros Cadastrados ({filteredDefaultBairros.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsDefaultBairroDropdownOpen(false)}
-                    className="text-on-surface-variant hover:text-on-surface p-0.5"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-                <div className="max-h-44 overflow-y-auto divide-y divide-outline-variant/20">
-                  {defaultBairro.trim() &&
-                    !registeredBairros.some(
-                      (b) => b.toLowerCase() === defaultBairro.trim().toLowerCase()
-                    ) && (
-                      <button
-                        type="button"
-                        onClick={() => setIsDefaultBairroDropdownOpen(false)}
-                        className="w-full text-left px-2.5 py-1.5 bg-secondary/10 hover:bg-secondary/20 text-secondary font-medium flex items-center gap-1 transition-colors text-[11px]"
-                      >
-                        <Plus className="w-3 h-3 shrink-0" />
-                        <span className="truncate">Usar novo: &ldquo;{defaultBairro.trim()}&rdquo;</span>
-                      </button>
-                    )}
-                  {filteredDefaultBairros.length > 0 ? (
-                    filteredDefaultBairros.map((b) => (
-                      <button
-                        key={b}
-                        type="button"
-                        onClick={() => {
-                          setDefaultBairro(b);
-                          if (isContextLocked) setBairro(b);
-                          setIsDefaultBairroDropdownOpen(false);
-                        }}
-                        className="w-full text-left px-2.5 py-1.5 hover:bg-surface-variant/50 transition-colors text-[11px] text-on-surface flex items-center justify-between"
-                      >
-                        <span className="truncate">{b}</span>
-                        {b.toLowerCase() === (defaultBairro || '').trim().toLowerCase() && (
-                          <Check className="w-3 h-3 text-secondary" />
-                        )}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="p-2 text-center text-on-surface-variant text-[10px]">
-                      Nenhum bairro cadastrado.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+          <div>
+            <label className="block text-[11px] uppercase font-bold text-on-surface-variant mb-1">
+              Bairro Padrão
+            </label>
+            <BairroSelector
+              value={defaultBairro}
+              onChange={(val) => {
+                setDefaultBairro(val);
+                if (isContextLocked) setBairro(val);
+              }}
+              bairrosList={registeredBairros}
+              placeholder="Bairro padrão..."
+              size="sm"
+              className="bg-surface-container-lowest border-outline-variant/60 focus:border-secondary"
+            />
           </div>
 
           {/* Zona Padrão */}
@@ -1015,13 +995,12 @@ export default function CadastroEmMassaPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-on-surface mb-1.5">
-                      CPF <span className="text-error">*</span>
+                      CPF Oficial <span className="text-[11px] text-on-surface-variant font-normal">(Opcional)</span>
                     </label>
                     <input
                       ref={cpfInputRef}
                       type="text"
-                      required
-                      placeholder="000.000.000-00"
+                      placeholder="000.000.000-00 (opcional)"
                       value={cpf}
                       onChange={handleCpfChange}
                       className={`w-full h-11 bg-surface-container-lowest border-2 rounded-xl px-3.5 text-sm font-mono font-medium focus:outline-none transition-colors ${
@@ -1059,7 +1038,7 @@ export default function CadastroEmMassaPage() {
                     ref={tituloInputRef}
                     type="text"
                     required
-                    placeholder="Número do título de eleitor"
+                    placeholder="0000.0000.0000"
                     value={tituloEleitor}
                     onChange={handleTituloChange}
                     className={`w-full h-11 bg-surface-container-lowest border-2 rounded-xl px-3.5 text-sm font-mono font-semibold focus:outline-none transition-colors ${
@@ -1070,119 +1049,53 @@ export default function CadastroEmMassaPage() {
                   />
                 </div>
 
+                {/* Estado e Cidade do Eleitor */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-on-surface mb-1.5">
+                      Estado (UF)
+                    </label>
+                    <select
+                      value={estado}
+                      onChange={(e) => setEstado(e.target.value)}
+                      className="w-full h-11 bg-surface-container-lowest border-2 border-outline-variant/70 rounded-xl px-3 text-xs text-on-surface focus:outline-none focus:border-secondary font-medium cursor-pointer"
+                    >
+                      <option value="">UF...</option>
+                      {ESTADOS_BRASIL.map((est) => (
+                        <option key={est.uf} value={est.uf}>
+                          {est.uf} - {est.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-on-surface mb-1.5">
+                      Cidade / Município
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Cidade do eleitor..."
+                      value={cidade}
+                      onChange={(e) => setCidade(e.target.value)}
+                      className="w-full h-11 bg-surface-container-lowest border-2 border-outline-variant/70 rounded-xl px-3.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                    />
+                  </div>
+                </div>
+
                 {/* 4. Bairro & Liderança */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="relative" ref={bairroContainerRef}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-bold text-on-surface">
-                        Bairro de Residência
-                      </label>
-                      {registeredBairros.length > 0 && (
-                        <span className="text-[10px] text-on-surface-variant font-medium">
-                          {registeredBairros.length} cadastrados
-                        </span>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Selecione ou digite o bairro..."
-                        value={bairro}
-                        onChange={(e) => {
-                          setBairro(e.target.value);
-                          setIsBairroDropdownOpen(true);
-                        }}
-                        onFocus={() => setIsBairroDropdownOpen(true)}
-                        className="w-full h-10 bg-surface-container-lowest border border-outline-variant/70 rounded-xl pl-3 pr-8 text-xs text-on-surface focus:outline-none focus:border-secondary transition-colors"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setIsBairroDropdownOpen((prev) => !prev)}
-                        title="Abrir lista de bairros cadastrados"
-                        tabIndex={-1}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 text-on-surface-variant hover:text-on-surface rounded-lg hover:bg-surface-variant/40 transition-colors"
-                      >
-                        <ChevronDown
-                          className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                            isBairroDropdownOpen ? 'rotate-180 text-secondary' : ''
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    {/* Menu suspenso de bairros reais cadastrados */}
-                    {isBairroDropdownOpen && (
-                      <div className="absolute left-0 top-full mt-1 w-full min-w-[260px] bg-surface border border-outline-variant rounded-xl shadow-xl z-50 overflow-hidden text-xs">
-                        <div className="p-2 bg-surface-variant/30 border-b border-outline-variant/60 flex items-center justify-between">
-                          <span className="font-semibold text-on-surface text-[11px] flex items-center gap-1.5">
-                            <MapPin className="w-3.5 h-3.5 text-secondary" />
-                            Bairros no Sistema ({filteredBairros.length})
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setIsBairroDropdownOpen(false)}
-                            className="text-on-surface-variant hover:text-on-surface p-0.5 rounded"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-
-                        <div className="max-h-52 overflow-y-auto divide-y divide-outline-variant/20">
-                          {/* Opção para usar novo digitado manualmente caso não exista */}
-                          {bairro.trim() &&
-                            !registeredBairros.some(
-                              (b) => b.toLowerCase() === bairro.trim().toLowerCase()
-                            ) && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsBairroDropdownOpen(false);
-                                }}
-                                className="w-full text-left px-3 py-2 bg-secondary/10 hover:bg-secondary/20 text-secondary font-medium flex items-center gap-1.5 transition-colors"
-                              >
-                                <Plus className="w-3.5 h-3.5 shrink-0" />
-                                <span className="truncate">
-                                  Usar novo: <strong>&ldquo;{bairro.trim()}&rdquo;</strong>
-                                </span>
-                              </button>
-                            )}
-
-                          {filteredBairros.length > 0 ? (
-                            filteredBairros.map((b) => {
-                              const isSelected =
-                                b.toLowerCase() === (bairro || '').trim().toLowerCase();
-                              return (
-                                <button
-                                  key={b}
-                                  type="button"
-                                  onClick={() => {
-                                    setBairro(b);
-                                    setIsBairroDropdownOpen(false);
-                                  }}
-                                  className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-surface-variant/50 transition-colors ${
-                                    isSelected
-                                      ? 'bg-secondary/10 font-bold text-secondary'
-                                      : 'text-on-surface'
-                                  }`}
-                                >
-                                  <span className="truncate">{b}</span>
-                                  {isSelected && (
-                                    <Check className="w-3.5 h-3.5 text-secondary shrink-0" />
-                                  )}
-                                </button>
-                              );
-                            })
-                          ) : (
-                            <div className="px-3 py-3 text-center text-on-surface-variant">
-                              <p className="text-[11px]">Nenhum bairro cadastrado no sistema.</p>
-                              <p className="mt-1 text-[10px] text-secondary font-medium">
-                                Digite acima para adicionar um novo bairro.
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                  <div>
+                    <label className="block text-xs font-bold text-on-surface mb-1.5">
+                      Bairro de Residência
+                    </label>
+                    <BairroSelector
+                      value={bairro}
+                      onChange={setBairro}
+                      bairrosList={registeredBairros}
+                      placeholder="Selecione ou digite o bairro..."
+                      size="lg"
+                      className="bg-surface-container-lowest border-2 border-outline-variant/70 rounded-xl focus:border-secondary font-medium"
+                    />
                   </div>
 
                   <div>
@@ -1192,7 +1105,7 @@ export default function CadastroEmMassaPage() {
                     <select
                       value={liderancaId}
                       onChange={(e) => setLiderancaId(e.target.value)}
-                      className="w-full h-10 bg-surface-container-lowest border border-outline-variant/70 rounded-xl px-3 text-xs text-on-surface focus:outline-none focus:border-secondary font-medium"
+                      className="w-full h-11 bg-surface-container-lowest border-2 border-outline-variant/70 rounded-xl px-3 text-xs text-on-surface focus:outline-none focus:border-secondary font-medium cursor-pointer"
                     >
                       {liderancas.map((l) => (
                         <option key={l.id} value={l.id}>
@@ -1300,7 +1213,7 @@ export default function CadastroEmMassaPage() {
                     <tr className="bg-surface-container-low text-on-surface-variant uppercase font-semibold border-b border-outline-variant/50">
                       <th className="py-2.5 px-3 w-8">#</th>
                       <th className="py-2.5 px-3">Nome Completo *</th>
-                      <th className="py-2.5 px-3 w-36">CPF *</th>
+                      <th className="py-2.5 px-3 w-36">CPF (Opcional)</th>
                       <th className="py-2.5 px-3 w-36">Título de Eleitor *</th>
                       <th className="py-2.5 px-3 w-36">Telefone</th>
                       <th className="py-2.5 px-3 w-36">Bairro</th>
@@ -1310,10 +1223,11 @@ export default function CadastroEmMassaPage() {
                   </thead>
                   <tbody className="divide-y divide-outline-variant/30">
                     {gridRows.map((row, index) => {
+                      const cleanC = row.cpf.replace(/\D/g, '');
                       const isRowValid =
                         row.nome.trim() &&
-                        row.cpf.replace(/\D/g, '').length === 11 &&
-                        row.tituloEleitor.trim();
+                        row.tituloEleitor.trim() &&
+                        (!cleanC || cleanC.length === 11);
 
                       return (
                         <tr
@@ -1341,7 +1255,7 @@ export default function CadastroEmMassaPage() {
                               return (
                                 <input
                                   type="text"
-                                  placeholder="000.000.000-00"
+                                  placeholder="000.000.000-00 (opcional)"
                                   value={row.cpf}
                                   onChange={(e) => handleGridCellChange(row.tempId, 'cpf', e.target.value)}
                                   title={isDup ? `Atenção: CPF já cadastrado para ${existingCpfs.get(cleanC)?.nome}` : ''}
@@ -1361,7 +1275,7 @@ export default function CadastroEmMassaPage() {
                               return (
                                 <input
                                   type="text"
-                                  placeholder="Nº do Título *"
+                                  placeholder="0000.0000.0000"
                                   value={row.tituloEleitor}
                                   onChange={(e) => handleGridCellChange(row.tempId, 'tituloEleitor', e.target.value)}
                                   title={isDup ? `Atenção: Título já cadastrado para ${existingTitulos.get(cleanT)?.nome}` : ''}
@@ -1611,6 +1525,13 @@ export default function CadastroEmMassaPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de Compartilhamento para Equipe de Campo */}
+      <ShareFieldLinkModal
+        isOpen={isShareFieldModalOpen}
+        onClose={() => setIsShareFieldModalOpen(false)}
+        defaultLiderId={defaultLiderancaId}
+      />
     </div>
   );
 }

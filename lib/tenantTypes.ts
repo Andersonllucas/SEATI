@@ -16,6 +16,9 @@ export interface TenantClient {
   nome: string; // Ex: "Campanha Dr. Carlos"
   status: TenantStatus;
   firebaseConfig: TenantFirebaseConfig;
+  cidade?: string;
+  uf?: string;
+  municipio?: string;
   criadoEm?: any;
   atualizadoEm?: any;
 }

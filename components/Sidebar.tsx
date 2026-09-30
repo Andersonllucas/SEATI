@@ -15,7 +15,8 @@ import {
   HelpCircle,
   Vote,
   LogOut,
-  Globe
+  Globe,
+  Share2
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useCampaignUI } from '@/context/CampaignUIContext';
@@ -100,6 +101,7 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
           { href: '/', icon: LayoutDashboard, label: 'Painel Geral' },
           { href: '/eleitores', icon: Users, label: 'Base de Eleitores' },
           { href: '/cadastro-em-massa', icon: Zap, label: 'Cadastro em Lote', badge: 'Rápido' },
+          { href: '/cadastro-externo', icon: Share2, label: 'Link de Campo (Externo)', badge: 'Público' },
         ],
       },
       {
