@@ -17,7 +17,8 @@ import {
   Vote,
   LogOut,
   Globe,
-  Share2
+  Share2,
+  UserCheck
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useCampaignUI } from '@/context/CampaignUIContext';
@@ -101,6 +102,7 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
         items: [
           { href: '/', icon: LayoutDashboard, label: 'Painel Geral' },
           { href: '/eleitores', icon: Users, label: 'Base de Eleitores' },
+          { href: '/validacao', icon: UserCheck, label: 'Validação do Eleitor', badge: 'Checagem' },
           { href: '/cadastro-em-massa', icon: Zap, label: 'Cadastro em Lote', badge: 'Rápido' },
           { href: '/cadastro-externo', icon: Share2, label: 'Link de Campo (Externo)', badge: 'Público' },
         ],

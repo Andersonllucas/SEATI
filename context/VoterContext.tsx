@@ -21,6 +21,18 @@ import { handleFirestoreError, OperationType, isCircuitBroken } from '@/lib/fire
 import { getCachedCollection, setCachedCollection } from '@/lib/firestoreCache';
 import { useCampaignUI } from './CampaignUIContext';
 
+export type TipoValidacao = 'Mensagem' | 'Ligação';
+export type StatusValidacao = 'Confirmado' | 'Pendente' | 'Negado';
+
+export interface ValidacaoRegistro {
+  id: string;
+  tipo: TipoValidacao;
+  status: StatusValidacao;
+  dataHora: string; // ISO string
+  operadorNome?: string;
+  observacoes?: string;
+}
+
 export interface Eleitor {
   id: string;
   nome: string;
@@ -42,6 +54,14 @@ export interface Eleitor {
   observacoes?: string;
   dataCadastro?: any;
   userId?: string;
+
+  // Validação de Contato & Voto
+  statusValidacao?: StatusValidacao;
+  tipoValidacao?: TipoValidacao;
+  dataHoraValidacao?: string;
+  operadorValidacao?: string;
+  observacoesValidacao?: string;
+  historicoValidacoes?: ValidacaoRegistro[];
 }
 
 export interface CpfConflictGroup {
@@ -113,6 +133,16 @@ interface VoterContextType {
   ) => Promise<{ imported: number }>;
   batchDeleteEleitores: (ids: string[]) => Promise<{ deleted: number }>;
   batchUpdateEleitores: (ids: string[], data: Partial<Eleitor>) => Promise<{ updated: number }>;
+  registrarValidacao: (
+    eleitorId: string,
+    dados: {
+      tipo: TipoValidacao;
+      status: StatusValidacao;
+      dataHora?: string;
+      observacoes?: string;
+      operadorNome?: string;
+    }
+  ) => Promise<void>;
 }
 
 const VoterContext = createContext<VoterContextType | undefined>(undefined);
@@ -478,6 +508,80 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
     return { updated: updated || ids.length };
   }, [tenantKey, activeDb]);
 
+  const registrarValidacao = useCallback(
+    async (
+      eleitorId: string,
+      dados: {
+        tipo: TipoValidacao;
+        status: StatusValidacao;
+        dataHora?: string;
+        observacoes?: string;
+        operadorNome?: string;
+      }
+    ) => {
+      const dataHoraIso = dados.dataHora || new Date().toISOString();
+      const operador = dados.operadorNome || currentUser?.nome || currentUser?.email || 'Coordenação';
+
+      const novoRegistro: ValidacaoRegistro = {
+        id: `val_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        tipo: dados.tipo,
+        status: dados.status,
+        dataHora: dataHoraIso,
+        operadorNome: operador,
+        observacoes: dados.observacoes?.trim() || ''
+      };
+
+      // Determina status geral correspondente do eleitor
+      const statusGeral =
+        dados.status === 'Confirmado'
+          ? 'Confirmado'
+          : dados.status === 'Negado'
+          ? 'Negado'
+          : 'Pendente de confirmação';
+
+      const updatePayload: Partial<Eleitor> = {
+        statusValidacao: dados.status,
+        tipoValidacao: dados.tipo,
+        dataHoraValidacao: dataHoraIso,
+        operadorValidacao: operador,
+        observacoesValidacao: dados.observacoes?.trim() || '',
+        status: statusGeral
+      };
+
+      // Atualização otimista imediata no estado e cache
+      setEleitores((prev) => {
+        const updated = prev.map((e) => {
+          if (e.id !== eleitorId) return e;
+          const historico = [novoRegistro, ...(e.historicoValidacoes || [])];
+          return {
+            ...e,
+            ...updatePayload,
+            historicoValidacoes: historico
+          };
+        });
+        setCachedCollection('eleitores', updated, tenantKey);
+        return updated;
+      });
+
+      try {
+        const targetDb = activeDb || getActiveDb();
+        const eleitorAtual = eleitores.find((e) => e.id === eleitorId);
+        const historicoAtualizado = [novoRegistro, ...(eleitorAtual?.historicoValidacoes || [])].slice(0, 30);
+
+        await updateDoc(
+          doc(targetDb, 'eleitores', eleitorId),
+          sanitizeFirestoreData({
+            ...updatePayload,
+            historicoValidacoes: historicoAtualizado
+          })
+        );
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `eleitores/${eleitorId}`);
+      }
+    },
+    [currentUser, activeDb, tenantKey, eleitores]
+  );
+
   const value = useMemo(
     () => ({
       eleitores,
@@ -497,7 +601,8 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
       deleteEleitorQuick,
       batchImportEleitores,
       batchDeleteEleitores,
-      batchUpdateEleitores
+      batchUpdateEleitores,
+      registrarValidacao
     }),
     [
       eleitores,
@@ -515,7 +620,8 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
       deleteEleitorQuick,
       batchImportEleitores,
       batchDeleteEleitores,
-      batchUpdateEleitores
+      batchUpdateEleitores,
+      registrarValidacao
     ]
   );
 

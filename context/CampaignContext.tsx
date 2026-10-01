@@ -5,6 +5,9 @@ import {
   VoterProvider,
   useVoters,
   Eleitor,
+  TipoValidacao,
+  StatusValidacao,
+  ValidacaoRegistro,
   CpfConflictGroup,
   TituloConflictGroup,
   cleanCpfUtil,
@@ -30,7 +33,16 @@ export {
   formatTituloUtil
 };
 
-export type { Eleitor, Lideranca, LocalVotacao, CpfConflictGroup, TituloConflictGroup };
+export type {
+  Eleitor,
+  TipoValidacao,
+  StatusValidacao,
+  ValidacaoRegistro,
+  Lideranca,
+  LocalVotacao,
+  CpfConflictGroup,
+  TituloConflictGroup
+};
 
 export function CampaignProvider({ children }: { children: React.ReactNode }) {
   return (
@@ -72,6 +84,7 @@ export function useCampaignData() {
     batchImportEleitores: voters.batchImportEleitores,
     batchDeleteEleitores: voters.batchDeleteEleitores,
     batchUpdateEleitores: voters.batchUpdateEleitores,
+    registrarValidacao: voters.registrarValidacao,
     batchImportLiderancas: leaders.batchImportLiderancas,
     addLocalVotacao: locations.addLocalVotacao,
     updateLocalVotacao: locations.updateLocalVotacao,

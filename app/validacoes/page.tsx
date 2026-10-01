@@ -159,6 +159,14 @@ export default function ValidacoesPage() {
             )}
           </div>
           <Link
+            href="/validacao"
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+            title="Ir para a Central de Validação do Eleitor (Ligação / Mensagem)"
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>Validação de Votos</span>
+          </Link>
+          <Link
             href="/eleitores"
             className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-semibold hover:bg-primary/90 flex items-center justify-center gap-1.5 shadow-xs transition-colors"
           >

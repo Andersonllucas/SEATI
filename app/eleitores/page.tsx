@@ -26,7 +26,8 @@ import {
   Copy,
   FileText,
   FileSpreadsheet,
-  Share2
+  Share2,
+  UserCheck
 } from 'lucide-react';
 import {
   collection,
@@ -829,6 +830,15 @@ export default function Eleitores() {
             <UserPlus className="w-3.5 h-3.5 text-primary-fixed" />
             <span>Novo Eleitor</span>
           </button>
+
+          <Link
+            href="/validacao"
+            className="px-3 py-1.5 border border-secondary/30 bg-secondary/10 hover:bg-secondary/20 text-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+            title="Central de Validação de Eleitores (Ligação / Mensagem)"
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>Validações</span>
+          </Link>
 
           <Link
             href="/cadastro-em-massa"
