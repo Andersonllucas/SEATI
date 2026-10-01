@@ -37,6 +37,16 @@ const STATUS_OPCOES = [
   'Pendente'
 ];
 
+// Helper seguro para converter secoes (string | string[] | undefined) em array de strings
+function toSecArray(secoes?: string | string[]): string[] {
+  if (!secoes) return [];
+  if (Array.isArray(secoes)) return secoes.map((s) => String(s).trim()).filter(Boolean);
+  return String(secoes)
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export default function RelatoriosPage() {
   const {
     eleitores,
@@ -131,7 +141,7 @@ export default function RelatoriosPage() {
     });
     locais.forEach((loc) => {
       if (selectedZona === 'todas' || loc.zona?.trim() === selectedZona) {
-        (loc.secoes || []).forEach((sec) => {
+        toSecArray(loc.secoes).forEach((sec) => {
           if (sec && String(sec).trim()) set.add(String(sec).trim());
         });
       }
@@ -153,7 +163,7 @@ export default function RelatoriosPage() {
     const map = new Map<string, string>();
     locais.forEach((loc) => {
       const zNorm = (loc.zona || '').padStart(3, '0');
-      (loc.secoes || []).forEach((sec) => {
+      toSecArray(loc.secoes).forEach((sec) => {
         const sNorm = String(sec).padStart(4, '0');
         map.set(`${zNorm}-${sNorm}`, `${loc.nome} (${loc.bairro || ''})`);
       });
