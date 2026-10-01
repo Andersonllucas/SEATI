@@ -18,7 +18,8 @@ import {
   Save,
   X,
   FileSpreadsheet,
-  Check
+  Check,
+  Vote
 } from 'lucide-react';
 import {
   useCampaignData,
@@ -453,6 +454,15 @@ export default function ValidacaoPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/cumprimento-votos"
+            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+            title="Ir para a Validação Pós-Eleição (Cumprimento de Votos por Seção)"
+          >
+            <Vote className="w-3.5 h-3.5 text-primary-fixed" />
+            <span>Pós-Eleição (Urnas)</span>
+          </Link>
+
           <button
             type="button"
             onClick={handleExportExcel}

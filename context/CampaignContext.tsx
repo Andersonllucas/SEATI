@@ -17,6 +17,14 @@ import {
 import { LeaderProvider, useLeaders, Lideranca } from './LeaderContext';
 import { LocationProvider, useLocations, LocalVotacao, LOCAIS_PRESET_DEFAULT } from './LocationContext';
 import { CampaignUIProvider, useCampaignUI } from './CampaignUIContext';
+import {
+  ApuracaoProvider,
+  useApuracao,
+  ApuracaoSecao,
+  normalizeZona,
+  normalizeSecao,
+  makeSecaoKey
+} from './ApuracaoContext';
 
 export {
   VoterProvider,
@@ -25,12 +33,17 @@ export {
   useLeaders,
   LocationProvider,
   useLocations,
+  ApuracaoProvider,
+  useApuracao,
   CampaignUIProvider,
   useCampaignUI,
   LOCAIS_PRESET_DEFAULT,
   cleanCpfUtil,
   cleanTituloUtil,
-  formatTituloUtil
+  formatTituloUtil,
+  normalizeZona,
+  normalizeSecao,
+  makeSecaoKey
 };
 
 export type {
@@ -38,6 +51,7 @@ export type {
   TipoValidacao,
   StatusValidacao,
   ValidacaoRegistro,
+  ApuracaoSecao,
   Lideranca,
   LocalVotacao,
   CpfConflictGroup,
@@ -50,7 +64,9 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
       <LeaderProvider>
         <LocationProvider>
           <VoterProvider>
-            {children}
+            <ApuracaoProvider>
+              {children}
+            </ApuracaoProvider>
           </VoterProvider>
         </LocationProvider>
       </LeaderProvider>

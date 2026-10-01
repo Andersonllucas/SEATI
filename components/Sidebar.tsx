@@ -18,7 +18,8 @@ import {
   LogOut,
   Globe,
   Share2,
-  UserCheck
+  UserCheck,
+  ShieldCheck
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useCampaignUI } from '@/context/CampaignUIContext';
@@ -30,6 +31,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   badge?: string;
+  badgeVariant?: 'sky' | 'emerald' | 'amber' | 'purple' | 'slate';
   alertCount?: number;
 }
 
@@ -44,7 +46,7 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
   const router = useRouter();
   const { totalConflitosCount } = useCampaignUI();
   const { currentUser, logout, systemConfig, isAdmin } = useAuth();
-  const { currentTenant, subdomain } = useTenant();
+  const { currentTenant, subdomain, isAdminMaster } = useTenant();
 
   const handleSuporteClick = () => {
     const contato = (systemConfig?.contatoSuporte || '').trim();
@@ -93,26 +95,37 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }, [currentUser?.nome]);
 
-  // Seções organizadas e com nomenclaturas harmoniosas
+  // Seções organizadas estrategicamente por fluxo de campanha eleitoral
   const navSections: NavSection[] = React.useMemo(() => {
     const sections: NavSection[] = [
       {
-        id: 'operacao',
-        title: 'Operação & Eleitorado',
+        id: 'coordenacao',
+        title: 'Coordenação & Eleitorado',
         items: [
           { href: '/', icon: LayoutDashboard, label: 'Painel Geral' },
           { href: '/eleitores', icon: Users, label: 'Base de Eleitores' },
-          { href: '/validacao', icon: UserCheck, label: 'Validação do Eleitor', badge: 'Checagem' },
-          { href: '/cadastro-em-massa', icon: Zap, label: 'Cadastro em Lote', badge: 'Rápido' },
-          { href: '/cadastro-externo', icon: Share2, label: 'Link de Campo (Externo)', badge: 'Público' },
+          { href: '/cadastro-em-massa', icon: Zap, label: 'Cadastro em Lote', badge: 'Rápido', badgeVariant: 'sky' },
+          { href: '/cadastro-externo', icon: Share2, label: 'Link de Campo', badge: 'Público', badgeVariant: 'emerald' },
         ],
       },
       {
-        id: 'articulacao',
-        title: 'Território & Equipe',
+        id: 'validacao',
+        title: 'Validação & Apuração',
         items: [
-          { href: '/liderancas', icon: Award, label: 'Lideranças e Apoios' },
-          { href: '/locais', icon: MapPin, label: 'Locais de Votação' },
+          {
+            href: '/validacao',
+            icon: UserCheck,
+            label: 'Validação do Eleitor',
+            badge: 'Pré-Voto',
+            badgeVariant: 'amber',
+          },
+          {
+            href: '/cumprimento-votos',
+            icon: Vote,
+            label: 'Cumprimento de Votos',
+            badge: 'Pós-Eleição',
+            badgeVariant: 'purple',
+          },
           {
             href: '/validacoes',
             icon: ShieldAlert,
@@ -122,18 +135,37 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
         ],
       },
       {
+        id: 'territorio',
+        title: 'Território & Articulação',
+        items: [
+          { href: '/liderancas', icon: Award, label: 'Lideranças e Apoios' },
+          { href: '/locais', icon: MapPin, label: 'Locais de Votação' },
+        ],
+      },
+      {
         id: 'gestao',
         title: 'Inteligência & Gestão',
         items: [
-          { href: '/relatorios', icon: Printer, label: 'Central de Relatórios', badge: 'Impressão' },
+          { href: '/relatorios', icon: Printer, label: 'Central de Relatórios', badge: 'PDF / Excel', badgeVariant: 'slate' },
           { href: '/importacao', icon: FileDown, label: 'Importação de Dados' },
           { href: '/configuracoes', icon: Settings, label: 'Configurações Gerais' },
+          ...(isAdminMaster
+            ? [
+                {
+                  href: '/admin-master',
+                  icon: ShieldCheck,
+                  label: 'Painel Master',
+                  badge: 'Super Admin',
+                  badgeVariant: 'amber' as const,
+                },
+              ]
+            : []),
         ],
       },
     ];
 
     return sections;
-  }, [totalConflitosCount]);
+  }, [totalConflitosCount, isAdminMaster]);
 
   const activeCampaignName = currentTenant?.nome || (subdomain && subdomain !== 'demo' ? `Campanha ${subdomain}` : 'Campanha Teresina 2026');
   const activeSubdomain = currentTenant?.subdominio || subdomain || 'demo';
@@ -222,7 +254,19 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
                     <span className="truncate flex-1">{item.label}</span>
 
                     {item.badge && (
-                      <span className="text-[10px] font-bold text-sky-200 bg-sky-500/20 border border-sky-400/30 px-1.5 py-0.5 rounded-md shrink-0">
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 border ${
+                          item.badgeVariant === 'emerald'
+                            ? 'text-emerald-200 bg-emerald-500/20 border-emerald-400/30'
+                            : item.badgeVariant === 'amber'
+                            ? 'text-amber-200 bg-amber-500/20 border-amber-400/30'
+                            : item.badgeVariant === 'purple'
+                            ? 'text-purple-200 bg-purple-500/20 border-purple-400/30'
+                            : item.badgeVariant === 'slate'
+                            ? 'text-slate-300 bg-slate-500/20 border-slate-400/30'
+                            : 'text-sky-200 bg-sky-500/20 border-sky-400/30'
+                        }`}
+                      >
                         {item.badge}
                       </span>
                     )}
