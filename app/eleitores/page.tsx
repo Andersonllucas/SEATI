@@ -168,7 +168,7 @@ export default function Eleitores() {
 
   // Pagination state for ultra-fluid rendering
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState(25);
 
   // In-app actions & confirmation state (replaces browser confirm/alert for iframe safety)
   const [actionLoading, setActionLoading] = useState(false);
@@ -804,40 +804,35 @@ export default function Eleitores() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
-      {/* Top Banner & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-secondary uppercase tracking-wider">
-              Gestão Territorial
-            </span>
-            <span className="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full font-medium">
-              Base Eleitoral
-            </span>
-          </div>
-          <h1 className="text-xl md:text-2xl text-on-surface font-bold tracking-tight">
+    <div className="p-3 md:p-4 space-y-3 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
+      {/* Top Banner & Header - Compacto e Elegante */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight">
             Base de Eleitores
           </h1>
-          <p className="text-sm text-on-surface-variant mt-0.5">
-            Cadastre novos eleitores, audite duplicidades de CPF e gerencie a vinculação com lideranças.
-          </p>
+          <span className="text-[11px] bg-surface-container text-on-surface-variant px-2.5 py-0.5 rounded-full font-medium hidden sm:inline-block">
+            Gestão Territorial
+          </span>
+          <span className="text-xs text-on-surface-variant hidden lg:inline">
+            • Cadastre novos eleitores, audite duplicidades e gerencie lideranças
+          </span>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={handleOpenCreate}
-            className="px-4 py-2 bg-primary text-on-primary hover:bg-secondary rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-md hover:shadow-lg cursor-pointer"
+            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
             title="Abrir cadastro de novo eleitor no formulário lateral"
           >
-            <UserPlus className="w-4 h-4 text-primary-fixed" />
+            <UserPlus className="w-3.5 h-3.5 text-primary-fixed" />
             <span>Novo Eleitor</span>
           </button>
 
           <Link
             href="/cadastro-em-massa"
-            className="px-3.5 py-2 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+            className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
             title="Ambiente otimizado para cadastro contínuo de vários eleitores"
           >
             <Zap className="w-3.5 h-3.5 text-secondary" />
@@ -847,7 +842,7 @@ export default function Eleitores() {
           <button
             type="button"
             onClick={() => setIsShareFieldModalOpen(true)}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
             title="Gerar link público ou QR Code para a equipe de campo"
           >
             <Share2 className="w-3.5 h-3.5" />
@@ -856,84 +851,117 @@ export default function Eleitores() {
         </div>
       </div>
 
-      {/* Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 shrink-0">
-        <Metric title="Total de Eleitores" value={eleitores.length.toString()} sub="Cadastrados no banco" />
-        <Metric
-          title="Lideranças Ativas"
-          value={(ativasLiderancasCount || 0).toString()}
-          sub="Articuladores cadastrados"
-          linkHref="/liderancas"
-          linkLabel="Gerenciar"
-        />
-        <Metric
-          title="Duplicidades Detectadas"
-          value={totalConflitos.toString()}
-          color={totalConflitos > 0 ? 'text-error font-extrabold' : 'text-emerald-700'}
-          sub={
-            totalConflitos > 0
-              ? `${totalEleitoresEmConflito} eleitores com mesmo CPF`
-              : 'Zero conflitos de CPF'
-          }
-          alert={totalConflitos > 0}
-          active={filterOnlyConflicts}
-          badge={
-            totalConflitos > 0 ? (
-              <span className="text-[10px] bg-error text-on-error font-bold px-2 py-0.5 rounded-full animate-pulse flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                {totalConflitos} {totalConflitos === 1 ? 'conflito' : 'conflitos'}
-              </span>
-            ) : (
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Base Íntegra
-              </span>
-            )
-          }
-          actionContent={
-            <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-outline-variant/30">
+      {/* Metrics Cards Compactos (Otimização de Espaço Vertical para Valorizar a Tabela) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 shrink-0">
+        {/* Card 1: Total Eleitores */}
+        <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-outline-variant/60 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+              Total de Eleitores
+            </p>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <h3 className="text-lg md:text-xl font-black text-on-surface">{eleitores.length}</h3>
+              <span className="text-[11px] text-on-surface-variant">cadastrados no banco</span>
+            </div>
+          </div>
+          <div className="p-2 bg-surface-container rounded-lg text-secondary">
+            <Users className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Card 2: Lideranças Ativas */}
+        <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-outline-variant/60 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+              Lideranças Ativas
+            </p>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <h3 className="text-lg md:text-xl font-black text-secondary">{ativasLiderancasCount || 0}</h3>
+              <span className="text-[11px] text-on-surface-variant">articuladores</span>
+            </div>
+          </div>
+          <Link
+            href="/liderancas"
+            prefetch={true}
+            className="text-[11px] text-secondary hover:underline font-semibold bg-surface-container hover:bg-surface-container-high px-2.5 py-1 rounded transition-colors"
+          >
+            Gerenciar
+          </Link>
+        </div>
+
+        {/* Card 3: Duplicidades Detectadas */}
+        <div
+          className={`px-3.5 py-2 rounded-xl border transition-all flex items-center justify-between ${
+            filterOnlyConflicts
+              ? 'ring-2 ring-error border-error bg-error-container/10'
+              : totalConflitos > 0
+              ? 'border-error/40 bg-surface-container-lowest shadow-xs'
+              : 'border-outline-variant/60 bg-surface-container-lowest shadow-xs'
+          }`}
+        >
+          <div>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                Duplicidades
+              </p>
               {totalConflitos > 0 ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsConflictModalOpen(true);
-                    }}
-                    className="text-xs bg-error text-on-error hover:bg-error/90 font-semibold px-2.5 py-1 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                  >
-                    <ShieldAlert className="w-3.5 h-3.5" /> Auditar Conflitos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFilterOnlyConflicts((prev) => !prev);
-                      setCurrentPage(1);
-                    }}
-                    className={`text-xs font-semibold px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                      filterOnlyConflicts
-                        ? 'bg-error-container text-on-error-container border border-error/40 font-bold'
-                        : 'bg-surface-container hover:bg-surface-container-high text-on-surface'
-                    }`}
-                  >
-                    {filterOnlyConflicts ? 'Ver Todos' : 'Filtrar na Lista'}
-                  </button>
-                </>
+                <span className="text-[9px] bg-error text-on-error font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                  {totalConflitos} {totalConflitos === 1 ? 'conflito' : 'conflitos'}
+                </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsConflictModalOpen(true);
-                  }}
-                  className="text-xs text-secondary hover:underline font-semibold flex items-center gap-1 cursor-pointer"
-                >
-                  <Fingerprint className="w-3.5 h-3.5" /> Detalhes da Auditoria
-                </button>
+                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">
+                  Zero
+                </span>
               )}
             </div>
-          }
-        />
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <h3 className={`text-lg md:text-xl font-black ${totalConflitos > 0 ? 'text-error' : 'text-emerald-700'}`}>
+                {totalConflitos}
+              </h3>
+              <span className="text-[11px] text-on-surface-variant truncate max-w-[130px] sm:max-w-none">
+                {totalConflitos > 0 ? `${totalEleitoresEmConflito} com mesmo CPF` : 'base íntegra'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {totalConflitos > 0 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsConflictModalOpen(true)}
+                  className="text-[11px] bg-error text-on-error hover:bg-error/90 font-semibold px-2 py-1 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                  title="Auditar duplicidades de CPF"
+                >
+                  <ShieldAlert className="w-3 h-3" /> Auditar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterOnlyConflicts((prev) => !prev);
+                    setCurrentPage(1);
+                  }}
+                  className={`text-[11px] font-semibold px-2 py-1 rounded transition-colors cursor-pointer ${
+                    filterOnlyConflicts
+                      ? 'bg-error-container text-on-error-container border border-error/40 font-bold'
+                      : 'bg-surface-container hover:bg-surface-container-high text-on-surface'
+                  }`}
+                  title="Filtrar eleitores com conflito na tabela abaixo"
+                >
+                  {filterOnlyConflicts ? 'Ver Todos' : 'Filtrar'}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsConflictModalOpen(true)}
+                className="text-[11px] text-secondary hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+              >
+                <Fingerprint className="w-3.5 h-3.5" /> Detalhes
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* BANNER DE NOTIFICAÇÃO PERSISTENTE (NÃO SOME RÁPIDO) */}
@@ -969,12 +997,12 @@ export default function Eleitores() {
 
       {/* Table Container */}
       <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/60 shadow-sm overflow-hidden flex flex-col flex-1">
-        {/* Toolbar */}
-        <div className="px-4 py-3 bg-surface border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-3">
+        {/* Toolbar - Compacta em Linha Única */}
+        <div className="px-3.5 py-2 bg-surface border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
-            <h2 className="text-base text-on-surface font-semibold">Listagem Geral de Eleitores</h2>
-            <span className="text-xs bg-surface-container text-on-surface px-2 py-0.5 rounded-full font-medium">
-              {filteredEleitores.length} de {eleitores.length} registros
+            <h2 className="text-xs md:text-sm text-on-surface font-bold">Listagem Geral</h2>
+            <span className="text-[11px] bg-surface-container text-on-surface px-2 py-0.5 rounded-full font-medium">
+              {filteredEleitores.length} de {eleitores.length}
             </span>
           </div>
 
@@ -986,7 +1014,7 @@ export default function Eleitores() {
                 setSelectedLiderancaFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="h-9 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary max-w-[200px]"
+              className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary max-w-[170px]"
             >
               <option value="todas">Todas as Lideranças</option>
               {liderancasPrincipais.length > 0 && (
@@ -1016,7 +1044,7 @@ export default function Eleitores() {
                 setStatusFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="h-9 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
+              className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
             >
               <option value="todos">Todos os Status</option>
               <option value="conflito">⚠️ Apenas com Conflito de CPF</option>
@@ -1029,7 +1057,7 @@ export default function Eleitores() {
 
             {/* Search Input */}
             <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
               <input
                 type="text"
                 placeholder="Buscar eleitor, CPF, zona..."
@@ -1038,37 +1066,25 @@ export default function Eleitores() {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-44 sm:w-56 h-9 bg-surface-container-lowest border border-outline-variant/50 rounded-md pl-9 pr-3 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                className="w-40 sm:w-52 h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md pl-8 pr-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
               />
             </div>
 
-            {/* Botão Novo Eleitor (Abre o Drawer Lateral à Direita) */}
-            <button
-              type="button"
-              onClick={handleOpenCreate}
-              className="px-3.5 py-2 bg-primary text-on-primary rounded-md text-xs font-bold flex items-center gap-1.5 hover:bg-secondary transition-colors shadow-sm cursor-pointer"
-              title="Cadastrar novo eleitor individualmente (abre formulário lateral à direita)"
+            {/* Seletor de registros por página */}
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface-variant focus:outline-none"
+              title="Quantidade de eleitores exibidos por página"
             >
-              <UserPlus className="w-4 h-4 text-primary-fixed" />
-              <span>Novo Eleitor</span>
-            </button>
-
-            <Link
-              href="/cadastro-em-massa"
-              className="px-3.5 py-2 bg-surface-container-high border border-outline-variant/60 text-on-surface hover:bg-surface-container-highest rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
-              title="Ambiente otimizado para cadastro contínuo de vários eleitores"
-            >
-              <Zap className="w-4 h-4 text-secondary" /> Cadastro em Lote
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => setIsShareFieldModalOpen(true)}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
-              title="Gerar link público ou QR Code para a equipe de campo cadastrar eleitores sem login"
-            >
-              <Share2 className="w-4 h-4" /> Link de Campo
-            </button>
+              <option value={15}>15 por pág.</option>
+              <option value={25}>25 por pág.</option>
+              <option value={50}>50 por pág.</option>
+              <option value={100}>100 por pág.</option>
+            </select>
           </div>
         </div>
 
@@ -1207,7 +1223,7 @@ export default function Eleitores() {
           <table className="w-full text-left border-collapse min-w-[850px]">
             <thead>
               <tr className="bg-surface-container-low border-b border-outline-variant/60 text-xs text-on-surface-variant uppercase font-semibold">
-                <th className="py-3 px-4 w-10">
+                <th className="py-2 px-3 md:py-2 md:px-3.5 w-10">
                   <input
                     ref={(el) => {
                       if (el) {
@@ -1225,13 +1241,13 @@ export default function Eleitores() {
                     }
                   />
                 </th>
-                <th className="py-3 px-4">Nome do Eleitor</th>
-                <th className="py-3 px-4">CPF / Auditoria</th>
-                <th className="py-3 px-4">Título</th>
-                <th className="py-3 px-4">Zona / Seção</th>
-                <th className="py-3 px-4">Liderança / Articulador</th>
-                <th className="py-3 px-4 text-center">WhatsApp</th>
-                <th className="py-3 px-4 text-right">Ações</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5">Nome do Eleitor</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5">CPF / Auditoria</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5">Título</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5">Zona / Seção</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5">Liderança / Articulador</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5 text-center">WhatsApp</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/30 text-sm">
@@ -1303,7 +1319,7 @@ export default function Eleitores() {
 
         {/* Pagination Controls */}
         {filteredEleitores.length > 0 && (
-          <div className="px-4 py-3 bg-surface-container-low/40 border-t border-outline-variant/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-on-surface-variant shrink-0">
+          <div className="px-3.5 py-2 bg-surface-container-low/40 border-t border-outline-variant/40 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-on-surface-variant shrink-0">
             <div>
               Exibindo <strong>{(currentPage - 1) * pageSize + 1}</strong> a <strong>{Math.min(currentPage * pageSize, filteredEleitores.length)}</strong> de <strong>{filteredEleitores.length}</strong> eleitores
             </div>
@@ -1312,7 +1328,7 @@ export default function Eleitores() {
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
-                className="px-3 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-container flex items-center gap-1 font-semibold transition-colors"
+                className="px-2.5 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-container flex items-center gap-1 font-semibold transition-colors"
               >
                 <ChevronLeft className="w-3.5 h-3.5" /> Anterior
               </button>
@@ -1323,7 +1339,7 @@ export default function Eleitores() {
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
-                className="px-3 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-container flex items-center gap-1 font-semibold transition-colors"
+                className="px-2.5 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-container flex items-center gap-1 font-semibold transition-colors"
               >
                 Próxima <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -2594,58 +2610,6 @@ export default function Eleitores() {
         isOpen={isShareFieldModalOpen}
         onClose={() => setIsShareFieldModalOpen(false)}
       />
-    </div>
-  );
-}
-
-function Metric({
-  title,
-  value,
-  color,
-  sub,
-  alert,
-  active,
-  badge,
-  linkHref,
-  linkLabel,
-  actionContent
-}: any) {
-  return (
-    <div
-      className={`bg-surface-container-lowest p-4 rounded-xl border transition-all ${
-        active
-          ? 'ring-2 ring-error border-error bg-error-container/10'
-          : alert
-          ? 'border-error/40 shadow-xs'
-          : 'border-outline-variant/60'
-      } shadow-sm flex flex-col justify-between`}
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">{title}</p>
-            {badge}
-          </div>
-          <h3 className={`text-2xl font-bold mt-1.5 ${color || 'text-on-surface'}`}>{value}</h3>
-          {sub && <p className="text-xs text-on-surface-variant mt-1">{sub}</p>}
-        </div>
-        {linkHref && (
-          <Link
-            href={linkHref}
-            prefetch={true}
-            className="text-xs text-secondary hover:underline font-semibold bg-surface-container px-2 py-1 rounded"
-          >
-            {linkLabel || 'Ver'}
-          </Link>
-        )}
-        {alert && !badge && (
-          <div className="p-2 bg-error-container/50 rounded-lg">
-            <AlertTriangle className="w-4 h-4 text-error" />
-          </div>
-        )}
-      </div>
-
-      {actionContent}
     </div>
   );
 }
