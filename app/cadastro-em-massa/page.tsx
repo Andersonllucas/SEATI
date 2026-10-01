@@ -388,7 +388,7 @@ export default function CadastroEmMassaPage() {
         secao: secao || defaultSecao || '0042',
         lideranca: leaderName,
         liderancaId: leaderId,
-        status: 'Validado',
+        status: 'Pendente de confirmação',
         dataCadastro: serverTimestamp()
       });
 
@@ -587,7 +587,7 @@ export default function CadastroEmMassaPage() {
           secao: row.secao || defaultSecao || '0042',
           lideranca: leaderName,
           liderancaId: leader ? leader.id : '',
-          status: 'Validado',
+          status: 'Pendente de confirmação',
           dataCadastro: serverTimestamp()
         });
 

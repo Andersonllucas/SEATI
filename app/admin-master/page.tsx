@@ -107,6 +107,11 @@ function isAuthorizedMasterUser(user?: { email?: string | null; perfil?: string 
 export default function AdminMasterPage() {
   const { subdomain: activeSubdomain } = useTenant();
 
+  // Garante o título PAINEL na aba do navegador
+  useEffect(() => {
+    document.title = 'PAINEL';
+  }, []);
+
   // Autenticação master
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isVerifyingSession, setIsVerifyingSession] = useState<boolean>(true);

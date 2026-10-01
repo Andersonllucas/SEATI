@@ -30,11 +30,11 @@ import {
 import { formatCpf } from '@/lib/importExportUtils';
 
 const STATUS_OPCOES = [
+  'Pendente de confirmação',
   'Confirmado',
   'Voto Certo',
   'Apoiador',
-  'Validado',
-  'Pendente'
+  'Validado'
 ];
 
 // Helper seguro para converter secoes (string | string[] | undefined) em array de strings
@@ -221,8 +221,11 @@ export default function RelatoriosPage() {
       if (selectedStatus !== 'todos') {
         if (selectedStatus === 'conflito') {
           if (!conflictingVoterIds.has(e.id)) return false;
+        } else if (selectedStatus === 'Pendente de confirmação') {
+          const s = e.status || 'Pendente de confirmação';
+          if (s !== 'Pendente de confirmação' && s !== 'Pendente') return false;
         } else {
-          if (e.status !== selectedStatus) return false;
+          if ((e.status || 'Pendente de confirmação') !== selectedStatus) return false;
         }
       }
 

@@ -465,7 +465,7 @@ export default function CadastroExternoCampoPage() {
         secao: (secao || fixedSecao || '0042').trim(),
         lideranca: activeLiderNome,
         liderancaId: activeLiderId || '',
-        status: 'Validado',
+        status: 'Pendente de confirmação',
         observacoes: observacoes.trim() ? `${observacoes.trim()} [Cadastrado em Campo por: ${operadorNome || 'Voluntário'}]` : `[Cadastrado em Campo por: ${operadorNome || 'Voluntário'}]`,
         origemCadastro: 'Campo / Equipe Externa',
         operadorCampoNome: operadorNome.trim() || 'Equipe de Campo',

@@ -296,7 +296,10 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
   }, [tenantKey]);
 
   const addEleitorQuick = useCallback(async (data: Omit<Eleitor, 'id' | 'dataCadastro'>) => {
-    const cleanData = sanitizeFirestoreData(data);
+    const cleanData = sanitizeFirestoreData({
+      ...data,
+      status: data.status || 'Pendente de confirmação'
+    });
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newEleitor: Eleitor = {
       id: tempId,
@@ -376,7 +379,10 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
       // Adição otimista no estado e cache
       const newItems: Eleitor[] = voters.map((v, i) => ({
         id: `imp_${Date.now()}_${i}`,
-        ...sanitizeFirestoreData(v),
+        ...sanitizeFirestoreData({
+          ...v,
+          status: v.status || 'Pendente de confirmação'
+        }),
         dataCadastro: new Date().toISOString()
       }));
 
@@ -394,7 +400,10 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
           chunk.forEach((item) => {
             const docRef = doc(collection(targetDb, 'eleitores'));
             batch.set(docRef, {
-              ...sanitizeFirestoreData(item),
+              ...sanitizeFirestoreData({
+                ...item,
+                status: item.status || 'Pendente de confirmação'
+              }),
               dataCadastro: serverTimestamp()
             });
           });

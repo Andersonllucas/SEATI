@@ -49,6 +49,12 @@ import { ShareFieldLinkModal } from '@/components/ShareFieldLinkModal';
 
 const STATUS_OPTIONS = [
   {
+    id: 'Pendente de confirmação',
+    title: 'Pendente de Confirmação',
+    desc: 'Novo cadastro aguardando checagem da coordenação',
+    badgeColor: 'bg-amber-100 text-amber-800 border-amber-300'
+  },
+  {
     id: 'Confirmado',
     title: 'Confirmado',
     desc: 'Eleitor contactado que assegurou voto na chapa',
@@ -74,17 +80,20 @@ const STATUS_OPTIONS = [
   },
   {
     id: 'Pendente',
-    title: 'Pendente de Confirmação',
-    desc: 'Ainda necessita de visita ou contato da coordenação',
+    title: 'Pendente',
+    desc: 'Ainda necessita de checagem',
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-300'
   }
 ] as const;
 
 function getStatusBadgeColor(status?: string): string {
-  const match = STATUS_OPTIONS.find((opt) => opt.id === status);
-  if (match) return match.badgeColor;
-  if (!status || status === 'Validado') return 'bg-teal-100 text-teal-800 border-teal-300';
-  return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+  const st = (status || '').toLowerCase().trim();
+  if (st.includes('pendente')) return 'bg-amber-100 text-amber-800 border-amber-300';
+  if (st.includes('confirmado')) return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+  if (st.includes('voto certo')) return 'bg-blue-100 text-blue-800 border-blue-300';
+  if (st.includes('apoiador')) return 'bg-purple-100 text-purple-800 border-purple-300';
+  if (st.includes('validado')) return 'bg-teal-100 text-teal-800 border-teal-300';
+  return 'bg-amber-100 text-amber-800 border-amber-300';
 }
 
 export default function Eleitores() {
@@ -198,7 +207,7 @@ export default function Eleitores() {
   const [estado, setEstado] = useState('');
   const [zona, setZona] = useState('');
   const [secao, setSecao] = useState('');
-  const [formStatus, setFormStatus] = useState<string>('Validado');
+  const [formStatus, setFormStatus] = useState<string>('Pendente de confirmação');
   const [selectedLiderId, setSelectedLiderId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -294,7 +303,7 @@ export default function Eleitores() {
     setEstado(currentTenant?.uf || 'SP');
     setZona('');
     setSecao('');
-    setFormStatus('Validado');
+    setFormStatus('Pendente de confirmação');
     setSelectedLiderId(liderancas.length > 0 ? liderancas[0].id : '');
     setIsDrawerOpen(true);
   };
@@ -312,7 +321,7 @@ export default function Eleitores() {
     setEstado(eleitor.estado || currentTenant?.uf || 'SP');
     setZona(eleitor.zona || '');
     setSecao(eleitor.secao || '');
-    setFormStatus(eleitor.status || 'Validado');
+    setFormStatus(eleitor.status || 'Pendente de confirmação');
     const foundLider = liderancas.find(
       (l) => l.id === eleitor.liderancaId || l.nome === eleitor.lideranca
     );
@@ -446,7 +455,7 @@ export default function Eleitores() {
       secao: trimmedSecao,
       lideranca: liderancaNome,
       liderancaId: selectedLiderId || '',
-      status: formStatus || 'Validado'
+      status: formStatus || 'Pendente de confirmação'
     };
 
     // 2. Verificação de conflito em tempo real (CPF ou Título de Eleitor)
@@ -615,7 +624,9 @@ export default function Eleitores() {
           ? true
           : statusFilter === 'conflito'
           ? conflictingVoterIds.has(eleitor.id)
-          : (eleitor.status || 'Validado') === statusFilter;
+          : statusFilter === 'Pendente de confirmação'
+          ? (eleitor.status === 'Pendente de confirmação' || eleitor.status === 'Pendente' || !eleitor.status)
+          : (eleitor.status || 'Pendente de confirmação') === statusFilter;
 
       return matchesSearch && matchesLideranca && matchesStatus;
     });
