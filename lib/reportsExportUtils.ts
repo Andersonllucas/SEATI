@@ -15,6 +15,16 @@ export interface ReportExportOptions {
   conflictingIds: Set<string>;
 }
 
+// Helper to safely extract sections array from string | string[]
+function toSecArray(secoes?: string | string[]): string[] {
+  if (!secoes) return [];
+  if (Array.isArray(secoes)) return secoes.map((s) => String(s).trim()).filter(Boolean);
+  return String(secoes)
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 // Helper to trigger file download
 function triggerDownload(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -93,7 +103,7 @@ export async function generateReportPDF(options: ReportExportOptions) {
   const localMap = new Map<string, string>();
   locais.forEach((loc) => {
     const zonaNorm = (loc.zona || '').padStart(3, '0');
-    (loc.secoes || []).forEach((sec) => {
+    toSecArray(loc.secoes).forEach((sec) => {
       const secNorm = String(sec).padStart(4, '0');
       localMap.set(`${zonaNorm}-${secNorm}`, `${loc.nome} (${loc.bairro || ''})`);
     });
@@ -413,7 +423,7 @@ export async function generateReportExcel(options: ReportExportOptions) {
   const localMap = new Map<string, string>();
   locais.forEach((loc) => {
     const zonaNorm = (loc.zona || '').padStart(3, '0');
-    (loc.secoes || []).forEach((sec) => {
+    toSecArray(loc.secoes).forEach((sec) => {
       const secNorm = String(sec).padStart(4, '0');
       localMap.set(`${zonaNorm}-${secNorm}`, loc.nome);
     });
