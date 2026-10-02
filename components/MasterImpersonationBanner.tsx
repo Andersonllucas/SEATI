@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, ArrowLeft, Database, RefreshCw } from 'lucide-react';
 import { useTenant } from '@/context/TenantContext';
+import { safeStorage } from '@/lib/safeStorage';
 
 export function MasterImpersonationBanner() {
   const { currentTenant, subdomain, reloadTenant } = useTenant();
@@ -10,13 +11,9 @@ export function MasterImpersonationBanner() {
   const [isExiting, setIsExiting] = useState<boolean>(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
-      const impSub = localStorage.getItem('adti_impersonating_tenant');
-      const hasMasterUser = !!(
-        sessionStorage.getItem('adti_admin_master_user') ||
-        localStorage.getItem('adti_admin_master_user')
-      );
+      const impSub = safeStorage.getItem('adti_impersonating_tenant');
+      const hasMasterUser = !!safeStorage.getItem('adti_admin_master_user');
       if (impSub && (impSub === subdomain || hasMasterUser)) {
         setIsImpersonating(true);
       } else {
@@ -33,11 +30,13 @@ export function MasterImpersonationBanner() {
 
   const handleReturnToMaster = () => {
     setIsExiting(true);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('adti_impersonating_tenant');
-      localStorage.removeItem('adti_impersonating_client');
-      localStorage.setItem('adti_active_subdomain', 'admin');
+    safeStorage.removeItem('adti_impersonating_tenant');
+    safeStorage.removeItem('adti_impersonating_client');
+    safeStorage.setItem('adti_active_subdomain', 'admin');
+    try {
       document.cookie = 'adti_subdomain=admin; path=/; max-age=31536000; SameSite=Lax';
+    } catch {}
+    if (typeof window !== 'undefined') {
       window.location.href = '/admin-master';
     }
   };

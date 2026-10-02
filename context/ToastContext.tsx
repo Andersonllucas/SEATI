@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { safeStorage } from '@/lib/safeStorage';
 
 export type ToastType = 'success' | 'warn' | 'warning' | 'error' | 'info';
 
@@ -82,7 +83,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     };
 
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = safeStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -119,16 +120,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
     // Inicializa somente com a notificação de boas-vindas no badge ativo imediato
     setNotifications([welcomeItem]);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([welcomeItem]));
-    } catch {}
+    safeStorage.setItem(STORAGE_KEY, JSON.stringify([welcomeItem]));
   }, []);
 
   // Persiste alterações nas notificações no localStorage
   const saveNotificationsToStorage = useCallback((items: NotificationItem[]) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch {}
+    safeStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -224,9 +221,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const clearNotifications = useCallback(() => {
     setNotifications([]);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {}
+    safeStorage.removeItem(STORAGE_KEY);
   }, []);
 
   const triggerTestNotification = useCallback(() => {

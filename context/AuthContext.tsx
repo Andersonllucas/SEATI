@@ -25,6 +25,7 @@ import { useTenant } from '@/context/TenantContext';
 import { hashPassword, verifyPassword } from '@/lib/crypto';
 import { handleFirestoreError, OperationType, isCircuitBroken } from '@/lib/firestoreErrors';
 import { getCachedCollection, setCachedCollection } from '@/lib/firestoreCache';
+import { safeStorage } from '@/lib/safeStorage';
 
 export type UserRole = 'Administrador' | 'Operador';
 export type UserStatus = 'Ativo' | 'Inativo';
@@ -241,9 +242,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   if (uData.status === 'Ativo') {
                     setCurrentUser(uData);
                     userResolved = true;
-                    if (typeof window !== 'undefined') {
-                      localStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(uData));
-                    }
+                    safeStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(uData));
                   }
                 }
               } catch (firestoreErr) {
@@ -252,8 +251,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             // 2. Fallback de cache local: preserva a sessão mesmo se o Firestore estiver com cota excedida
-            if (!userResolved && typeof window !== 'undefined') {
-              const cachedStr = localStorage.getItem('gestao_eleitoral_cached_user');
+            if (!userResolved) {
+              const cachedStr = safeStorage.getItem('gestao_eleitoral_cached_user');
               if (cachedStr) {
                 try {
                   const cachedUser = JSON.parse(cachedStr);
@@ -301,12 +300,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   setCurrentUser(masterSupportUser);
                 } catch {}
               } else {
-                const isLoggedOut = localStorage.getItem('gestao_eleitoral_logged_out') === 'true';
+                const isLoggedOut = safeStorage.getItem('gestao_eleitoral_logged_out') === 'true';
                 if (isLoggedOut) {
                   setCurrentUser(null);
-                  localStorage.removeItem('gestao_eleitoral_user_id');
-                  localStorage.removeItem('gestao_eleitoral_cached_user');
-                  sessionStorage.removeItem('gestao_eleitoral_user_id');
+                  safeStorage.removeItem('gestao_eleitoral_user_id');
+                  safeStorage.removeItem('gestao_eleitoral_cached_user');
                 }
               }
             }
@@ -352,14 +350,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setCurrentUser(null);
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('gestao_eleitoral_user_id');
-        localStorage.removeItem('gestao_eleitoral_cached_user');
-        localStorage.removeItem('adti_admin_master_user');
-        sessionStorage.removeItem('adti_admin_master_user');
-        sessionStorage.removeItem('gestao_eleitoral_user_id');
-        localStorage.setItem('gestao_eleitoral_logged_out', 'true');
-      }
+      safeStorage.removeItem('gestao_eleitoral_user_id');
+      safeStorage.removeItem('gestao_eleitoral_cached_user');
+      safeStorage.removeItem('adti_admin_master_user');
+      safeStorage.setItem('gestao_eleitoral_logged_out', 'true');
 
       suspendTenant(subdomain);
 
@@ -429,11 +423,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             senhaMestre: data.senhaMestre || DEFAULT_CONFIG.senhaMestre
           };
           setSystemConfig(merged);
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem(`adti_cache_${tenantKey}_configuracoes`, JSON.stringify(merged));
-            } catch {}
-          }
+          safeStorage.setItem(`adti_cache_${tenantKey}_configuracoes`, JSON.stringify(merged));
         } else if (currentUserPerfil === 'Administrador' && targetAuth.currentUser) {
           setDoc(configDocRef, {
             ...tenantBaseConfig,
@@ -499,9 +489,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const found = dedupedUsers.find((u) => u.id === currentUser.id || u.email === currentUser.email);
           if (found && (found.nome !== currentUser.nome || found.perfil !== currentUser.perfil || found.status !== currentUser.status || found.senhaProvisoria !== currentUser.senhaProvisoria)) {
             setCurrentUser(found);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(found));
-            }
+            safeStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(found));
           }
         }
       },
@@ -689,25 +677,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const authenticatedUser: AppUser = data.user;
         setCurrentUser(authenticatedUser);
 
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('gestao_eleitoral_logged_out');
-          localStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(authenticatedUser));
-          if (authenticatedUser.perfil === 'Administrador') {
-            const adminData = JSON.stringify({
-              id: authenticatedUser.id,
-              nome: authenticatedUser.nome,
-              email: authenticatedUser.email,
-              perfil: authenticatedUser.perfil
-            });
-            localStorage.setItem('adti_admin_master_user', adminData);
-            sessionStorage.setItem('adti_admin_master_user', adminData);
-          }
-          if (rememberMe) {
-            localStorage.setItem('gestao_eleitoral_user_id', authenticatedUser.id);
-          } else {
-            sessionStorage.setItem('gestao_eleitoral_user_id', authenticatedUser.id);
-            localStorage.removeItem('gestao_eleitoral_user_id');
-          }
+        safeStorage.removeItem('gestao_eleitoral_logged_out');
+        safeStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(authenticatedUser));
+        if (authenticatedUser.perfil === 'Administrador') {
+          const adminData = JSON.stringify({
+            id: authenticatedUser.id,
+            nome: authenticatedUser.nome,
+            email: authenticatedUser.email,
+            perfil: authenticatedUser.perfil
+          });
+          safeStorage.setItem('adti_admin_master_user', adminData);
+        }
+        if (rememberMe) {
+          safeStorage.setItem('gestao_eleitoral_user_id', authenticatedUser.id);
+        } else {
+          safeStorage.removeItem('gestao_eleitoral_user_id');
         }
 
         // Atualização de último acesso
@@ -757,14 +741,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
 
     setCurrentUser(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('gestao_eleitoral_user_id');
-      localStorage.removeItem('gestao_eleitoral_cached_user');
-      localStorage.removeItem('adti_admin_master_user');
-      sessionStorage.removeItem('adti_admin_master_user');
-      sessionStorage.removeItem('gestao_eleitoral_user_id');
-      localStorage.setItem('gestao_eleitoral_logged_out', 'true');
-    }
+    safeStorage.removeItem('gestao_eleitoral_user_id');
+    safeStorage.removeItem('gestao_eleitoral_cached_user');
+    safeStorage.removeItem('adti_admin_master_user');
+    safeStorage.setItem('gestao_eleitoral_logged_out', 'true');
   }, [currentUser, registrarLog]);
 
   const switchUser = useCallback(
@@ -900,9 +880,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setSystemConfig((prev) => {
         const updated = { ...prev, senhaMestre: hashedPassword };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(`adti_cache_${tenantKey}_configuracoes`, JSON.stringify(updated));
-        }
+        safeStorage.setItem(`adti_cache_${tenantKey}_configuracoes`, JSON.stringify(updated));
         return updated;
       });
 
@@ -934,9 +912,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setSystemConfig((prev) => {
         const updated = { ...prev, ...dados };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(`adti_cache_${tenantKey}_configuracoes`, JSON.stringify(updated));
-        }
+        safeStorage.setItem(`adti_cache_${tenantKey}_configuracoes`, JSON.stringify(updated));
         return updated;
       });
 

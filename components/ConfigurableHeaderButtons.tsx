@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth, CustomHeaderButton } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
+import { safeStorage } from '@/lib/safeStorage';
 
 export function ConfigurableHeaderButtons() {
   const { systemConfig } = useAuth();
@@ -26,14 +27,12 @@ export function ConfigurableHeaderButtons() {
     }
 
     // 2. Fallback local por tenant
-    if (typeof window !== 'undefined') {
+    const stored = safeStorage.getItem(`adti_custom_buttons_${subdomain || 'default'}`);
+    if (stored) {
       try {
-        const stored = localStorage.getItem(`adti_custom_buttons_${subdomain || 'default'}`);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
-          }
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
         }
       } catch {}
     }

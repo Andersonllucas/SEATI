@@ -44,6 +44,8 @@ export function BuQrCodeScannerModal({
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const html5QrCodeRef = useRef<any>(null);
+  const isStoppingRef = useRef(false);
+  const isStartingRef = useRef(false);
   const scannerContainerId = 'bu-qr-reader-container';
 
   // Processa texto decodificado
@@ -65,28 +67,64 @@ export function BuQrCodeScannerModal({
       setSelectedVotes(parsed.candidatos[0].votos);
     }
 
-    // Para a câmera temporariamente para mostrar o resultado
-    stopCamera();
+    // Para a câmera com segurança para mostrar o resultado
+    stopCamera().catch(() => {});
+  };
+
+  // Parar Leitor de Câmera com limpeza completa da instância
+  const stopCamera = async () => {
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+    try {
+      const scanner = html5QrCodeRef.current;
+      if (scanner) {
+        try {
+          if (scanner.isScanning) {
+            await scanner.stop().catch(() => {});
+          }
+        } catch (e) {
+          console.warn('Erro ao parar câmera:', e);
+        }
+        try {
+          scanner.clear();
+        } catch {}
+        html5QrCodeRef.current = null;
+      }
+    } catch (e) {
+      console.warn('Erro geral ao parar câmera:', e);
+    } finally {
+      setIsScanning(false);
+      isStoppingRef.current = false;
+    }
   };
 
   // Iniciar Leitor de Câmera
   const startCamera = async () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
     try {
       setScannerError(null);
-      setIsScanning(true);
+      // Garante que qualquer câmera prévia esteja desligada e limpa
+      await stopCamera();
 
+      const el = document.getElementById(scannerContainerId);
+      if (!el) {
+        isStartingRef.current = false;
+        return;
+      }
+
+      setIsScanning(true);
       const { Html5Qrcode } = await import('html5-qrcode');
 
-      if (!html5QrCodeRef.current) {
-        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId);
-      }
+      const scanner = new Html5Qrcode(scannerContainerId);
+      html5QrCodeRef.current = scanner;
 
       const config = {
         fps: 10,
         qrbox: { width: 260, height: 260 }
       };
 
-      await html5QrCodeRef.current.start(
+      await scanner.start(
         { facingMode: 'environment' }, // câmera traseira por padrão
         config,
         (decodedText: string) => {
@@ -102,21 +140,13 @@ export function BuQrCodeScannerModal({
         'Não foi possível acessar a câmera. Verifique as permissões do navegador ou utilize o envio de foto/imagem.'
       );
       setIsScanning(false);
-    }
-  };
-
-  // Parar Leitor de Câmera
-  const stopCamera = async () => {
-    if (html5QrCodeRef.current) {
-      try {
-        if (html5QrCodeRef.current.isScanning) {
-          await html5QrCodeRef.current.stop();
-        }
-      } catch (e) {
-        console.warn('Erro ao parar câmera:', e);
+      if (html5QrCodeRef.current) {
+        try { html5QrCodeRef.current.clear(); } catch {}
+        html5QrCodeRef.current = null;
       }
+    } finally {
+      isStartingRef.current = false;
     }
-    setIsScanning(false);
   };
 
   // Leitura de Imagem/Foto
@@ -130,7 +160,7 @@ export function BuQrCodeScannerModal({
       const tempScanner = new Html5Qrcode('bu-qr-image-temp');
       const text = await tempScanner.scanFile(file, true);
       handleDecodedText(text);
-      tempScanner.clear();
+      try { tempScanner.clear(); } catch {}
     } catch (err) {
       console.error(err);
       setScannerError('Não foi possível ler um QR Code válido nesta imagem. Tente uma foto mais nítida ou aproximada.');
@@ -141,21 +171,21 @@ export function BuQrCodeScannerModal({
   useEffect(() => {
     if (isOpen && activeTab === 'camera' && !parsedResult) {
       const timer = setTimeout(() => {
-        startCamera();
+        startCamera().catch(() => {});
       }, 300);
       return () => {
         clearTimeout(timer);
-        stopCamera();
+        stopCamera().catch(() => {});
       };
     } else {
-      stopCamera();
+      stopCamera().catch(() => {});
     }
   }, [isOpen, activeTab, parsedResult]);
 
   // Limpeza ao desmontar
   useEffect(() => {
     return () => {
-      stopCamera();
+      stopCamera().catch(() => {});
     };
   }, []);
 
@@ -282,42 +312,44 @@ export function BuQrCodeScannerModal({
           {/* Se ainda não decodificou um QR Code */}
           {!parsedResult ? (
             <div className="space-y-3">
-              {activeTab === 'camera' ? (
-                <div className="relative">
-                  <div
-                    id={scannerContainerId}
-                    className="w-full h-64 bg-slate-900 rounded-2xl overflow-hidden flex items-center justify-center border border-outline-variant shadow-inner relative"
-                  >
-                    {!isScanning && (
-                      <div className="text-center text-white/70 p-4">
-                        <Camera className="w-8 h-8 mx-auto mb-2 opacity-60 animate-pulse" />
-                        <p className="text-xs">Iniciando leitor de câmera...</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {scannerError && (
-                    <div className="mt-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="font-bold">Aviso da Câmera</p>
-                        <p className="text-[11px] mt-0.5">{scannerError}</p>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('upload')}
-                          className="mt-1.5 text-xs font-bold text-secondary hover:underline cursor-pointer"
-                        >
-                          Usar envio de foto/imagem em vez da câmera →
-                        </button>
-                      </div>
+              {/* Tab Câmera ao vivo */}
+              <div className={activeTab === 'camera' ? 'block relative' : 'hidden'}>
+                <div
+                  id={scannerContainerId}
+                  className="w-full h-64 bg-slate-900 rounded-2xl overflow-hidden flex items-center justify-center border border-outline-variant shadow-inner relative"
+                >
+                  {!isScanning && (
+                    <div className="text-center text-white/70 p-4">
+                      <Camera className="w-8 h-8 mx-auto mb-2 opacity-60 animate-pulse" />
+                      <p className="text-xs">Iniciando leitor de câmera...</p>
                     </div>
                   )}
-
-                  <p className="text-[11px] text-center text-on-surface-variant mt-2">
-                    Enquadre o QR Code impresso no final da fita de votação da seção eleitoral.
-                  </p>
                 </div>
-              ) : (
+
+                {scannerError && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-bold">Aviso da Câmera</p>
+                      <p className="text-[11px] mt-0.5">{scannerError}</p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('upload')}
+                        className="mt-1.5 text-xs font-bold text-secondary hover:underline cursor-pointer"
+                      >
+                        Usar envio de foto/imagem em vez da câmera →
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-[11px] text-center text-on-surface-variant mt-2">
+                  Enquadre o QR Code impresso no final da fita de votação da seção eleitoral.
+                </p>
+              </div>
+
+              {/* Tab Foto do Boletim */}
+              <div className={activeTab === 'upload' ? 'block' : 'hidden'}>
                 <div className="border-2 border-dashed border-outline-variant rounded-2xl p-6 text-center bg-surface-container-low/40">
                   <div id="bu-qr-image-temp" className="hidden" />
                   <FileImage className="w-10 h-10 text-secondary mx-auto mb-2 opacity-80" />
@@ -343,7 +375,7 @@ export function BuQrCodeScannerModal({
                     </p>
                   )}
                 </div>
-              )}
+              </div>
             </div>
           ) : (
             /* Resultado Decodificado do QR Code */

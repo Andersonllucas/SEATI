@@ -1464,27 +1464,31 @@ export default function CumprimentoVotosPage() {
       )}
 
       {/* Modal 1: Importador CSV Oficial do TSE */}
-      <TseCsvImporterModal
-        isOpen={isTseModalOpen}
-        onClose={() => setIsTseModalOpen(false)}
-        onImportBatch={async (items) => {
-          await importarLoteApuracao(items);
-          playVoteChime();
-          showToast(`✓ ${items.length} seções do TSE importadas com sucesso!`);
-        }}
-        registeredSectionsKeys={registeredSectionsKeys}
-      />
+      {isTseModalOpen && (
+        <TseCsvImporterModal
+          isOpen={isTseModalOpen}
+          onClose={() => setIsTseModalOpen(false)}
+          onImportBatch={async (items) => {
+            await importarLoteApuracao(items);
+            playVoteChime();
+            showToast(`✓ ${items.length} seções do TSE importadas com sucesso!`);
+          }}
+          registeredSectionsKeys={registeredSectionsKeys}
+        />
+      )}
 
       {/* Modal 2: Leitor de QR Code do BU (Câmera e Imagem) */}
-      <BuQrCodeScannerModal
-        isOpen={isQrModalOpen}
-        onClose={() => setIsQrModalOpen(false)}
-        onSaveSecaoVotos={async (zona, secao, votos, extras) => {
-          await salvarApuracaoSecao(zona, secao, votos, extras);
-          playVoteChime();
-          showToast(`✓ Seção ${secao} apurada via QR Code: ${votos} votos salvos!`);
-        }}
-      />
+      {isQrModalOpen && (
+        <BuQrCodeScannerModal
+          isOpen={isQrModalOpen}
+          onClose={() => setIsQrModalOpen(false)}
+          onSaveSecaoVotos={async (zona, secao, votos, extras) => {
+            await salvarApuracaoSecao(zona, secao, votos, extras);
+            playVoteChime();
+            showToast(`✓ Seção ${secao} apurada via QR Code: ${votos} votos salvos!`);
+          }}
+        />
+      )}
     </div>
   );
 }

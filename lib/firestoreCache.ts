@@ -7,6 +7,8 @@
  * ISOLADO POR TENANT / SUBDOMÍNIO: Garante que dados de um cliente nunca vazem para outro.
  */
 
+import { safeStorage } from './safeStorage';
+
 interface CacheEnvelope<T> {
   timestamp: number;
   data: T[];
@@ -17,23 +19,17 @@ const memoryCache = new Map<string, CacheEnvelope<any>>();
 const DEFAULT_TTL_MS = 3 * 60 * 1000; // 3 minutos de dados considerados frescos
 
 // Limpa chaves antigas não-particionadas de versões anteriores que poderiam conter dados da demo
-if (typeof window !== 'undefined') {
-  try {
-    ['adti_cache_eleitores', 'adti_cache_liderancas', 'adti_cache_locais_votacao', 'adti_cache_usuarios'].forEach((k) => {
-      localStorage.removeItem(k);
-    });
-  } catch {}
-}
+['adti_cache_eleitores', 'adti_cache_liderancas', 'adti_cache_locais_votacao', 'adti_cache_usuarios'].forEach((k) => {
+  safeStorage.removeItem(k);
+});
 
 function resolveTenantKey(explicitTenantKey?: string): string {
   if (explicitTenantKey && explicitTenantKey.trim()) {
     return explicitTenantKey.trim().toLowerCase();
   }
-  if (typeof window !== 'undefined') {
-    const fromStorage = localStorage.getItem('adti_active_subdomain') || localStorage.getItem('seati_active_subdomain');
-    if (fromStorage && fromStorage.trim()) {
-      return fromStorage.trim().toLowerCase();
-    }
+  const fromStorage = safeStorage.getItem('adti_active_subdomain') || safeStorage.getItem('seati_active_subdomain');
+  if (fromStorage && fromStorage.trim()) {
+    return fromStorage.trim().toLowerCase();
   }
   return 'central';
 }
@@ -61,11 +57,9 @@ export function getCachedCollection<T>(
     };
   }
 
-  // 2. Verifica LocalStorage
-  if (typeof window === 'undefined') return null;
-
+  // 2. Verifica LocalStorage de forma segura
   try {
-    const raw = localStorage.getItem(`adti_cache_${cacheKey}`);
+    const raw = safeStorage.getItem(`adti_cache_${cacheKey}`);
     if (!raw) return null;
 
     const parsed: CacheEnvelope<T> = JSON.parse(raw);
@@ -103,13 +97,11 @@ export function setCachedCollection<T>(
   // Salva em memória
   memoryCache.set(cacheKey, envelope);
 
-  // Salva em LocalStorage (com tratamento de exceção de quota)
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(`adti_cache_${cacheKey}`, JSON.stringify(envelope));
-    } catch (e) {
-      console.warn(`[FirestoreCache] Aviso ao salvar LocalStorage para ${cacheKey}:`, e);
-    }
+  // Salva em safeStorage
+  try {
+    safeStorage.setItem(`adti_cache_${cacheKey}`, JSON.stringify(envelope));
+  } catch (e) {
+    console.warn(`[FirestoreCache] Aviso ao salvar LocalStorage para ${cacheKey}:`, e);
   }
 }
 
@@ -118,11 +110,7 @@ export function invalidateCollectionCache(collectionName: string, tenantKey?: st
   const cacheKey = `${tKey}_${collectionName}`;
 
   memoryCache.delete(cacheKey);
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.removeItem(`adti_cache_${cacheKey}`);
-    } catch {}
-  }
+  safeStorage.removeItem(`adti_cache_${cacheKey}`);
 }
 
 export function clearAllFirestoreCache(tenantKey?: string): void {

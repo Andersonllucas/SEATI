@@ -7,6 +7,7 @@ import { CENTRAL_FIREBASE_CONFIG } from '@/lib/centralFirebaseConfig';
 import { Firestore, doc, onSnapshot } from 'firebase/firestore';
 import { Auth } from 'firebase/auth';
 import { FirebaseApp } from 'firebase/app';
+import { safeStorage } from '@/lib/safeStorage';
 
 interface TenantContextType {
   currentTenant: TenantClient | null;
@@ -63,8 +64,8 @@ export function TenantProvider({
       } else {
         setIsAdminMaster(false);
         setSubdomain(cleanSub);
-        localStorage.setItem('adti_active_subdomain', cleanSub);
-        document.cookie = `adti_subdomain=${cleanSub}; path=/; max-age=31536000; SameSite=Lax`;
+        safeStorage.setItem('adti_active_subdomain', cleanSub);
+        try { document.cookie = `adti_subdomain=${cleanSub}; path=/; max-age=31536000; SameSite=Lax`; } catch {}
         return;
       }
     }
@@ -99,21 +100,25 @@ export function TenantProvider({
     if (querySubdomain) {
       const cleanSub = querySubdomain.toLowerCase().trim();
       setSubdomain(cleanSub);
-      localStorage.setItem('adti_active_subdomain', cleanSub);
-      document.cookie = `adti_subdomain=${cleanSub}; path=/; max-age=31536000; SameSite=Lax`;
+      safeStorage.setItem('adti_active_subdomain', cleanSub);
+      try { document.cookie = `adti_subdomain=${cleanSub}; path=/; max-age=31536000; SameSite=Lax`; } catch {}
       return;
     }
 
     // Caso padrão de fallback para desenvolvimento/preview
     const getCookie = (name: string) => {
-      if (typeof document === 'undefined') return null;
-      const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-      return match ? decodeURIComponent(match[2]) : null;
+      try {
+        if (typeof document === 'undefined') return null;
+        const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+        return match ? decodeURIComponent(match[2]) : null;
+      } catch {
+        return null;
+      }
     };
     const cookieSub = getCookie('adti_subdomain');
     const saved = (cookieSub && cookieSub !== 'admin' ? cookieSub : null) || 
-                  localStorage.getItem('adti_active_subdomain') || 
-                  localStorage.getItem('seati_active_subdomain');
+                  safeStorage.getItem('adti_active_subdomain') || 
+                  safeStorage.getItem('seati_active_subdomain');
 
     if (saved && saved !== 'admin') {
       setSubdomain(saved);
@@ -163,10 +168,8 @@ export function TenantProvider({
         setCurrentTenant(client);
         setTenantVersion((v) => v + 1);
         setTenantError(null);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('adti_active_subdomain', client.subdominio);
-          document.cookie = `adti_subdomain=${client.subdominio}; path=/; max-age=31536000; SameSite=Lax`;
-        }
+        safeStorage.setItem('adti_active_subdomain', client.subdominio);
+        try { document.cookie = `adti_subdomain=${client.subdominio}; path=/; max-age=31536000; SameSite=Lax`; } catch {}
       } else {
         // Cliente não encontrado ou inativo
         setTenantError({
@@ -235,13 +238,11 @@ export function TenantProvider({
               setCurrentTenant(restoredClient);
               setTenantVersion((v) => v + 1);
 
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('adti_active_subdomain', restoredClient.subdominio);
-                document.cookie = `adti_subdomain=${restoredClient.subdominio}; path=/; max-age=31536000; SameSite=Lax`;
-                // Se estava na tela de erro de suspensão, redireciona para o login
-                if (window.location.pathname === '/tenant-error') {
-                  window.location.href = '/login';
-                }
+              safeStorage.setItem('adti_active_subdomain', restoredClient.subdominio);
+              try { document.cookie = `adti_subdomain=${restoredClient.subdominio}; path=/; max-age=31536000; SameSite=Lax`; } catch {}
+              // Se estava na tela de erro de suspensão, redireciona para o login
+              if (typeof window !== 'undefined' && window.location.pathname === '/tenant-error') {
+                window.location.href = '/login';
               }
             } else if (rawStatus === 'inativo') {
               // Cliente foi suspenso
@@ -270,9 +271,9 @@ export function TenantProvider({
 
   const setManualSubdomain = (newSub: string) => {
     const cleaned = newSub.trim().toLowerCase();
+    safeStorage.setItem('adti_active_subdomain', cleaned);
+    try { document.cookie = `adti_subdomain=${cleaned}; path=/; max-age=31536000; SameSite=Lax`; } catch {}
     if (typeof window !== 'undefined') {
-      localStorage.setItem('adti_active_subdomain', cleaned);
-      document.cookie = `adti_subdomain=${cleaned}; path=/; max-age=31536000; SameSite=Lax`;
       const targetUrl = new URL(window.location.href);
       targetUrl.searchParams.set('subdomain', cleaned);
       window.location.href = targetUrl.toString();
@@ -281,10 +282,10 @@ export function TenantProvider({
 
   const switchToTenant = useCallback((newSub: string) => {
     const cleaned = newSub.trim().toLowerCase();
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('adti_active_subdomain', cleaned);
-      document.cookie = `adti_subdomain=${cleaned}; path=/; max-age=31536000; SameSite=Lax`;
+    safeStorage.setItem('adti_active_subdomain', cleaned);
+    try { document.cookie = `adti_subdomain=${cleaned}; path=/; max-age=31536000; SameSite=Lax`; } catch {}
 
+    if (typeof window !== 'undefined') {
       const hostname = window.location.hostname.toLowerCase().trim();
       if (hostname.endsWith('.adti.app.br')) {
         window.location.href = `https://${cleaned}.adti.app.br/`;
@@ -307,11 +308,9 @@ export function TenantProvider({
       console.warn('Tentativa de restaurar campanha padrão bloqueada: acesso do cliente suspenso.');
       return;
     }
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('seati_active_subdomain');
-      localStorage.removeItem('adti_active_subdomain');
-      document.cookie = 'adti_subdomain=demo; path=/; max-age=31536000; SameSite=Lax';
-    }
+    safeStorage.removeItem('seati_active_subdomain');
+    safeStorage.removeItem('adti_active_subdomain');
+    try { document.cookie = 'adti_subdomain=demo; path=/; max-age=31536000; SameSite=Lax'; } catch {}
     setTenantError(null);
     setSubdomain('demo');
   }, [tenantError, currentTenant]);

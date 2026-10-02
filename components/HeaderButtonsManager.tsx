@@ -20,6 +20,7 @@ import {
 import { useAuth, CustomHeaderButton } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/context/ToastContext';
+import { safeStorage } from '@/lib/safeStorage';
 
 export function HeaderButtonsManager() {
   const { systemConfig, atualizarConfiguracoes, registrarLog } = useAuth();
@@ -33,13 +34,11 @@ export function HeaderButtonsManager() {
     if (systemConfig?.botoesCabecalho && Array.isArray(systemConfig.botoesCabecalho)) {
       return systemConfig.botoesCabecalho;
     }
-    if (typeof window !== 'undefined') {
+    const stored = safeStorage.getItem(storageKey);
+    if (stored) {
       try {
-        const stored = localStorage.getItem(storageKey);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) return parsed;
-        }
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
       } catch {}
     }
     return [];
@@ -132,9 +131,7 @@ export function HeaderButtonsManager() {
 
       // Persiste no Firestore e cache
       await atualizarConfiguracoes({ botoesCabecalho: updated });
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(storageKey, JSON.stringify(updated));
-      }
+      safeStorage.setItem(storageKey, JSON.stringify(updated));
 
       await registrarLog({
         tipo: 'ALTERACAO',
@@ -166,9 +163,7 @@ export function HeaderButtonsManager() {
     try {
       const updated = currentButtons.filter((b) => b.id !== id);
       await atualizarConfiguracoes({ botoesCabecalho: updated });
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(storageKey, JSON.stringify(updated));
-      }
+      safeStorage.setItem(storageKey, JSON.stringify(updated));
 
       await registrarLog({
         tipo: 'ALTERACAO',

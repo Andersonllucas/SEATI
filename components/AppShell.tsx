@@ -14,6 +14,7 @@ import { NotificationDrawer } from './NotificationDrawer';
 import { PasswordChangePromptModal } from './PasswordChangePromptModal';
 import { MasterImpersonationBanner } from './MasterImpersonationBanner';
 import { Vote, LogOut, ShieldAlert } from 'lucide-react';
+import { safeStorage } from '@/lib/safeStorage';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
@@ -78,13 +79,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       try {
         await logout();
       } catch {}
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('adti_active_subdomain');
-        localStorage.removeItem('seati_active_subdomain');
-        localStorage.removeItem('gestao_eleitoral_user_id');
-        localStorage.removeItem('gestao_eleitoral_cached_user');
-        sessionStorage.removeItem('adti_admin_master_user');
+      safeStorage.removeItem('adti_active_subdomain');
+      safeStorage.removeItem('seati_active_subdomain');
+      safeStorage.removeItem('gestao_eleitoral_user_id');
+      safeStorage.removeItem('gestao_eleitoral_cached_user');
+      safeStorage.removeItem('adti_admin_master_user');
+      try {
         document.cookie = 'adti_subdomain=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+      } catch {}
+      if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }
     };
