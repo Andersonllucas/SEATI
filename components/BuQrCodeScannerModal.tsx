@@ -178,7 +178,6 @@ export function BuQrCodeScannerModal({
         setSaveSuccess(false);
         // Reseta para ler o próximo
         setParsedResult(null);
-        setRawText('');
         if (activeTab === 'camera') {
           startCamera();
         }
@@ -368,7 +367,6 @@ export function BuQrCodeScannerModal({
                       type="button"
                       onClick={() => {
                         setParsedResult(null);
-                        setRawText('');
                         if (activeTab === 'camera') startCamera();
                       }}
                       className="text-xs font-semibold text-secondary hover:underline cursor-pointer"
