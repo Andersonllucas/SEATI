@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Camera,
   Upload,
@@ -12,6 +12,7 @@ import {
   Sparkles,
   FileImage
 } from 'lucide-react';
+import jsQR from 'jsqr';
 import { parseTseQrCodeText, BuParsedSecao } from '@/lib/tseBuParser';
 
 interface BuQrCodeScannerModalProps {
@@ -32,7 +33,7 @@ export function BuQrCodeScannerModal({
   onSaveSecaoVotos,
   defaultCandidateNumber = ''
 }: BuQrCodeScannerModalProps) {
-  const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'manual'>('camera');
+  const [activeTab, setActiveTab] = useState<'camera' | 'upload'>('camera');
   const [candidateNumber, setCandidateNumber] = useState(defaultCandidateNumber);
   const [isScanning, setIsScanning] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -43,151 +44,238 @@ export function BuQrCodeScannerModal({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const html5QrCodeRef = useRef<any>(null);
-  const isStoppingRef = useRef(false);
-  const isStartingRef = useRef(false);
-  const scannerContainerId = 'bu-qr-reader-container';
+  // Referências HTML5 Video e Stream puro (100% livre de conflitos de estado de terceiros)
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isComponentActiveRef = useRef<boolean>(false);
+
+  // Parar Leitor de Câmera (Síncrono e Seguro)
+  const stopCamera = useCallback(() => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsScanning(false);
+  }, []);
 
   // Processa texto decodificado
-  const handleDecodedText = (decodedText: string) => {
-    const parsed = parseTseQrCodeText(decodedText, candidateNumber);
-    setParsedResult(parsed);
+  const handleDecodedText = useCallback((decodedText: string) => {
+    if (!decodedText || !decodedText.trim()) return;
 
-    // Se encontrou votos do candidato alvo, seleciona
-    if (candidateNumber.trim()) {
-      const matchCand = parsed.candidatos.find(
-        (c) => c.numero.replace(/\D/g, '') === candidateNumber.replace(/\D/g, '')
-      );
-      if (matchCand) {
-        setSelectedVotes(matchCand.votos);
+    try {
+      const parsed = parseTseQrCodeText(decodedText, candidateNumber);
+      setParsedResult(parsed);
+
+      // Se encontrou votos do candidato alvo, seleciona
+      if (candidateNumber.trim()) {
+        const matchCand = parsed.candidatos.find(
+          (c) => c.numero.replace(/\D/g, '') === candidateNumber.replace(/\D/g, '')
+        );
+        if (matchCand) {
+          setSelectedVotes(matchCand.votos);
+        } else if (parsed.candidatos.length > 0) {
+          setSelectedVotes(parsed.candidatos[0].votos);
+        }
       } else if (parsed.candidatos.length > 0) {
         setSelectedVotes(parsed.candidatos[0].votos);
       }
-    } else if (parsed.candidatos.length > 0) {
-      setSelectedVotes(parsed.candidatos[0].votos);
+
+      // Desativa câmera para exibir o resultado
+      stopCamera();
+    } catch (err) {
+      console.warn('Erro ao decodificar QR Code TSE:', err);
     }
+  }, [candidateNumber, stopCamera]);
 
-    // Para a câmera com segurança para mostrar o resultado
-    stopCamera().catch(() => {});
-  };
+  // Loop de amostragem de frames por Canvas + jsQR
+  const startScanLoop = useCallback(() => {
+    const scan = () => {
+      if (!isComponentActiveRef.current) return;
 
-  // Parar Leitor de Câmera com limpeza completa da instância
-  const stopCamera = async () => {
-    if (isStoppingRef.current) return;
-    isStoppingRef.current = true;
-    try {
-      const scanner = html5QrCodeRef.current;
-      if (scanner) {
-        try {
-          if (scanner.isScanning) {
-            await scanner.stop().catch(() => {});
-          }
-        } catch (e) {
-          console.warn('Erro ao parar câmera:', e);
+      const video = videoRef.current;
+      if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        if (!canvasRef.current && typeof document !== 'undefined') {
+          canvasRef.current = document.createElement('canvas');
         }
-        try {
-          scanner.clear();
-        } catch {}
-        html5QrCodeRef.current = null;
-      }
-    } catch (e) {
-      console.warn('Erro geral ao parar câmera:', e);
-    } finally {
-      setIsScanning(false);
-      isStoppingRef.current = false;
-    }
-  };
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            // Limita a resolução máxima de processamento para altíssima performance
+            const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
+            const w = Math.floor(video.videoWidth * scale);
+            const h = Math.floor(video.videoHeight * scale);
 
-  // Iniciar Leitor de Câmera
-  const startCamera = async () => {
-    if (isStartingRef.current) return;
-    isStartingRef.current = true;
+            if (canvas.width !== w || canvas.height !== h) {
+              canvas.width = w;
+              canvas.height = h;
+            }
+
+            ctx.drawImage(video, 0, 0, w, h);
+            const imageData = ctx.getImageData(0, 0, w, h);
+            const code = jsQR(imageData.data, w, h, {
+              inversionAttempts: 'dontInvert'
+            });
+
+            if (code && code.data && code.data.trim()) {
+              handleDecodedText(code.data);
+              return;
+            }
+          }
+        }
+      }
+
+      if (isComponentActiveRef.current) {
+        animFrameRef.current = requestAnimationFrame(scan);
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(scan);
+  }, [handleDecodedText]);
+
+  // Iniciar Leitor de Câmera Nativo
+  const startCamera = useCallback(async () => {
     try {
       setScannerError(null);
-      // Garante que qualquer câmera prévia esteja desligada e limpa
-      await stopCamera();
+      stopCamera();
 
-      const el = document.getElementById(scannerContainerId);
-      if (!el) {
-        isStartingRef.current = false;
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setScannerError('Seu navegador não possui suporte a acesso de câmera. Utilize a aba "Foto do Boletim".');
         return;
       }
 
       setIsScanning(true);
-      const { Html5Qrcode } = await import('html5-qrcode');
+      isComponentActiveRef.current = true;
 
-      const scanner = new Html5Qrcode(scannerContainerId);
-      html5QrCodeRef.current = scanner;
-
-      const config = {
-        fps: 10,
-        qrbox: { width: 260, height: 260 }
-      };
-
-      await scanner.start(
-        { facingMode: 'environment' }, // câmera traseira por padrão
-        config,
-        (decodedText: string) => {
-          handleDecodedText(decodedText);
-        },
-        () => {
-          // Frame sem QR code - ignora
-        }
-      );
-    } catch (err: any) {
-      console.warn('Erro ao inicializar câmera:', err);
-      setScannerError(
-        'Não foi possível acessar a câmera. Verifique as permissões do navegador ou utilize o envio de foto/imagem.'
-      );
-      setIsScanning(false);
-      if (html5QrCodeRef.current) {
-        try { html5QrCodeRef.current.clear(); } catch {}
-        html5QrCodeRef.current = null;
+      let stream: MediaStream;
+      try {
+        // Tenta câmera traseira preferencialmente
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      } catch {
+        // Fallback genérico para qualquer câmera disponível
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
       }
-    } finally {
-      isStartingRef.current = false;
-    }
-  };
 
-  // Leitura de Imagem/Foto
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!isComponentActiveRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
+        await videoRef.current.play().catch(() => {});
+        startScanLoop();
+      }
+    } catch (err: any) {
+      console.warn('Erro ao inicializar câmera do dispositivo:', err);
+      setScannerError(
+        'Não foi possível acessar a câmera. Verifique as permissões do navegador ou utilize a aba "Foto do Boletim".'
+      );
+      stopCamera();
+    }
+  }, [stopCamera, startScanLoop]);
+
+  // Leitura de Imagem / Foto do Boletim enviada
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    try {
-      setScannerError(null);
-      const { Html5Qrcode } = await import('html5-qrcode');
-      const tempScanner = new Html5Qrcode('bu-qr-image-temp');
-      const text = await tempScanner.scanFile(file, true);
-      handleDecodedText(text);
-      try { tempScanner.clear(); } catch {}
-    } catch (err) {
-      console.error(err);
-      setScannerError('Não foi possível ler um QR Code válido nesta imagem. Tente uma foto mais nítida ou aproximada.');
-    }
+    setScannerError(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+
+        // Limita a 1600px para garantir processamento veloz de fotos de alta resolução
+        let w = img.width;
+        let h = img.height;
+        const MAX_DIM = 1600;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        // 1. Tenta decodificação nativa por hardware (BarcodeDetector do Chromium) se disponível
+        if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+          try {
+            const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+            const barcodes = await detector.detect(canvas);
+            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+              handleDecodedText(barcodes[0].rawValue);
+              return;
+            }
+          } catch {}
+        }
+
+        // 2. Fallback resiliente com jsQR
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const code = jsQR(imageData.data, w, h, {
+          inversionAttempts: 'attemptBoth'
+        });
+
+        if (code && code.data && code.data.trim()) {
+          handleDecodedText(code.data);
+        } else {
+          setScannerError(
+            'Não foi possível identificar um QR Code nítido nesta imagem. Tire uma foto mais aproximada e focada no QR Code do final da fita.'
+          );
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
-  // Ciclo de vida da câmera ao abrir/fechar modal
+  // Gerenciamento de ciclo de vida seguro ao trocar de abas ou abrir modal
   useEffect(() => {
-    if (isOpen && activeTab === 'camera' && !parsedResult) {
-      const timer = setTimeout(() => {
-        startCamera().catch(() => {});
-      }, 300);
-      return () => {
-        clearTimeout(timer);
-        stopCamera().catch(() => {});
-      };
-    } else {
-      stopCamera().catch(() => {});
-    }
-  }, [isOpen, activeTab, parsedResult]);
+    isComponentActiveRef.current = isOpen && activeTab === 'camera' && !parsedResult;
 
-  // Limpeza ao desmontar
-  useEffect(() => {
+    if (isOpen && activeTab === 'camera' && !parsedResult) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+
     return () => {
-      stopCamera().catch(() => {});
+      isComponentActiveRef.current = false;
+      stopCamera();
     };
-  }, []);
+  }, [isOpen, activeTab, parsedResult, startCamera, stopCamera]);
 
   // Salvar resultado do BU no banco
   const handleSaveResult = async () => {
@@ -206,7 +294,6 @@ export function BuQrCodeScannerModal({
       setSaveSuccess(true);
       setTimeout(() => {
         setSaveSuccess(false);
-        // Reseta para ler o próximo
         setParsedResult(null);
         if (activeTab === 'camera') {
           startCamera();
@@ -227,14 +314,14 @@ export function BuQrCodeScannerModal({
       <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-primary/10 rounded-xl text-primary">
-              <Camera className="w-5 h-5 text-secondary" />
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+              <Vote className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-on-surface">Leitor de QR Code do Boletim de Urna</h3>
-              <p className="text-xs text-on-surface-variant font-medium">
-                Aponte a câmera para o QR Code impresso na fita do BU da seção eleitoral
+              <h3 className="font-bold text-sm text-on-surface">Leitor de QR Code do Boletim de Urna</h3>
+              <p className="text-[11px] text-on-surface-variant">
+                Boletim de Urna Oficial do TSE • Câmera e Imagem
               </p>
             </div>
           </div>
@@ -244,58 +331,48 @@ export function BuQrCodeScannerModal({
               stopCamera();
               onClose();
             }}
-            className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container"
+            className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Campo do Número do Candidato Alvo */}
-        <div className="px-5 py-2.5 bg-surface-container-low border-b border-outline-variant/40 flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-1.5 text-on-surface">
-            <Vote className="w-4 h-4 text-secondary shrink-0" />
-            <span className="font-bold">Candidato Alvo:</span>
-          </div>
+        {/* Candidato Alvo Configurável */}
+        <div className="px-5 py-2.5 bg-surface-container-low/60 border-b border-outline-variant/40 flex items-center justify-between gap-3 text-xs">
+          <span className="font-semibold text-on-surface-variant text-[11px]">
+            Número do seu candidato para captura automática:
+          </span>
           <div className="flex items-center gap-1.5">
             <input
               type="text"
-              placeholder="Ex: 12345"
+              placeholder="Ex: 22123"
               value={candidateNumber}
-              onChange={(e) => setCandidateNumber(e.target.value)}
-              className="w-24 h-7 text-center font-bold text-xs font-mono rounded border border-outline-variant bg-surface text-on-surface focus:outline-none focus:border-secondary"
+              onChange={(e) => setCandidateNumber(e.target.value.replace(/\D/g, ''))}
+              className="w-24 h-7 text-center font-mono font-bold text-xs rounded-md border border-outline-variant bg-surface px-2"
             />
-            <span className="text-[11px] text-on-surface-variant hidden sm:inline">
-              (filtra os votos no BU)
-            </span>
           </div>
         </div>
 
-        {/* Abas: Câmera vs Foto */}
+        {/* Abas: Câmera x Upload de Imagem */}
         {!parsedResult && (
-          <div className="flex border-b border-outline-variant/40 bg-surface">
+          <div className="px-5 pt-3 flex border-b border-outline-variant/50 gap-2 bg-surface">
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('camera');
-                setScannerError(null);
-              }}
-              className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-colors cursor-pointer ${
+              onClick={() => setActiveTab('camera')}
+              className={`pb-2.5 px-3 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
                 activeTab === 'camera'
                   ? 'border-primary text-primary bg-primary/5'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface'
               }`}
             >
               <Camera className="w-3.5 h-3.5" />
-              <span>Câmera ao Vivo</span>
+              <span>Câmera ao vivo</span>
             </button>
+
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('upload');
-                stopCamera();
-                setScannerError(null);
-              }}
-              className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-colors cursor-pointer ${
+              onClick={() => setActiveTab('upload')}
+              className={`pb-2.5 px-3 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
                 activeTab === 'upload'
                   ? 'border-primary text-primary bg-primary/5'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface'
@@ -314,14 +391,32 @@ export function BuQrCodeScannerModal({
             <div className="space-y-3">
               {/* Tab Câmera ao vivo */}
               <div className={activeTab === 'camera' ? 'block relative' : 'hidden'}>
-                <div
-                  id={scannerContainerId}
-                  className="w-full h-64 bg-slate-900 rounded-2xl overflow-hidden flex items-center justify-center border border-outline-variant shadow-inner relative"
-                >
+                <div className="w-full h-64 bg-slate-900 rounded-2xl overflow-hidden flex items-center justify-center border border-outline-variant shadow-inner relative">
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    autoPlay
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+
+                  {/* Retículo do Scanner e Mira */}
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div className="w-52 h-52 border-2 border-emerald-400/80 rounded-2xl relative shadow-lg">
+                      {/* Cantoneiras */}
+                      <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-emerald-400 rounded-tl-md" />
+                      <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-emerald-400 rounded-tr-md" />
+                      <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-emerald-400 rounded-bl-md" />
+                      <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-emerald-400 rounded-br-md" />
+                      {/* Linha de laser */}
+                      <div className="w-full h-0.5 bg-emerald-400 shadow-[0_0_8px_#34d399] absolute top-1/2 -translate-y-1/2 animate-pulse" />
+                    </div>
+                  </div>
+
                   {!isScanning && (
-                    <div className="text-center text-white/70 p-4">
-                      <Camera className="w-8 h-8 mx-auto mb-2 opacity-60 animate-pulse" />
-                      <p className="text-xs">Iniciando leitor de câmera...</p>
+                    <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center text-white/70 p-4">
+                      <Camera className="w-8 h-8 mb-2 opacity-60 animate-pulse text-emerald-400" />
+                      <p className="text-xs font-medium">Iniciando leitor de câmera...</p>
                     </div>
                   )}
                 </div>
@@ -344,14 +439,13 @@ export function BuQrCodeScannerModal({
                 )}
 
                 <p className="text-[11px] text-center text-on-surface-variant mt-2">
-                  Enquadre o QR Code impresso no final da fita de votação da seção eleitoral.
+                  Enquadre o QR Code impresso no final da fita de votação da urna eletrônica.
                 </p>
               </div>
 
               {/* Tab Foto do Boletim */}
               <div className={activeTab === 'upload' ? 'block' : 'hidden'}>
                 <div className="border-2 border-dashed border-outline-variant rounded-2xl p-6 text-center bg-surface-container-low/40">
-                  <div id="bu-qr-image-temp" className="hidden" />
                   <FileImage className="w-10 h-10 text-secondary mx-auto mb-2 opacity-80" />
                   <p className="text-sm font-bold text-on-surface">Selecione ou Tire uma Foto do QR Code</p>
                   <p className="text-xs text-on-surface-variant mt-1 max-w-xs mx-auto">
@@ -499,7 +593,7 @@ export function BuQrCodeScannerModal({
               stopCamera();
               onClose();
             }}
-            className="px-3.5 py-1.5 border border-outline-variant rounded-xl text-xs font-semibold text-on-surface hover:bg-surface-container"
+            className="px-3.5 py-1.5 border border-outline-variant rounded-xl text-xs font-semibold text-on-surface hover:bg-surface-container cursor-pointer"
           >
             Fechar
           </button>
