@@ -124,54 +124,58 @@ export default function ValidacoesPage() {
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto flex-1">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-outline-variant/60 pb-4">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="bg-error/10 text-error text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1">
-              <ShieldAlert className="w-3 h-3" /> Motor de Integridade em Tempo Real
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-outline-variant/60 pb-4 shrink-0">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="bg-rose-100 text-rose-800 border border-rose-300 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 whitespace-nowrap">
+              <ShieldAlert className="w-3 h-3 text-rose-700" /> Motor de Integridade em Tempo Real
             </span>
-            <span className="text-xs text-on-surface-variant flex items-center gap-1">
+            <span className="text-xs text-on-surface-variant flex items-center gap-1 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               Sincronizado na Memória
             </span>
-          </div>
-          <h1 className="text-2xl md:text-3xl text-on-surface font-black tracking-tight">Central de Auditoria & Duplicidades</h1>
-          <p className="text-sm text-on-surface-variant mt-1">
-            Identifique e resolva colisões de CPF e Título de Eleitor entre lideranças para garantir a integridade matemática da campanha.
-          </p>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <div className="flex flex-col items-end">
-            <button
-              type="button"
-              onClick={handleRevalidate}
-              disabled={isRevalidating}
-              title="Disparar auditoria completa e recálculo de integridade em tempo real"
-              className="px-4 py-2 border border-outline-variant bg-surface-container-lowest hover:bg-surface-container rounded-lg text-sm font-semibold text-primary flex items-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-60"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRevalidating ? 'animate-spin' : ''}`} />
-              <span>{isRevalidating ? 'Auditando...' : 'Revalidar Base'}</span>
-            </button>
             {lastAuditTime && (
-              <span className="text-[10px] text-on-surface-variant font-mono mt-1">
-                Última auditoria às {lastAuditTime}
+              <span className="text-[11px] text-on-surface-variant font-mono bg-surface-container px-2 py-0.5 rounded-md whitespace-nowrap">
+                Auditado às {lastAuditTime}
               </span>
             )}
           </div>
+          <h1 className="text-xl md:text-2xl text-on-surface font-black tracking-tight whitespace-nowrap">
+            Central de Auditoria & Duplicidades
+          </h1>
+          <p className="text-xs md:text-sm text-on-surface-variant mt-0.5 line-clamp-2 max-w-2xl">
+            Identifique e resolva colisões de CPF e Título de Eleitor entre lideranças para garantir a integridade matemática da campanha.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={handleRevalidate}
+            disabled={isRevalidating}
+            title="Disparar auditoria completa e recálculo de integridade em tempo real"
+            className="px-3.5 py-2 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-secondary ${isRevalidating ? 'animate-spin' : ''}`} />
+            <span>{isRevalidating ? 'Auditando...' : 'Revalidar Base'}</span>
+          </button>
+
           <Link
             href="/validacao"
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition-colors whitespace-nowrap shrink-0"
             title="Ir para a Central de Validação do Eleitor (Ligação / Mensagem)"
           >
-            <UserCheck className="w-4 h-4" />
+            <UserCheck className="w-3.5 h-3.5" />
             <span>Validação de Votos</span>
           </Link>
+
           <Link
             href="/eleitores"
-            className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-semibold hover:bg-primary/90 flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+            className="px-3.5 py-2 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition-colors whitespace-nowrap shrink-0"
+            title="Ir para a Base Geral de Eleitores"
           >
             <span>Ver no Cadastro</span>
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         </div>
       </div>

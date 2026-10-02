@@ -17,7 +17,7 @@ interface VoterRowProps {
   isTituloConflict?: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
-  onAuditConflict: () => void;
+  onAuditConflict: (type: 'cpf' | 'titulo') => void;
   onEdit: () => void;
   onDelete?: () => void;
   statusBadgeClass: string;
@@ -66,36 +66,80 @@ export const VoterRow = React.memo(function VoterRow({
         </p>
       </td>
       <td className="py-1.5 px-3 md:py-2 md:px-3.5">
-        <span className="font-mono text-xs md:text-sm font-semibold text-on-surface">
-          {eleitor.cpf ? eleitor.cpf : <span className="text-outline text-xs font-normal italic">Não informado</span>}
-        </span>
-        {isConflict ? (
+        {isConflict && eleitor.cpf ? (
           <button
             type="button"
-            onClick={onAuditConflict}
-            className="mt-0.5 text-[9px] bg-error-container text-error px-1.5 py-0.5 rounded font-bold border border-error/40 hover:bg-error/20 transition-colors flex items-center gap-1 cursor-pointer w-max"
-            title="Clique para auditar e resolver o conflito deste CPF"
+            onClick={() => onAuditConflict('cpf')}
+            className="font-mono text-xs md:text-sm font-bold text-rose-700 hover:underline inline-flex items-center gap-1 cursor-pointer text-left"
+            title="CPF Duplicado - Clique para auditar na aba de CPF"
           >
-            <AlertTriangle className="w-3 h-3 text-error" /> Conflito ({conflictCount || 2}x)
+            <span>{eleitor.cpf}</span>
           </button>
         ) : (
-          <span
-            className={`block mt-0.5 text-[9px] px-2 py-0.5 rounded-full w-max font-bold border leading-none ${statusBadgeClass}`}
-          >
-            {eleitor.status || 'Validado'}
+          <span className="font-mono text-xs md:text-sm font-semibold text-on-surface">
+            {eleitor.cpf ? eleitor.cpf : <span className="text-outline text-xs font-normal italic">Não informado</span>}
           </span>
         )}
       </td>
       <td className="py-1.5 px-3 md:py-2 md:px-3.5">
-        <span className="font-mono text-xs font-semibold text-on-surface">
-          {eleitor.tituloEleitor ? formatTituloUtil(eleitor.tituloEleitor) : '-'}
-        </span>
-        {isTituloConflict && (
-          <span
-            className="mt-0.5 text-[9px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-bold border border-amber-300 flex items-center gap-1 w-max"
-            title="Este número de título de eleitor consta em mais de um cadastro"
+        {isTituloConflict && eleitor.tituloEleitor ? (
+          <button
+            type="button"
+            onClick={() => onAuditConflict('titulo')}
+            className="font-mono text-xs font-bold text-amber-700 hover:underline inline-flex items-center gap-1 cursor-pointer text-left"
+            title="Título Duplicado - Clique para auditar na aba de Título de Eleitor"
+          >
+            <span>{formatTituloUtil(eleitor.tituloEleitor)}</span>
+          </button>
+        ) : (
+          <span className="font-mono text-xs font-semibold text-on-surface">
+            {eleitor.tituloEleitor ? formatTituloUtil(eleitor.tituloEleitor) : '-'}
+          </span>
+        )}
+      </td>
+      <td className="py-1.5 px-2 md:py-2 md:px-2.5 text-center whitespace-nowrap">
+        {isConflict && isTituloConflict ? (
+          <div className="flex flex-col gap-1 items-center justify-center">
+            <button
+              type="button"
+              onClick={() => onAuditConflict('cpf')}
+              className="text-[9px] md:text-[10px] bg-rose-100 text-rose-900 px-2 py-0.5 rounded-full font-bold border border-rose-300 hover:bg-rose-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+              title="Clique para auditar e resolver o conflito deste CPF"
+            >
+              <AlertTriangle className="w-3 h-3 text-rose-700" /> CPF Conflito ({conflictCount || 2}x)
+            </button>
+            <button
+              type="button"
+              onClick={() => onAuditConflict('titulo')}
+              className="text-[9px] md:text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold border border-amber-300 hover:bg-amber-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+              title="Clique para auditar e resolver a duplicidade deste Título"
+            >
+              <AlertTriangle className="w-3 h-3 text-amber-700" /> Título Duplicado
+            </button>
+          </div>
+        ) : isConflict ? (
+          <button
+            type="button"
+            onClick={() => onAuditConflict('cpf')}
+            className="text-[9px] md:text-[10px] bg-rose-100 text-rose-900 px-2 py-0.5 rounded-full font-bold border border-rose-300 hover:bg-rose-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+            title="Clique para auditar e resolver o conflito deste CPF"
+          >
+            <AlertTriangle className="w-3 h-3 text-rose-700" /> CPF Duplicado ({conflictCount || 2}x)
+          </button>
+        ) : isTituloConflict ? (
+          <button
+            type="button"
+            onClick={() => onAuditConflict('titulo')}
+            className="text-[9px] md:text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold border border-amber-300 hover:bg-amber-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+            title="Clique para auditar e resolver a duplicidade deste Título"
           >
             <AlertTriangle className="w-3 h-3 text-amber-700" /> Título Duplicado
+          </button>
+        ) : (
+          <span
+            className={`inline-block text-[9px] md:text-[10px] px-2 py-0.5 rounded-full font-bold border leading-none ${statusBadgeClass}`}
+          >
+            {eleitor.status || 'Pendente'}
           </span>
         )}
       </td>

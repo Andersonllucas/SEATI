@@ -30,6 +30,8 @@ export interface ParsedVoterRow {
   zona: string;
   secao: string;
   bairro: string;
+  cidade?: string;
+  estado?: string;
   lideranca: string;
   status: string;
   isValid: boolean;
@@ -46,6 +48,8 @@ export interface ParsedLeaderRow {
   email: string;
   regiao: string;
   bairro: string;
+  cidade?: string;
+  estado?: string;
   metaVotos: number;
   status: 'Ativa' | 'Em Formação' | 'Inativa';
   observacoes: string;
@@ -134,6 +138,8 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Zona Eleitoral': '001',
         'Seção Eleitoral': '0012',
         'Bairro': 'Centro',
+        'Cidade': 'Teresina',
+        'Estado': 'PI',
         'Liderança Responsável': 'Vereador João'
       },
       {
@@ -144,6 +150,8 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Zona Eleitoral': '001',
         'Seção Eleitoral': '0015',
         'Bairro': 'Ilhotas',
+        'Cidade': 'Teresina',
+        'Estado': 'PI',
         'Liderança Responsável': 'Prof. Marcos'
       },
       {
@@ -154,6 +162,8 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Zona Eleitoral': '002',
         'Seção Eleitoral': '0045',
         'Bairro': 'Mocambinho',
+        'Cidade': 'Teresina',
+        'Estado': 'PI',
         'Liderança Responsável': 'Vereador João'
       }
     ];
@@ -167,6 +177,8 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
       { wch: 16 }, // Zona Eleitoral
       { wch: 16 }, // Seção Eleitoral
       { wch: 20 }, // Bairro
+      { wch: 20 }, // Cidade
+      { wch: 10 }, // Estado
       { wch: 26 }  // Liderança Responsável
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Modelo_Eleitores');
@@ -180,6 +192,8 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Telefone / WhatsApp': '(86) 99444-5555',
         'Região de Atuação': 'Zona Leste',
         'Bairro Base': 'Jóquei',
+        'Cidade': 'Teresina',
+        'Estado': 'PI',
         'Meta de Votos': 500,
         'Status': 'Ativa'
       },
@@ -190,6 +204,8 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Telefone / WhatsApp': '(86) 98111-2233',
         'Região de Atuação': 'Zona Leste',
         'Bairro Base': 'Ininga',
+        'Cidade': 'Teresina',
+        'Estado': 'PI',
         'Meta de Votos': 150,
         'Status': 'Ativa'
       }
@@ -203,6 +219,8 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
       { wch: 22 }, // Telefone
       { wch: 20 }, // Região
       { wch: 20 }, // Bairro
+      { wch: 20 }, // Cidade
+      { wch: 10 }, // Estado
       { wch: 15 }, // Meta
       { wch: 15 }  // Status
     ];
@@ -326,8 +344,10 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
     let zona = '';
     let secao = '';
     let bairro = '';
+    let cidade = '';
+    let estado = '';
     let lideranca = '';
-    const status = 'Pendente de confirmação';
+    const status = 'Pendente';
 
     for (const [key, value] of Object.entries(row)) {
       const valStr = String(value || '').trim();
@@ -339,7 +359,15 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
         cpf = valStr;
       } else if (normKey.includes('tel') || normKey.includes('cel') || normKey.includes('whats') || normKey.includes('fone')) {
         telefone = valStr;
-      } else if (normKey.includes('titulo') || normKey === 'tituloeleitor' || normKey === 'numerodotitulo' || normKey === 'numtitulo') {
+      } else if (
+        normKey.includes('titulo') ||
+        normKey.includes('titul') ||
+        normKey === 'tituloeleitor' ||
+        normKey === 'numerodotitulo' ||
+        normKey === 'numtitulo' ||
+        normKey === 'inscricao' ||
+        normKey.includes('inscr')
+      ) {
         tituloEleitor = valStr;
       } else if (normKey.includes('zona') || normKey === 'ze') {
         zona = valStr.replace(/\D/g, '').padStart(3, '0') || valStr;
@@ -347,6 +375,10 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
         secao = valStr.replace(/\D/g, '').padStart(4, '0') || valStr;
       } else if (normKey.includes('bairro') || normKey.includes('comunidade')) {
         bairro = valStr;
+      } else if (normKey.includes('cidad') || normKey.includes('municip') || normKey === 'mun') {
+        cidade = valStr;
+      } else if (normKey.includes('estado') || normKey === 'uf' || normKey === 'sguf' || normKey === 'siglauf') {
+        estado = valStr.toUpperCase();
       } else if (normKey.includes('lider') || normKey.includes('responsavel') || normKey.includes('coordenador')) {
         lideranca = valStr;
       }
@@ -359,9 +391,8 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
     if (!nome) {
       errors.push('Nome é obrigatório');
     }
-    if (!cleanCpf) {
-      errors.push('CPF é obrigatório');
-    } else if (cleanCpf.length !== 11) {
+    // CPF agora é opcional na importação
+    if (cleanCpf && cleanCpf.length !== 11) {
       warnings.push('CPF com formato fora do padrão (11 dígitos)');
     }
 
@@ -375,6 +406,8 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
       zona: zona || '001',
       secao: secao || '',
       bairro: bairro || 'Centro',
+      cidade: cidade || 'Teresina',
+      estado: estado || 'PI',
       lideranca: lideranca || 'Geral',
       status,
       isValid: errors.length === 0,
@@ -393,6 +426,8 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
     let email = '';
     let regiao = 'Centro';
     let bairro = 'Centro';
+    let cidade = '';
+    let estado = '';
     let metaVotos = 100;
     let status: 'Ativa' | 'Em Formação' | 'Inativa' = 'Ativa';
     let observacoes = '';
@@ -419,6 +454,10 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
         regiao = valStr;
       } else if (normKey.includes('bairro') || normKey.includes('base')) {
         bairro = valStr;
+      } else if (normKey.includes('cidad') || normKey.includes('municip')) {
+        cidade = valStr;
+      } else if (normKey.includes('estado') || normKey === 'uf') {
+        estado = valStr.toUpperCase();
       } else if (normKey.includes('meta') || normKey.includes('votos')) {
         metaVotos = Number(valStr.replace(/\D/g, '')) || 100;
       } else if (normKey.includes('status')) {
@@ -442,6 +481,8 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
       email,
       regiao: regiao || 'Centro',
       bairro: bairro || 'Centro',
+      cidade: cidade || 'Teresina',
+      estado: estado || 'PI',
       metaVotos: metaVotos > 0 ? metaVotos : 100,
       status,
       observacoes,
@@ -662,6 +703,8 @@ export async function exportVotersReal(
       'Zona Eleitoral': v.zona || '',
       'Seção Eleitoral': v.secao || '',
       'Bairro': v.bairro || '',
+      'Cidade': v.cidade || 'Teresina',
+      'Estado': v.estado || 'PI',
       'Liderança Responsável': v.lideranca || 'Sem liderança',
       'Status': v.status || 'Pendente',
       'Conflito de CPF': isConflict ? 'SIM (Duplicidade Detectada)' : 'NÃO',
@@ -677,6 +720,9 @@ export async function exportVotersReal(
     { wch: 15 },
     { wch: 15 },
     { wch: 20 },
+    { wch: 20 },
+    { wch: 20 },
+    { wch: 10 },
     { wch: 26 },
     { wch: 16 },
     { wch: 26 },
@@ -821,6 +867,8 @@ export async function exportLiderancasReal(
       'E-mail': l.email || '',
       'Região de Atuação': l.regiao || '',
       'Bairro Base': l.bairro || '',
+      'Cidade': l.cidade || 'Teresina',
+      'Estado': l.estado || 'PI',
       'Meta de Votos Estipulada': Number(l.metaVotos) || 0,
       'Eleitores Cadastrados no Banco': eleitoresCadastrados,
       '% Atingimento da Meta': `${percent}%`,
@@ -838,6 +886,8 @@ export async function exportLiderancasReal(
     { wch: 26 },
     { wch: 18 },
     { wch: 20 },
+    { wch: 20 },
+    { wch: 10 },
     { wch: 24 },
     { wch: 28 },
     { wch: 22 },

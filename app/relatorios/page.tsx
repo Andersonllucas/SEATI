@@ -30,8 +30,10 @@ import {
 import { formatCpf } from '@/lib/importExportUtils';
 
 const STATUS_OPCOES = [
-  'Pendente de confirmação',
+  'Pendente',
+  'Auditado',
   'Confirmado',
+  'Negado',
   'Voto Certo',
   'Apoiador',
   'Validado'
@@ -221,11 +223,14 @@ export default function RelatoriosPage() {
       if (selectedStatus !== 'todos') {
         if (selectedStatus === 'conflito') {
           if (!conflictingVoterIds.has(e.id)) return false;
-        } else if (selectedStatus === 'Pendente de confirmação') {
-          const s = e.status || 'Pendente de confirmação';
-          if (s !== 'Pendente de confirmação' && s !== 'Pendente') return false;
+        } else if (selectedStatus === 'Pendente') {
+          const s = e.status || 'Pendente';
+          if (s !== 'Pendente' && s !== 'Pendente de confirmação') return false;
+        } else if (selectedStatus === 'Auditado') {
+          const s = e.status || '';
+          if (s !== 'Auditado' && s !== 'Auditado e Validado') return false;
         } else {
-          if ((e.status || 'Pendente de confirmação') !== selectedStatus) return false;
+          if ((e.status || 'Pendente') !== selectedStatus) return false;
         }
       }
 

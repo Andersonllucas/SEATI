@@ -328,7 +328,7 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
   const addEleitorQuick = useCallback(async (data: Omit<Eleitor, 'id' | 'dataCadastro'>) => {
     const cleanData = sanitizeFirestoreData({
       ...data,
-      status: data.status || 'Pendente de confirmação'
+      status: data.status || 'Pendente'
     });
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newEleitor: Eleitor = {
@@ -411,7 +411,7 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
         id: `imp_${Date.now()}_${i}`,
         ...sanitizeFirestoreData({
           ...v,
-          status: v.status || 'Pendente de confirmação'
+          status: v.status || 'Pendente'
         }),
         dataCadastro: new Date().toISOString()
       }));
@@ -432,7 +432,7 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
             batch.set(docRef, {
               ...sanitizeFirestoreData({
                 ...item,
-                status: item.status || 'Pendente de confirmação'
+                status: item.status || 'Pendente'
               }),
               dataCadastro: serverTimestamp()
             });
@@ -537,7 +537,7 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
           ? 'Confirmado'
           : dados.status === 'Negado'
           ? 'Negado'
-          : 'Pendente de confirmação';
+          : 'Pendente';
 
       const updatePayload: Partial<Eleitor> = {
         statusValidacao: dados.status,

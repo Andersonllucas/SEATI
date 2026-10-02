@@ -1193,10 +1193,10 @@ export default function LocaisVotacaoPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-outline-variant/50 pb-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-bold text-secondary uppercase tracking-wider">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 border-b border-outline-variant/50 pb-3 shrink-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-[10px] font-bold text-secondary uppercase tracking-wider bg-secondary/10 px-2 py-0.5 rounded-full whitespace-nowrap">
               Geografia Eleitoral & Zonas
             </span>
             <button
@@ -1207,7 +1207,7 @@ export default function LocaisVotacaoPage() {
                 setIsLocationModalOpen(true);
               }}
               title="Clique para alterar a UF e Cidade da campanha"
-              className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all cursor-pointer shadow-xs"
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
             >
               <Compass className="w-3.5 h-3.5 text-secondary" />
               <span>{activeCity} - {activeUf} (TRE-{activeUf})</span>
@@ -1216,50 +1216,48 @@ export default function LocaisVotacaoPage() {
               </span>
             </button>
           </div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-primary text-on-primary flex items-center justify-center shadow-xs">
-              <MapPin className="w-5 h-5 text-primary-fixed" />
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-primary text-on-primary flex items-center justify-center shadow-xs shrink-0">
+              <MapPin className="w-4 h-4 text-primary-fixed" />
             </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-black text-on-surface tracking-tight">
+            <div className="min-w-0">
+              <h1 className="text-lg md:text-xl font-black text-on-surface tracking-tight whitespace-nowrap">
                 Locais de Votação e Seções
               </h1>
-              <p className="text-xs text-on-surface-variant">
-                Gerenciamento em tempo real de colégios para <strong>{activeCity} - {activeUf}</strong> com importação oficial, suporte a planilhas CSV do TSE e conciliação eleitoral.
+              <p className="text-xs text-on-surface-variant truncate max-w-xl">
+                Gerenciamento em tempo real de colégios para <strong>{activeCity} - {activeUf}</strong> com importação oficial e conciliação eleitoral.
               </p>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
           {/* Conflict Badge Button (when conflicts exist) */}
           {activeConflicts.length > 0 && (
             <button
               onClick={() => setIsConflictModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-500/30 rounded-lg shadow-xs transition-colors cursor-pointer animate-pulse"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-500/30 rounded-lg shadow-2xs transition-colors cursor-pointer animate-pulse whitespace-nowrap shrink-0"
             >
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-              <span>Conflitos Pendentes ({activeConflicts.length})</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              <span>Conflitos ({activeConflicts.length})</span>
             </button>
           )}
 
-          {/* Portal Oficial do TSE (Autoatendimento Eleitoral) */}
-          <a
-            href="https://www.tse.jus.br/servicos-eleitorais/autoatendimento-eleitoral#/"
-            target="_blank"
-            rel="noreferrer"
-            title="Acessar o Autoatendimento Eleitoral e Serviços do TSE"
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-lg transition-colors cursor-pointer"
+          {/* Manual Create */}
+          <button
+            onClick={handleOpenCreate}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary hover:bg-secondary text-on-primary rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            title="Cadastrar manualmente um novo local de votação"
           >
-            <ExternalLink className="w-3.5 h-3.5 text-primary" />
-            <span>Portal TSE (Autoatendimento)</span>
-          </a>
+            <Plus className="w-3.5 h-3.5 text-primary-fixed" />
+            <span>Novo Local</span>
+          </button>
 
-          {/* Botão Agregar Seção Eleitoral (Parte 8) */}
+          {/* Botão Agregar Seção Eleitoral */}
           <button
             onClick={() => handleOpenAgregarModal()}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-secondary/15 hover:bg-secondary/25 text-secondary border border-secondary/35 rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-secondary/15 hover:bg-secondary/25 text-secondary border border-secondary/35 rounded-lg shadow-2xs transition-colors cursor-pointer whitespace-nowrap shrink-0"
             title="Agregar uma seção eleitoral a outra já existente (transferência em lote de eleitores)"
           >
             <GitMerge className="w-3.5 h-3.5 text-secondary" />
@@ -1274,7 +1272,8 @@ export default function LocaisVotacaoPage() {
               setIsCustomMode(false);
               setIsCatalogModalOpen(true);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-surface hover:bg-surface-container text-on-surface border border-outline-variant rounded-lg transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            title="Importar colégios oficiais de qualquer município do Brasil"
           >
             <Sparkles className="w-3.5 h-3.5 text-secondary" />
             <span>Importar Colégios Oficiais (UF/Cidade)</span>
@@ -1283,18 +1282,19 @@ export default function LocaisVotacaoPage() {
           {/* CSV File Importer */}
           <button
             onClick={() => setIsCsvModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-surface hover:bg-surface-container text-on-surface border border-outline-variant rounded-lg transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            title="Importar planilha de seções e locais em CSV"
           >
             <Upload className="w-3.5 h-3.5 text-secondary" />
             <span>Importar CSV</span>
           </button>
 
           {/* Export Dropdown */}
-          <div className="relative inline-block">
+          <div className="relative inline-block shrink-0">
             <button
               type="button"
               onClick={() => setIsExportMenuOpen((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-surface hover:bg-surface-container text-on-surface border border-outline-variant rounded-lg transition-colors shadow-2xs cursor-pointer whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5 text-secondary" />
               <span>Exportar</span>
@@ -1334,15 +1334,6 @@ export default function LocaisVotacaoPage() {
               </div>
             )}
           </div>
-
-          {/* Manual Create */}
-          <button
-            onClick={handleOpenCreate}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-primary hover:bg-primary/95 text-on-primary rounded-lg shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Novo Local</span>
-          </button>
         </div>
       </div>
 

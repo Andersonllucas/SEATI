@@ -152,7 +152,7 @@ export default function CadastroEmMassaPage() {
     if (currentTenant?.uf && (!estado || estado === 'SP')) {
       setEstado(currentTenant.uf);
     }
-  }, [currentTenant]);
+  }, [currentTenant, cidade, estado]);
 
   // Sticky Context (Values that remain locked between consecutive registrations)
   const [isContextLocked, setIsContextLocked] = useState(true);
@@ -388,7 +388,7 @@ export default function CadastroEmMassaPage() {
         secao: secao || defaultSecao || '0042',
         lideranca: leaderName,
         liderancaId: leaderId,
-        status: 'Pendente de confirmação',
+        status: 'Pendente',
         dataCadastro: serverTimestamp()
       });
 
@@ -587,7 +587,7 @@ export default function CadastroEmMassaPage() {
           secao: row.secao || defaultSecao || '0042',
           lideranca: leaderName,
           liderancaId: leader ? leader.id : '',
-          status: 'Pendente de confirmação',
+          status: 'Pendente',
           dataCadastro: serverTimestamp()
         });
 

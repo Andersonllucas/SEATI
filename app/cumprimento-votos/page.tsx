@@ -602,7 +602,7 @@ export default function CumprimentoVotosPage() {
 
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Cumprimento de Votos por Seção');
+    XLSX.utils.book_append_sheet(wb, ws, 'Cumprimento de Votos');
     XLSX.writeFile(wb, `Cumprimento_Votos_Secoes_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
@@ -620,29 +620,29 @@ export default function CumprimentoVotosPage() {
       )}
 
       {/* Top Banner & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex items-center gap-2">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
             <div className="p-1.5 bg-primary/10 rounded-lg text-primary">
               <Vote className="w-5 h-5 text-secondary" />
             </div>
-            <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight">
-              Cumprimento de Votos por Seção
+            <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight whitespace-nowrap">
+              Cumprimento de Votos
             </h1>
           </div>
-          <span className="text-[11px] bg-secondary/15 text-secondary font-bold px-2.5 py-0.5 rounded-full hidden sm:inline-block">
+          <span className="text-[11px] bg-secondary/15 text-secondary font-bold px-2.5 py-0.5 rounded-full hidden sm:inline-block whitespace-nowrap">
             Validação Pós-Eleição
           </span>
-          <span className="text-xs text-on-surface-variant hidden lg:inline">
+          <span className="text-xs text-on-surface-variant hidden xl:inline truncate">
             • Cruze os votos reais de cada urna com a base de eleitores cadastrados e audite o cumprimento real
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
           <button
             type="button"
             onClick={() => setIsTseModalOpen(true)}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             title="Importar arquivo CSV oficial do TSE com todos os Boletins de Urna"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -652,7 +652,7 @@ export default function CumprimentoVotosPage() {
           <button
             type="button"
             onClick={() => setIsQrModalOpen(true)}
-            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             title="Escanear o QR Code impresso no papel do Boletim de Urna com a câmera do celular"
           >
             <Camera className="w-3.5 h-3.5 text-secondary-container" />
@@ -662,7 +662,7 @@ export default function CumprimentoVotosPage() {
           <button
             type="button"
             onClick={() => setIsBatchModalOpen(true)}
-            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             title="Digitar ou colar texto no formato: Zona, Seção, Votos"
           >
             <Upload className="w-3.5 h-3.5 text-secondary" />
@@ -672,7 +672,7 @@ export default function CumprimentoVotosPage() {
           <button
             type="button"
             onClick={handleExportExcel}
-            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             title="Exportar planilha de auditoria eleitoral"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
@@ -681,7 +681,8 @@ export default function CumprimentoVotosPage() {
 
           <Link
             href="/eleitores"
-            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap shrink-0"
+            title="Voltar para a Base de Eleitores"
           >
             <Users className="w-3.5 h-3.5 text-secondary" />
             <span>Base</span>

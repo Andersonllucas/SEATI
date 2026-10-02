@@ -435,29 +435,29 @@ export default function ValidacaoPage() {
       )}
 
       {/* Top Banner & Header - Compacto e Elegante */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex items-center gap-2">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
             <div className="p-1.5 bg-primary/10 rounded-lg text-primary">
               <UserCheck className="w-5 h-5 text-secondary" />
             </div>
-            <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight">
+            <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight whitespace-nowrap">
               Validação do Eleitor
             </h1>
           </div>
-          <span className="text-[11px] bg-secondary/15 text-secondary font-bold px-2.5 py-0.5 rounded-full hidden sm:inline-block">
+          <span className="text-[11px] bg-secondary/15 text-secondary font-bold px-2.5 py-0.5 rounded-full hidden sm:inline-block whitespace-nowrap">
             Checagem de Voto & Contato
           </span>
-          <span className="text-xs text-on-surface-variant hidden lg:inline">
+          <span className="text-xs text-on-surface-variant hidden xl:inline truncate">
             • Registro de confirmação por ligação ou mensagem com horário e histórico
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
           <Link
             href="/cumprimento-votos"
-            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
-            title="Ir para a Validação Pós-Eleição (Cumprimento de Votos por Seção)"
+            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap shrink-0"
+            title="Ir para a Validação Pós-Eleição (Cumprimento de Votos)"
           >
             <Vote className="w-3.5 h-3.5 text-primary-fixed" />
             <span>Pós-Eleição (Urnas)</span>
@@ -466,7 +466,7 @@ export default function ValidacaoPage() {
           <button
             type="button"
             onClick={handleExportExcel}
-            className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             title="Exportar planilha completa de validações"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
@@ -475,7 +475,7 @@ export default function ValidacaoPage() {
 
           <Link
             href="/eleitores"
-            className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap shrink-0"
             title="Voltar para a Base Geral de Eleitores"
           >
             <Users className="w-3.5 h-3.5 text-secondary" />

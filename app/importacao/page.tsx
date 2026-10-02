@@ -20,9 +20,12 @@ import {
   Database,
   Trash2,
   Layers,
-  ExternalLink
+  ExternalLink,
+  Eye,
+  X,
+  ShieldAlert
 } from 'lucide-react';
-import { useCampaignData } from '@/context/CampaignContext';
+import { useCampaignData, formatTituloUtil } from '@/context/CampaignContext';
 import {
   downloadTemplate,
   parseSpreadsheetFile,
@@ -49,6 +52,7 @@ export default function Importacao() {
     totalLiderancasAtivas,
     totalConflitos,
     cleanCpf,
+    cleanTitulo,
     batchImportEleitores,
     batchImportLiderancas,
     batchSaveLocais
@@ -71,6 +75,8 @@ export default function Importacao() {
 
   // Strategy for duplicates (only applicable for eleitores)
   const [duplicateStrategy, setDuplicateStrategy] = useState<'include' | 'skip'>('include');
+  const [tituloDuplicateStrategy, setTituloDuplicateStrategy] = useState<'include' | 'skip'>('include');
+  const [showTituloConflictsModal, setShowTituloConflictsModal] = useState(false);
 
   // Import Execution State
   const [isImporting, setIsImporting] = useState(false);
@@ -93,6 +99,81 @@ export default function Importacao() {
     });
     return set;
   }, [eleitores, cleanCpf]);
+
+  // Existing Titles in database for pre-checking (keyed by clean numbers)
+  const existingTitlesMap = useMemo(() => {
+    const map = new Map<string, Eleitor[]>();
+    eleitores.forEach((e) => {
+      const clean = cleanTitulo(e.tituloEleitor);
+      if (clean && clean.length >= 5) {
+        const list = map.get(clean) || [];
+        list.push(e);
+        map.set(clean, list);
+      }
+    });
+    return map;
+  }, [eleitores, cleanTitulo]);
+
+  // List of parsed voter rows whose title is already registered in database
+  const tituloConflicts = useMemo(() => {
+    if (!parsedData || importTarget !== 'eleitores') return [];
+    const voterRows = parsedData.rows as ParsedVoterRow[];
+    const list: {
+      rowIndex: number;
+      titulo: string;
+      cleanTitulo: string;
+      rowNome: string;
+      rowLideranca: string;
+      rowCpf: string;
+      rowTelefone: string;
+      existingVoters: Eleitor[];
+    }[] = [];
+
+    voterRows.forEach((r) => {
+      if (r.tituloEleitor) {
+        const clean = cleanTitulo(r.tituloEleitor);
+        if (clean && clean.length >= 5 && existingTitlesMap.has(clean)) {
+          list.push({
+            rowIndex: r.originalIndex,
+            titulo: r.tituloEleitor,
+            cleanTitulo: clean,
+            rowNome: r.nome,
+            rowLideranca: r.lideranca || 'Não informada',
+            rowCpf: r.cpf,
+            rowTelefone: r.telefone,
+            existingVoters: existingTitlesMap.get(clean) || []
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [parsedData, importTarget, existingTitlesMap, cleanTitulo]);
+
+  // Lista em tempo real de eleitores elegíveis de acordo com os filtros de descarte ativos
+  const finalEligibleVoters = useMemo(() => {
+    if (!parsedData || importTarget !== 'eleitores') return [];
+    const voterRows = (parsedData.rows as ParsedVoterRow[]).filter((r) => r.isValid);
+    let list = voterRows;
+    if (duplicateStrategy === 'skip') {
+      list = list.filter((r) => !r.cleanCpf || !existingCpfsSet.has(r.cleanCpf));
+    }
+    if (tituloDuplicateStrategy === 'skip') {
+      list = list.filter((r) => {
+        const cleanT = cleanTitulo(r.tituloEleitor);
+        return !cleanT || cleanT.length < 5 || !existingTitlesMap.has(cleanT);
+      });
+    }
+    return list;
+  }, [
+    parsedData,
+    importTarget,
+    duplicateStrategy,
+    tituloDuplicateStrategy,
+    existingCpfsSet,
+    existingTitlesMap,
+    cleanTitulo
+  ]);
 
   // Tecla ESC para fechar pré-visualização de arquivo importado
   useEffect(() => {
@@ -171,11 +252,21 @@ export default function Importacao() {
 
         let finalRows = validRows;
         if (duplicateStrategy === 'skip') {
-          finalRows = validRows.filter((r) => !existingCpfsSet.has(r.cleanCpf));
+          finalRows = finalRows.filter((r) => !r.cleanCpf || !existingCpfsSet.has(r.cleanCpf));
+        }
+        if (tituloDuplicateStrategy === 'skip') {
+          finalRows = finalRows.filter((r) => {
+            const cleanT = cleanTitulo(r.tituloEleitor);
+            return !cleanT || cleanT.length < 5 || !existingTitlesMap.has(cleanT);
+          });
         }
 
         if (finalRows.length === 0) {
-          throw new Error('Nenhum registro válido para importar após a aplicação dos filtros.');
+          setIsImporting(false);
+          setParseError(
+            `Atenção: Nenhum eleitor novo restou para salvar, pois todos os ${validRows.length} registros válidos foram descartados pelas regras de duplicidade (CPF ou Título já cadastrados). Para cadastrá-los e registrá-los na Auditoria, altere a opção para "Cadastrar e sinalizar conflito" ou "Importar mesmo assim".`
+          );
+          return;
         }
 
         setImportProgress({ done: 0, total: finalRows.length });
@@ -188,8 +279,10 @@ export default function Importacao() {
           zona: r.zona,
           secao: r.secao,
           bairro: r.bairro,
+          cidade: r.cidade || 'Teresina',
+          estado: r.estado || 'PI',
           lideranca: r.lideranca,
-          status: 'Pendente de confirmação'
+          status: 'Pendente'
         }));
 
         await batchImportEleitores(toInsert, (done, total) => {
@@ -215,6 +308,8 @@ export default function Importacao() {
           email: r.email,
           regiao: r.regiao,
           bairro: r.bairro,
+          cidade: r.cidade || 'Teresina',
+          estado: r.estado || 'PI',
           metaVotos: r.metaVotos,
           status: r.status,
           observacoes: r.observacoes
@@ -298,6 +393,10 @@ export default function Importacao() {
     let spreadsheetDuplicates = 0;
     const seenInSpreadsheet = new Set<string>();
 
+    let tituloAlreadyInDb = 0;
+    let tituloSpreadsheetDuplicates = 0;
+    const seenTitulosInSpreadsheet = new Set<string>();
+
     voterRows.forEach((r) => {
       if (r.cleanCpf) {
         if (existingCpfsSet.has(r.cleanCpf)) {
@@ -309,10 +408,28 @@ export default function Importacao() {
           seenInSpreadsheet.add(r.cleanCpf);
         }
       }
+      if (r.tituloEleitor) {
+        const cleanT = cleanTitulo(r.tituloEleitor);
+        if (cleanT && cleanT.length >= 5) {
+          if (existingTitlesMap.has(cleanT)) {
+            tituloAlreadyInDb++;
+          }
+          if (seenTitulosInSpreadsheet.has(cleanT)) {
+            tituloSpreadsheetDuplicates++;
+          } else {
+            seenTitulosInSpreadsheet.add(cleanT);
+          }
+        }
+      }
     });
 
-    return { alreadyInDb, spreadsheetDuplicates };
-  }, [parsedData, importTarget, existingCpfsSet]);
+    return {
+      alreadyInDb,
+      spreadsheetDuplicates,
+      tituloAlreadyInDb,
+      tituloSpreadsheetDuplicates
+    };
+  }, [parsedData, importTarget, existingCpfsSet, existingTitlesMap, cleanTitulo]);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto flex-1 flex flex-col">
@@ -681,6 +798,140 @@ export default function Importacao() {
                   </div>
                 )}
 
+                {/* Alerta de Títulos de Eleitor Duplicados com a Base */}
+                {importTarget === 'eleitores' && tituloConflicts.length > 0 && (
+                  <div className="p-4 rounded-xl bg-amber-500/10 border-2 border-amber-500/40 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-700 shrink-0 mt-0.5">
+                          <AlertTriangle className="w-5 h-5 text-amber-700" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-bold text-sm text-on-surface">
+                              Alerta de Títulos Duplicados ({tituloConflicts.length})
+                            </h4>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300 font-extrabold uppercase">
+                              Atenção antes de importar
+                            </span>
+                          </div>
+                          <p className="text-xs text-on-surface-variant mt-0.5">
+                            Detectamos que {tituloConflicts.length} eleitor(es) na planilha possuem número de título já cadastrado no sistema.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowTituloConflictsModal(true)}
+                        className="px-3 py-1.5 bg-surface text-on-surface hover:bg-surface-container border border-outline-variant/60 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0 self-start sm:self-auto"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-amber-700" />
+                        Ver Detalhes dos {tituloConflicts.length} Conflitos
+                      </button>
+                    </div>
+
+                    {/* Amostra rápida dos primeiros conflitos */}
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {tituloConflicts.slice(0, 4).map((c, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 rounded-lg bg-surface border border-outline-variant/60 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs shadow-2xs"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-on-surface bg-surface-container px-2 py-0.5 rounded text-[11px] border border-outline-variant/50">
+                                {formatTituloUtil(c.titulo)}
+                              </span>
+                              <span className="text-[10px] text-on-surface-variant">
+                                Linha #{c.rowIndex} na Planilha
+                              </span>
+                            </div>
+                            <p className="text-on-surface text-xs">
+                              <strong className="text-primary font-semibold">Na Planilha:</strong> {c.rowNome} • Liderança indicada: <span className="font-medium text-on-surface">{c.rowLideranca}</span>
+                            </p>
+                          </div>
+
+                          <div className="md:text-right border-t md:border-t-0 pt-1.5 md:pt-0 border-outline-variant/30 text-xs">
+                            <span className="text-[11px] text-on-surface-variant font-medium block">
+                              Já Cadastrado no Banco:
+                            </span>
+                            {c.existingVoters.map((ev) => (
+                              <div key={ev.id} className="font-semibold text-on-surface">
+                                {ev.nome}{' '}
+                                <span className="text-amber-800 font-bold bg-amber-100 px-1.5 py-0.5 rounded text-[11px] border border-amber-300">
+                                  Liderança: {ev.lideranca || 'Sem Liderança'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {tituloConflicts.length > 4 && (
+                        <p className="text-[11px] text-center text-on-surface-variant italic pt-1">
+                          + {tituloConflicts.length - 4} outros títulos duplicados. Clique em &quot;Ver Detalhes&quot; para auditar a lista completa.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Ação para Títulos Duplicados */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-2 border-t border-outline-variant/30 text-xs">
+                      <span className="text-on-surface-variant font-medium">Ação para Títulos já existentes:</span>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="dupTituloStrategy"
+                            checked={tituloDuplicateStrategy === 'skip'}
+                            onChange={() => setTituloDuplicateStrategy('skip')}
+                            className="text-secondary focus:ring-secondary"
+                          />
+                          <span className="text-on-surface font-semibold text-emerald-700">
+                            Descartar duplicados de título ({tituloConflicts.length}) [Recomendado]
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="dupTituloStrategy"
+                            checked={tituloDuplicateStrategy === 'include'}
+                            onChange={() => setTituloDuplicateStrategy('include')}
+                            className="text-secondary focus:ring-secondary"
+                          />
+                          <span className="text-on-surface font-medium">
+                            Importar mesmo assim e sinalizar na Auditoria
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Alerta quando todos os registros foram descartados por regras de duplicidade */}
+                {importTarget === 'eleitores' && parsedData.validCount > 0 && finalEligibleVoters.length === 0 && (
+                  <div className="p-3.5 rounded-xl bg-amber-500/15 border-2 border-amber-500/40 text-on-surface text-xs space-y-2">
+                    <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-300 text-sm">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      Todos os {parsedData.validCount} eleitores desta planilha já constam no banco de dados!
+                    </div>
+                    <p className="text-on-surface-variant">
+                      Com os filtros de descarte atuais (CPF e/ou Título), nenhum registro novo será importado. Caso queira cadastrá-los mesmo assim e registrar a duplicidade na Auditoria de Conflitos, clique no botão abaixo:
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDuplicateStrategy('include');
+                        setTituloDuplicateStrategy('include');
+                        setParseError(null);
+                      }}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition-colors cursor-pointer shadow-xs inline-flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Alterar para &quot;Importar e sinalizar conflitos&quot; ({parsedData.validCount} eleitores)
+                    </button>
+                  </div>
+                )}
+
                 {/* Preview Table of parsed rows (first 5 rows) */}
                 <div className="border border-outline-variant/60 rounded-lg overflow-hidden bg-surface-container-lowest">
                   <div className="p-2.5 bg-surface-container-low/30 border-b border-outline-variant/40 flex items-center justify-between text-xs font-semibold text-on-surface-variant">
@@ -696,8 +947,9 @@ export default function Importacao() {
                           {importTarget === 'eleitores' && (
                             <>
                               <th className="px-3 py-2">CPF</th>
+                              <th className="px-3 py-2">Título de Eleitor</th>
                               <th className="px-3 py-2">Telefone</th>
-                              <th className="px-3 py-2">Título</th>
+                              <th className="px-3 py-2">Cidade/UF</th>
                               <th className="px-3 py-2">Zona / Seção</th>
                               <th className="px-3 py-2">Liderança</th>
                             </>
@@ -706,12 +958,14 @@ export default function Importacao() {
                             <>
                               <th className="px-3 py-2">Tipo</th>
                               <th className="px-3 py-2">Região</th>
+                              <th className="px-3 py-2">Cidade/UF</th>
                               <th className="px-3 py-2">Meta Votos</th>
                             </>
                           )}
                           {importTarget === 'locais' && (
                             <>
                               <th className="px-3 py-2">Tipo</th>
+                              <th className="px-3 py-2">Cidade/UF</th>
                               <th className="px-3 py-2">Zona</th>
                               <th className="px-3 py-2">Seções</th>
                               <th className="px-3 py-2">Capacidade</th>
@@ -734,15 +988,43 @@ export default function Importacao() {
                               {importTarget === 'eleitores' && (
                                 <>
                                   <td className="px-3 py-2 font-mono">
-                                    {formatCpf(row.cpf)}
+                                    {row.cleanCpf ? (
+                                      formatCpf(row.cpf)
+                                    ) : (
+                                      <span className="text-on-surface-variant/50 italic font-sans">Não informado</span>
+                                    )}
                                     {isCpfInDb && (
                                       <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-error-container/20 text-error font-bold">
                                         Existe no Banco
                                       </span>
                                     )}
                                   </td>
+                                  <td className="px-3 py-2 font-mono text-on-surface-variant">
+                                    {row.tituloEleitor ? (
+                                      <div>
+                                        <span>{formatTituloUtil(row.tituloEleitor)}</span>
+                                        {(() => {
+                                          const cleanT = cleanTitulo(row.tituloEleitor);
+                                          const ev = cleanT && cleanT.length >= 5 ? existingTitlesMap.get(cleanT)?.[0] : null;
+                                          if (!ev) return null;
+                                          return (
+                                            <span
+                                              className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold block sm:inline-block w-max mt-0.5"
+                                              title={`Já cadastrado no banco: ${ev.nome} (Liderança: ${ev.lideranca || 'Sem Liderança'})`}
+                                            >
+                                              Já no banco: {ev.nome} ({ev.lideranca || 'Sem Liderança'})
+                                            </span>
+                                          );
+                                        })()}
+                                      </div>
+                                    ) : (
+                                      <span className="text-on-surface-variant/50 italic font-sans">-</span>
+                                    )}
+                                  </td>
                                   <td className="px-3 py-2 text-on-surface-variant">{row.telefone || '-'}</td>
-                                  <td className="px-3 py-2 font-mono text-on-surface-variant">{row.tituloEleitor || '-'}</td>
+                                  <td className="px-3 py-2 text-on-surface-variant">
+                                    {row.cidade || 'Teresina'} - {row.estado || 'PI'}
+                                  </td>
                                   <td className="px-3 py-2 text-on-surface-variant">
                                     ZE {row.zona} / Sec {row.secao || '-'}
                                   </td>
@@ -753,12 +1035,18 @@ export default function Importacao() {
                                 <>
                                   <td className="px-3 py-2 text-on-surface-variant">{row.tipo}</td>
                                   <td className="px-3 py-2 text-on-surface-variant">{row.regiao}</td>
+                                  <td className="px-3 py-2 text-on-surface-variant">
+                                    {row.cidade || 'Teresina'} - {row.estado || 'PI'}
+                                  </td>
                                   <td className="px-3 py-2 font-bold text-on-surface">{row.metaVotos}</td>
                                 </>
                               )}
                               {importTarget === 'locais' && (
                                 <>
                                   <td className="px-3 py-2 text-on-surface-variant">{row.tipo}</td>
+                                  <td className="px-3 py-2 text-on-surface-variant">
+                                    {row.municipio || 'Teresina'} - {row.uf || 'PI'}
+                                  </td>
                                   <td className="px-3 py-2 text-on-surface-variant">ZE {row.zona}</td>
                                   <td className="px-3 py-2 text-on-surface-variant font-mono">
                                     {row.secoes?.length || 0} seções
@@ -817,7 +1105,9 @@ export default function Importacao() {
                 <span className="text-xs text-on-surface-variant flex items-center gap-1.5">
                   <Database className="w-4 h-4 text-secondary" />
                   {parsedData
-                    ? `${parsedData.validCount} registros prontos para gravação direta`
+                    ? importTarget === 'eleitores'
+                      ? `${finalEligibleVoters.length} eleitor(es) a salvar (${parsedData.validCount - finalEligibleVoters.length} descartados por duplicidade)`
+                      : `${parsedData.validCount} registros prontos para gravação direta`
                     : 'Aguardando arquivo para iniciar importação'}
                 </span>
               )}
@@ -836,8 +1126,18 @@ export default function Importacao() {
 
               <button
                 type="button"
-                disabled={!parsedData || parsedData.validCount === 0 || isImporting}
+                disabled={
+                  !parsedData ||
+                  parsedData.validCount === 0 ||
+                  isImporting ||
+                  (importTarget === 'eleitores' && finalEligibleVoters.length === 0)
+                }
                 onClick={handleStartImport}
+                title={
+                  importTarget === 'eleitores' && finalEligibleVoters.length === 0
+                    ? 'Nenhum registro a importar com os filtros de descarte ativos. Altere para "Importar mesmo assim" para salvar.'
+                    : undefined
+                }
                 className="w-full sm:w-auto px-6 py-2.5 bg-primary text-on-primary rounded font-semibold flex items-center justify-center gap-2 shadow-xs hover:bg-secondary transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isImporting ? (
@@ -847,6 +1147,7 @@ export default function Importacao() {
                 ) : (
                   <>
                     <Play className="w-4 h-4 fill-current" /> Iniciar Importação
+                    {importTarget === 'eleitores' && parsedData ? ` (${finalEligibleVoters.length})` : ''}
                   </>
                 )}
               </button>
@@ -932,6 +1233,141 @@ export default function Importacao() {
           </div>
         </div>
       </div>
+
+      {/* ========================================================= */}
+      {/* MODAL: DETALHES DE TÍTULOS DUPLICADOS                    */}
+      {/* ========================================================= */}
+      {showTituloConflictsModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface rounded-2xl border border-outline-variant shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-outline-variant/60 flex items-center justify-between bg-amber-500/10">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-700">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
+                    Conflitos de Título de Eleitor ({tituloConflicts.length})
+                  </h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Eleitores da planilha com título já cadastrado e suas respectivas lideranças
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTituloConflictsModal(false)}
+                className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content / Conflict Cards */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1">
+              <div className="p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/40 text-xs text-on-surface-variant">
+                💡 <strong>Por que este alerta é importante?</strong> Pela legislação eleitoral e regras da campanha, o número do título é um identificador individual único. Cadastrar o mesmo título para eleitores diferentes pode indicar duplicidade de pessoa ou disputa de voto entre lideranças.
+              </div>
+
+              {tituloConflicts.map((c, idx) => (
+                <div
+                  key={idx}
+                  className="p-3.5 rounded-xl border border-outline-variant/60 bg-surface-container-lowest shadow-2xs space-y-2.5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-outline-variant/30 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-black text-sm bg-surface-container px-2.5 py-0.5 rounded border border-outline-variant text-on-surface">
+                        {formatTituloUtil(c.titulo)}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                        Linha #{c.rowIndex} na Planilha
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    {/* Dado na Planilha */}
+                    <div className="p-2.5 rounded-lg bg-surface-container-low/40 border border-outline-variant/40 space-y-1">
+                      <span className="text-[10px] font-bold uppercase text-primary tracking-wider block">
+                        Na Planilha Sendo Importada:
+                      </span>
+                      <p className="font-bold text-on-surface text-sm">{c.rowNome}</p>
+                      <p className="text-on-surface-variant">
+                        Liderança Indicada: <strong className="text-on-surface">{c.rowLideranca}</strong>
+                      </p>
+                      {c.rowCpf && <p className="text-on-surface-variant font-mono">CPF: {c.rowCpf}</p>}
+                      {c.rowTelefone && <p className="text-on-surface-variant">Telefone: {c.rowTelefone}</p>}
+                    </div>
+
+                    {/* Dado já no Banco */}
+                    <div className="p-2.5 rounded-lg bg-error-container/10 border border-error/30 space-y-1">
+                      <span className="text-[10px] font-bold uppercase text-error tracking-wider block">
+                        Já Cadastrado Oficialmente no Banco:
+                      </span>
+                      {c.existingVoters.map((ev) => (
+                        <div key={ev.id} className="space-y-1">
+                          <p className="font-bold text-on-surface text-sm">{ev.nome}</p>
+                          <p className="text-on-surface-variant">
+                            Liderança Associada:{' '}
+                            <span className="font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
+                              {ev.lideranca || 'Sem Liderança'}
+                            </span>
+                          </p>
+                          {ev.cpf && <p className="text-on-surface-variant font-mono">CPF: {ev.cpf}</p>}
+                          {ev.telefone && <p className="text-on-surface-variant">Telefone: {ev.telefone}</p>}
+                          <p className="text-on-surface-variant text-[11px]">
+                            Zona {ev.zona} / Seção {ev.secao || '-'} • Bairro: {ev.bairro || '-'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-5 border-t border-outline-variant/60 bg-surface-container-low/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs text-on-surface-variant">
+                Ação selecionada:{' '}
+                <strong className={tituloDuplicateStrategy === 'skip' ? 'text-emerald-700' : 'text-amber-700'}>
+                  {tituloDuplicateStrategy === 'skip' ? 'Descartar Duplicados' : 'Importar e Enviar para Auditoria'}
+                </strong>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTituloDuplicateStrategy('skip');
+                    setShowTituloConflictsModal(false);
+                  }}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                >
+                  ✓ Descartar Duplicados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTituloDuplicateStrategy('include');
+                    setShowTituloConflictsModal(false);
+                  }}
+                  className="px-3.5 py-2 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Importar e Auditar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTituloConflictsModal(false)}
+                  className="px-3.5 py-2 bg-surface text-on-surface-variant hover:text-on-surface rounded-lg text-xs font-semibold cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

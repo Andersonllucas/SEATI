@@ -27,6 +27,8 @@ export interface Lideranca {
   email?: string;
   regiao: string;
   bairro: string;
+  cidade?: string;
+  estado?: string;
   metaVotos: number;
   status: 'Ativa' | 'Em Formação' | 'Inativa';
   observacoes?: string;

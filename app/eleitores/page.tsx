@@ -50,16 +50,28 @@ import { ShareFieldLinkModal } from '@/components/ShareFieldLinkModal';
 
 const STATUS_OPTIONS = [
   {
-    id: 'Pendente de confirmação',
-    title: 'Pendente de Confirmação',
+    id: 'Pendente',
+    title: 'Pendente',
     desc: 'Novo cadastro aguardando checagem da coordenação',
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-300'
+  },
+  {
+    id: 'Auditado',
+    title: 'Auditado',
+    desc: 'Registro oficial consolidado após auditoria de duplicidade',
+    badgeColor: 'bg-orange-100 text-orange-800 border-orange-300'
   },
   {
     id: 'Confirmado',
     title: 'Confirmado',
     desc: 'Eleitor contactado que assegurou voto na chapa',
     badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300'
+  },
+  {
+    id: 'Negado',
+    title: 'Negado',
+    desc: 'Eleitor contactado que recusou apoio ou voto',
+    badgeColor: 'bg-rose-100 text-rose-800 border-rose-300'
   },
   {
     id: 'Voto Certo',
@@ -78,22 +90,18 @@ const STATUS_OPTIONS = [
     title: 'Validado',
     desc: 'Dados cadastrais e domiciliares auditados',
     badgeColor: 'bg-teal-100 text-teal-800 border-teal-300'
-  },
-  {
-    id: 'Pendente',
-    title: 'Pendente',
-    desc: 'Ainda necessita de checagem',
-    badgeColor: 'bg-amber-100 text-amber-800 border-amber-300'
   }
 ] as const;
 
 function getStatusBadgeColor(status?: string): string {
   const st = (status || '').toLowerCase().trim();
-  if (st.includes('pendente')) return 'bg-amber-100 text-amber-800 border-amber-300';
+  if (st.includes('auditad')) return 'bg-orange-100 text-orange-800 border-orange-300';
+  if (st.includes('negado') || st.includes('recusa')) return 'bg-rose-100 text-rose-800 border-rose-300';
   if (st.includes('confirmado')) return 'bg-emerald-100 text-emerald-800 border-emerald-300';
   if (st.includes('voto certo')) return 'bg-blue-100 text-blue-800 border-blue-300';
   if (st.includes('apoiador')) return 'bg-purple-100 text-purple-800 border-purple-300';
   if (st.includes('validado')) return 'bg-teal-100 text-teal-800 border-teal-300';
+  if (st.includes('pendente')) return 'bg-amber-100 text-amber-800 border-amber-300';
   return 'bg-amber-100 text-amber-800 border-amber-300';
 }
 
@@ -118,6 +126,8 @@ export default function Eleitores() {
     totalConflitos,
     cleanCpf,
     cleanTitulo,
+    deleteEleitorQuick,
+    updateEleitorQuick,
     batchDeleteEleitores,
     batchUpdateEleitores
   } = useCampaignData();
@@ -176,6 +186,11 @@ export default function Eleitores() {
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [auditActiveTab, setAuditActiveTab] = useState<'cpf' | 'titulo'>('cpf');
+
+  const handleOpenConflictModal = (targetTab: 'cpf' | 'titulo' = 'cpf') => {
+    setAuditActiveTab(targetTab);
+    setIsConflictModalOpen(true);
+  };
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     description: string;
@@ -208,7 +223,7 @@ export default function Eleitores() {
   const [estado, setEstado] = useState('');
   const [zona, setZona] = useState('');
   const [secao, setSecao] = useState('');
-  const [formStatus, setFormStatus] = useState<string>('Pendente de confirmação');
+  const [formStatus, setFormStatus] = useState<string>('Pendente');
   const [selectedLiderId, setSelectedLiderId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -304,7 +319,7 @@ export default function Eleitores() {
     setEstado(currentTenant?.uf || 'SP');
     setZona('');
     setSecao('');
-    setFormStatus('Pendente de confirmação');
+    setFormStatus('Pendente');
     setSelectedLiderId(liderancas.length > 0 ? liderancas[0].id : '');
     setIsDrawerOpen(true);
   };
@@ -322,7 +337,7 @@ export default function Eleitores() {
     setEstado(eleitor.estado || currentTenant?.uf || 'SP');
     setZona(eleitor.zona || '');
     setSecao(eleitor.secao || '');
-    setFormStatus(eleitor.status || 'Pendente de confirmação');
+    setFormStatus(eleitor.status || 'Pendente');
     const foundLider = liderancas.find(
       (l) => l.id === eleitor.liderancaId || l.nome === eleitor.lideranca
     );
@@ -456,7 +471,7 @@ export default function Eleitores() {
       secao: trimmedSecao,
       lideranca: liderancaNome,
       liderancaId: selectedLiderId || '',
-      status: formStatus || 'Pendente de confirmação'
+      status: formStatus || 'Pendente'
     };
 
     // 2. Verificação de conflito em tempo real (CPF ou Título de Eleitor)
@@ -526,14 +541,24 @@ export default function Eleitores() {
     try {
       // 1. Delete all conflicting duplicate voter records
       for (const id of otherVoterIds) {
-        await deleteDoc(doc(getActiveDb(), 'eleitores', id));
+        if (deleteEleitorQuick) {
+          await deleteEleitorQuick(id);
+        } else {
+          await deleteDoc(doc(getActiveDb(), 'eleitores', id));
+        }
       }
-      // 2. Mark the kept voter as audited and validated
-      await updateDoc(doc(getActiveDb(), 'eleitores', keepVoter.id), {
-        status: 'Auditado e Validado'
-      });
+      // 2. Mark the kept voter as audited with orange status
+      if (updateEleitorQuick) {
+        await updateEleitorQuick(keepVoter.id, {
+          status: 'Auditado'
+        });
+      } else {
+        await updateDoc(doc(getActiveDb(), 'eleitores', keepVoter.id), {
+          status: 'Auditado'
+        });
+      }
       setActionFeedback(
-        `Cadastro de "${keepVoter.nome}" mantido como oficial! ${otherVoterIds.length} duplicidade(s) removida(s).`
+        `Cadastro de "${keepVoter.nome}" mantido como oficial e marcado como "Auditado"! ${otherVoterIds.length} duplicidade(s) removida(s).`
       );
       setConfirmDialog(null);
     } catch (err) {
@@ -547,7 +572,7 @@ export default function Eleitores() {
   const triggerKeepVoter = (keepVoter: Eleitor, otherVoterIds: string[]) => {
     setConfirmDialog({
       title: 'Consolidar e Manter Eleitor',
-      description: `Deseja consolidar o cadastro de "${keepVoter.nome}" (vinculado a ${keepVoter.lideranca}) como o registro oficial e excluir as outras ${otherVoterIds.length} ocorrência(s) conflitante(s) deste CPF?`,
+      description: `Deseja consolidar o cadastro de "${keepVoter.nome}" (vinculado a ${keepVoter.lideranca}) como o registro oficial e excluir as outras ${otherVoterIds.length} ocorrência(s) conflitante(s)? O status do eleitor mantido será alterado para "Auditado" (laranja).`,
       confirmLabel: 'Confirmar e Manter',
       variant: 'primary',
       onConfirm: () => executeKeepVoter(keepVoter, otherVoterIds)
@@ -625,9 +650,11 @@ export default function Eleitores() {
           ? true
           : statusFilter === 'conflito'
           ? conflictingVoterIds.has(eleitor.id)
-          : statusFilter === 'Pendente de confirmação'
+          : statusFilter === 'Pendente'
           ? (eleitor.status === 'Pendente de confirmação' || eleitor.status === 'Pendente' || !eleitor.status)
-          : (eleitor.status || 'Pendente de confirmação') === statusFilter;
+          : statusFilter === 'Auditado'
+          ? (eleitor.status === 'Auditado' || eleitor.status === 'Auditado e Validado')
+          : (eleitor.status || 'Pendente') === statusFilter;
 
       return matchesSearch && matchesLideranca && matchesStatus;
     });
@@ -807,24 +834,21 @@ export default function Eleitores() {
   return (
     <div className="p-3 md:p-4 space-y-3 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
       {/* Top Banner & Header - Compacto e Elegante */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight whitespace-nowrap">
             Base de Eleitores
           </h1>
-          <span className="text-[11px] bg-surface-container text-on-surface-variant px-2.5 py-0.5 rounded-full font-medium hidden sm:inline-block">
-            Gestão Territorial
-          </span>
-          <span className="text-xs text-on-surface-variant hidden lg:inline">
+          <span className="text-xs text-on-surface-variant hidden xl:inline truncate">
             • Cadastre novos eleitores, audite duplicidades e gerencie lideranças
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
           <button
             type="button"
             onClick={handleOpenCreate}
-            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer whitespace-nowrap shrink-0"
             title="Abrir cadastro de novo eleitor no formulário lateral"
           >
             <UserPlus className="w-3.5 h-3.5 text-primary-fixed" />
@@ -833,7 +857,7 @@ export default function Eleitores() {
 
           <Link
             href="/validacao"
-            className="px-3 py-1.5 border border-secondary/30 bg-secondary/10 hover:bg-secondary/20 text-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-3 py-1.5 border border-secondary/30 bg-secondary/10 hover:bg-secondary/20 text-secondary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap shrink-0"
             title="Central de Validação de Eleitores (Ligação / Mensagem)"
           >
             <UserCheck className="w-3.5 h-3.5" />
@@ -842,7 +866,7 @@ export default function Eleitores() {
 
           <Link
             href="/cadastro-em-massa"
-            className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap shrink-0"
             title="Ambiente otimizado para cadastro contínuo de vários eleitores"
           >
             <Zap className="w-3.5 h-3.5 text-secondary" />
@@ -852,7 +876,7 @@ export default function Eleitores() {
           <button
             type="button"
             onClick={() => setIsShareFieldModalOpen(true)}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             title="Gerar link público ou QR Code para a equipe de campo"
           >
             <Share2 className="w-3.5 h-3.5" />
@@ -915,17 +939,17 @@ export default function Eleitores() {
                 Duplicidades
               </p>
               {totalConflitos > 0 ? (
-                <span className="text-[9px] bg-error text-on-error font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                <span className="text-[10px] bg-rose-100 text-rose-800 border border-rose-300 font-bold px-2 py-0.5 rounded-full">
                   {totalConflitos} {totalConflitos === 1 ? 'conflito' : 'conflitos'}
                 </span>
               ) : (
-                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold px-2 py-0.5 rounded-full">
                   Zero
                 </span>
               )}
             </div>
             <div className="flex items-baseline gap-1.5 mt-0.5">
-              <h3 className={`text-lg md:text-xl font-black ${totalConflitos > 0 ? 'text-error' : 'text-emerald-700'}`}>
+              <h3 className={`text-lg md:text-xl font-black ${totalConflitos > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                 {totalConflitos}
               </h3>
               <span className="text-[11px] text-on-surface-variant truncate max-w-[130px] sm:max-w-none">
@@ -939,11 +963,11 @@ export default function Eleitores() {
               <>
                 <button
                   type="button"
-                  onClick={() => setIsConflictModalOpen(true)}
-                  className="text-[11px] bg-error text-on-error hover:bg-error/90 font-semibold px-2 py-1 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                  title="Auditar duplicidades de CPF"
+                  onClick={() => handleOpenConflictModal(cpfConflictGroups.length === 0 && tituloConflictGroups.length > 0 ? 'titulo' : 'cpf')}
+                  className="text-xs bg-rose-100 text-rose-900 hover:bg-rose-200 border border-rose-300 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                  title="Auditar duplicidades de documentos"
                 >
-                  <ShieldAlert className="w-3 h-3" /> Auditar
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-700" /> Auditar
                 </button>
                 <button
                   type="button"
@@ -951,10 +975,10 @@ export default function Eleitores() {
                     setFilterOnlyConflicts((prev) => !prev);
                     setCurrentPage(1);
                   }}
-                  className={`text-[11px] font-semibold px-2 py-1 rounded transition-colors cursor-pointer ${
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
                     filterOnlyConflicts
-                      ? 'bg-error-container text-on-error-container border border-error/40 font-bold'
-                      : 'bg-surface-container hover:bg-surface-container-high text-on-surface'
+                      ? 'bg-rose-100 text-rose-900 border-rose-300 font-bold'
+                      : 'bg-surface-container hover:bg-surface-container-high border-outline-variant/60 text-on-surface'
                   }`}
                   title="Filtrar eleitores com conflito na tabela abaixo"
                 >
@@ -964,7 +988,7 @@ export default function Eleitores() {
             ) : (
               <button
                 type="button"
-                onClick={() => setIsConflictModalOpen(true)}
+                onClick={() => handleOpenConflictModal('cpf')}
                 className="text-[11px] text-secondary hover:underline font-semibold flex items-center gap-1 cursor-pointer"
               >
                 <Fingerprint className="w-3.5 h-3.5" /> Detalhes
@@ -1252,8 +1276,9 @@ export default function Eleitores() {
                   />
                 </th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Nome do Eleitor</th>
-                <th className="py-2 px-3 md:py-2 md:px-3.5">CPF / Auditoria</th>
+                <th className="py-2 px-3 md:py-2 md:px-3.5">CPF</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Título</th>
+                <th className="py-2 px-2 md:py-2 md:px-2.5 text-center">Auditoria</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Zona / Seção</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Liderança / Articulador</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5 text-center">WhatsApp</th>
@@ -1263,13 +1288,13 @@ export default function Eleitores() {
             <tbody className="divide-y divide-outline-variant/30 text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-on-surface-variant">
+                  <td colSpan={9} className="text-center py-8 text-on-surface-variant">
                     Carregando dados de eleitores...
                   </td>
                 </tr>
               ) : filteredEleitores.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-10 text-on-surface-variant">
+                  <td colSpan={9} className="text-center py-10 text-on-surface-variant">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Users className="w-8 h-8 text-outline-variant" />
                       <p className="font-semibold text-on-surface">Nenhum eleitor encontrado</p>
@@ -1315,7 +1340,7 @@ export default function Eleitores() {
                       isTituloConflict={isTituloConflict}
                       isSelected={selectedIds.has(eleitor.id)}
                       onToggleSelect={() => toggleSelectOne(eleitor.id)}
-                      onAuditConflict={() => setIsConflictModalOpen(true)}
+                      onAuditConflict={(type) => handleOpenConflictModal(type)}
                       onEdit={() => handleOpenEdit(eleitor)}
                       onDelete={() => triggerDeleteVoter(eleitor.id, eleitor.nome)}
                       statusBadgeClass={getStatusBadgeColor(eleitor.status)}
