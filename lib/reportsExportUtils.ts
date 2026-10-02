@@ -13,6 +13,8 @@ export interface ReportExportOptions {
   liderancas: Lideranca[];
   locais: LocalVotacao[];
   conflictingIds: Set<string>;
+  conflictingCpfIds?: Set<string>;
+  conflictingTituloIds?: Set<string>;
 }
 
 // Helper to safely extract sections array from string | string[]
@@ -325,7 +327,21 @@ export async function generateReportPDF(options: ReportExportOptions) {
   } else {
     // 4. Relatório Geral Nominal Padrão
     const tableRows = voters.map((v, i) => {
-      const isConflict = conflictingIds.has(v.id);
+      const isCpfConflict = options.conflictingCpfIds ? options.conflictingCpfIds.has(v.id) : conflictingIds.has(v.id);
+      const isTituloConflict = options.conflictingTituloIds ? options.conflictingTituloIds.has(v.id) : false;
+      const isConflict = conflictingIds.has(v.id) || isCpfConflict || isTituloConflict;
+      const hasNoDoc = !v.cpf && !v.tituloEleitor;
+
+      const auditStatus = isCpfConflict && isTituloConflict
+        ? 'DUPLO CONFLITO'
+        : isCpfConflict
+        ? 'CPF DUPLICADO'
+        : isTituloConflict
+        ? 'TÍTULO DUPLICADO'
+        : hasNoDoc
+        ? 'SEM DOC'
+        : 'Íntegro';
+
       const liderObj = v.liderancaId ? leaderMap.get(v.liderancaId) : leaderMap.get((v.lideranca || '').trim().toLowerCase());
       const leaderDisplay = liderObj
         ? `${liderObj.nome}${liderObj.tipo === 'Sub-liderança' ? ' (Sub)' : ''}`
@@ -341,7 +357,7 @@ export async function generateReportPDF(options: ReportExportOptions) {
         v.bairro || '-',
         leaderDisplay,
         v.status || 'Validado',
-        isConflict ? 'CONFLITO' : 'Íntegro'
+        auditStatus
       ];
     });
 

@@ -6,7 +6,6 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
-  Filter,
   RotateCcw,
   Users,
   MapPin,
@@ -16,7 +15,12 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Table
+  Table,
+  Maximize2,
+  Minimize2,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { useCampaignData, Lideranca, formatTituloUtil } from '@/context/CampaignContext';
 import { useTenant } from '@/context/TenantContext';
@@ -78,6 +82,22 @@ export default function RelatoriosPage() {
   const [pageSize, setPageSize] = useState<number>(50); // 25, 50, 100 ou -1 (todos)
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+
+  // 4. MAXIMIZAÇÃO E ESPAÇO DE VISUALIZAÇÃO DA TABELA
+  const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
+  const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
+  const [showMetrics, setShowMetrics] = useState<boolean>(false);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (selectedZona !== 'todas') count++;
+    if (selectedSecao !== 'todas') count++;
+    if (selectedLiderPrincipalId !== 'todos') count++;
+    if (selectedSubLiderId !== 'todos') count++;
+    if (selectedBairro !== 'todos') count++;
+    if (selectedStatus !== 'todos') count++;
+    return count;
+  }, [selectedZona, selectedSecao, selectedLiderPrincipalId, selectedSubLiderId, selectedBairro, selectedStatus]);
 
   // Mapeamentos de Lideranças
   const { liderancasPrincipais, subLiderancas, leaderByIdMap } = useMemo(() => {
@@ -460,7 +480,7 @@ export default function RelatoriosPage() {
   }, [sortedEleitores, conflictingVoterIds]);
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
+    <div className={`w-full max-w-[1920px] mx-auto p-2.5 sm:p-4 flex-1 h-full flex flex-col relative ${isFocusMode ? 'space-y-2' : 'space-y-3'}`}>
       {/* ========================================================
           CABEÇALHO OFICIAL DE IMPRESSÃO (VISÍVEL APENAS NO PRINT)
           ======================================================== */}
@@ -489,369 +509,274 @@ export default function RelatoriosPage() {
       {/* ========================================================
           TOPO INSTITUCIONAL DA TELA (OCULTO NA IMPRESSÃO)
           ======================================================== */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-secondary uppercase tracking-wider">
-              Inteligência & Auditoria
+      {isFocusMode ? (
+        /* Barra Ultra-Compacta em Modo Foco (Máxima Área Útil para a Tabela) */
+        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl px-3 py-2 flex items-center justify-between gap-3 shadow-xs shrink-0 no-print">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[10px] font-black uppercase tracking-wider text-secondary bg-secondary/15 px-2 py-0.5 rounded-full shrink-0">
+              Modo Expandido
             </span>
-            <span className="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full font-medium">
-              Central de Relatórios
+            <span className="text-xs font-bold text-on-surface truncate">
+              {reportTitle}
+            </span>
+            <span className="text-[11px] bg-surface-container px-2 py-0.5 rounded-md text-on-surface-variant font-medium shrink-0">
+              {sortedEleitores.length} registros
             </span>
           </div>
-          <h1 className="text-xl md:text-2xl text-on-surface font-bold tracking-tight">
-            Relatórios Eleitorais & Impressão
-          </h1>
-          <p className="text-sm text-on-surface-variant mt-0.5">
-            Visualize, filtre e exporte listagens completas por zona, seção, liderança principal e sub-lideranças.
-          </p>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsFocusMode(false)}
+              className="px-2.5 py-1.5 bg-surface hover:bg-surface-container border border-outline-variant text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+              title="Restaurar painel superior e controles completos"
+            >
+              <Minimize2 className="w-3.5 h-3.5 text-secondary" />
+              <span>Restaurar Painel</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="px-2.5 py-1.5 bg-primary hover:bg-secondary text-on-primary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+              title="Imprimir relatório"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Imprimir</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isExporting || sortedEleitores.length === 0}
+              onClick={handleExportExcel}
+              className="px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+              title="Exportar Excel"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Excel</span>
+            </button>
+          </div>
         </div>
+      ) : (
+        /* Topo Padrão Compacto com Botões Lineares */
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0 no-print">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className="text-[10px] font-bold text-secondary uppercase tracking-wider bg-secondary/15 px-2 py-0.5 rounded-full">
+                Inteligência & Auditoria
+              </span>
+              <span className="text-[11px] text-on-surface-variant">
+                • Central de Relatórios Oficiais e Listagens para Campanha
+              </span>
+            </div>
+            <h1 className="text-lg md:text-xl text-on-surface font-bold tracking-tight">
+              Relatórios Eleitorais & Impressão
+            </h1>
+          </div>
 
-        {/* BOTÕES DE AÇÃO PRINCIPAL */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="px-4 py-2 bg-primary hover:bg-secondary text-on-primary rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-md hover:shadow-lg cursor-pointer"
-            title="Imprimir visualização em folha A4 no navegador"
-          >
-            <Printer className="w-4 h-4 text-primary-fixed" />
-            <span>Imprimir Relatório</span>
-          </button>
+          {/* BOTÕES DE AÇÃO LINEARES */}
+          <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="px-3 py-1.5 bg-primary hover:bg-secondary text-on-primary rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+              title="Imprimir visualização em folha A4 no navegador"
+            >
+              <Printer className="w-3.5 h-3.5 text-primary-fixed" />
+              <span>Imprimir</span>
+            </button>
 
-          <button
-            type="button"
-            disabled={isExporting || sortedEleitores.length === 0}
-            onClick={handleExportPDF}
-            className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-            title="Baixar em formato PDF"
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Exportar PDF</span>
-          </button>
+            <button
+              type="button"
+              disabled={isExporting || sortedEleitores.length === 0}
+              onClick={handleExportPDF}
+              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+              title="Baixar em formato PDF"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>PDF</span>
+            </button>
 
-          <button
-            type="button"
-            disabled={isExporting || sortedEleitores.length === 0}
-            onClick={handleExportExcel}
-            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-            title="Baixar planilha formatada em Excel (.xlsx)"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Exportar Excel</span>
-          </button>
+            <button
+              type="button"
+              disabled={isExporting || sortedEleitores.length === 0}
+              onClick={handleExportExcel}
+              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+              title="Baixar planilha formatada em Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Excel</span>
+            </button>
 
-          <button
-            type="button"
-            disabled={isExporting || sortedEleitores.length === 0}
-            onClick={handleExportCSV}
-            className="px-3 py-2 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface disabled:opacity-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-            title="Baixar em formato CSV compatível com planilhas"
-          >
-            <Download className="w-3.5 h-3.5 text-secondary" />
-            <span>CSV</span>
-          </button>
+            <button
+              type="button"
+              disabled={isExporting || sortedEleitores.length === 0}
+              onClick={handleExportCSV}
+              className="px-3 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface disabled:opacity-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              title="Baixar em formato CSV"
+            >
+              <Download className="w-3.5 h-3.5 text-secondary" />
+              <span>CSV</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsFocusMode(true)}
+              className="px-3 py-1.5 bg-secondary/15 hover:bg-secondary/25 text-secondary border border-secondary/35 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              title="Maximizar tabela para obter o maior espaço de visualização na tela"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-secondary" />
+              <span>Maximizar Tabela</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* FEEDBACK DE EXPORTAÇÃO */}
       {exportFeedback && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-950 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs animate-fadeIn no-print">
+        <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-950 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-2xs animate-fadeIn no-print shrink-0">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{exportFeedback}</span>
         </div>
       )}
 
       {/* ========================================================
-          ABAS DE SELEÇÃO DO MODELO DE RELATÓRIO (NO-PRINT)
+          BARRA DE CONTROLE: ABAS + BUSCA + FILTROS RÁPIDOS (NO-PRINT)
           ======================================================== */}
-      <div className="bg-surface-container-low p-1.5 rounded-xl border border-outline-variant/60 flex flex-wrap gap-1.5 no-print">
-        <button
-          type="button"
-          onClick={() => {
-            setReportMode('nominal');
-            setCurrentPage(1);
-          }}
-          className={`flex-1 min-w-[170px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-            reportMode === 'nominal'
-              ? 'bg-primary text-on-primary shadow-sm'
-              : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
-          }`}
-        >
-          <Table className="w-4 h-4" />
-          <span>1. Nominal Geral</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setReportMode('zona_secao');
-            setCurrentPage(1);
-          }}
-          className={`flex-1 min-w-[170px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-            reportMode === 'zona_secao'
-              ? 'bg-primary text-on-primary shadow-sm'
-              : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
-          }`}
-        >
-          <MapPin className="w-4 h-4" />
-          <span>2. Por Zona & Seção</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setReportMode('lider_sublider');
-            setCurrentPage(1);
-          }}
-          className={`flex-1 min-w-[170px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-            reportMode === 'lider_sublider'
-              ? 'bg-primary text-on-primary shadow-sm'
-              : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
-          }`}
-        >
-          <Award className="w-4 h-4" />
-          <span>3. Por Líder & Sub-líder</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setReportMode('folha_fiscal');
-            setCurrentPage(1);
-          }}
-          className={`flex-1 min-w-[170px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-            reportMode === 'folha_fiscal'
-              ? 'bg-primary text-on-primary shadow-sm'
-              : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
-          }`}
-        >
-          <CheckSquare className="w-4 h-4 text-emerald-400" />
-          <span>4. Caderno de Fiscais (Dia D)</span>
-        </button>
-      </div>
-
-      {/* ========================================================
-          CARDS DE RESUMO E MÉTRICAS DO FILTRO (NO-PRINT)
-          ======================================================== */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 shrink-0 no-print">
-        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-3 shadow-xs">
-          <p className="text-[11px] font-semibold text-on-surface-variant">Eleitores no Filtro</p>
-          <p className="text-xl font-bold text-on-surface mt-0.5">
-            {stats.total}{' '}
-            <span className="text-xs font-normal text-on-surface-variant">/ {totalEleitores}</span>
-          </p>
-        </div>
-
-        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-3 shadow-xs">
-          <p className="text-[11px] font-semibold text-on-surface-variant">Zonas Cobertas</p>
-          <p className="text-xl font-bold text-secondary mt-0.5">{stats.zonasCount}</p>
-        </div>
-
-        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-3 shadow-xs">
-          <p className="text-[11px] font-semibold text-on-surface-variant">Seções / Urnas</p>
-          <p className="text-xl font-bold text-secondary mt-0.5">{stats.secoesCount}</p>
-        </div>
-
-        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-3 shadow-xs">
-          <p className="text-[11px] font-semibold text-on-surface-variant">Lideranças</p>
-          <p className="text-xl font-bold text-on-surface mt-0.5">{stats.lideresCount}</p>
-        </div>
-
-        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-3 shadow-xs">
-          <p className="text-[11px] font-semibold text-on-surface-variant">Com Contato (Tel)</p>
-          <p className="text-xl font-bold text-emerald-700 mt-0.5">
-            {stats.comTelefone}{' '}
-            <span className="text-[10px] text-on-surface-variant font-normal">
-              ({stats.total > 0 ? Math.round((stats.comTelefone / stats.total) * 100) : 0}%)
-            </span>
-          </p>
-        </div>
-
-        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-3 shadow-xs">
-          <p className="text-[11px] font-semibold text-on-surface-variant">Duplicidades</p>
-          <p className={`text-xl font-bold mt-0.5 ${stats.conflitosCount > 0 ? 'text-error' : 'text-emerald-700'}`}>
-            {stats.conflitosCount}
-          </p>
-        </div>
-      </div>
-
-      {/* ========================================================
-          PAINEL DE FILTROS PERSONALIZÁVEIS (NO-PRINT)
-          ======================================================== */}
-      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/60 p-4 shadow-sm space-y-3 no-print">
-        <div className="flex items-center justify-between border-b border-outline-variant/40 pb-2.5">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-secondary" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-on-surface">
-              Filtros Avançados de Segmentação
-            </h2>
-          </div>
+      <div className="bg-surface-container-low p-2 rounded-xl border border-outline-variant/60 flex flex-col gap-2 shrink-0 no-print">
+        {/* Linha 1: Abas de Seleção de Modelo */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={handleResetFilters}
-            className="text-xs text-secondary hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+            onClick={() => {
+              setReportMode('nominal');
+              setCurrentPage(1);
+            }}
+            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+              reportMode === 'nominal'
+                ? 'bg-primary text-on-primary shadow-xs'
+                : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+            }`}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Limpar Todos os Filtros</span>
+            <Table className="w-3.5 h-3.5" />
+            <span>1. Nominal Geral</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setReportMode('zona_secao');
+              setCurrentPage(1);
+            }}
+            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+              reportMode === 'zona_secao'
+                ? 'bg-primary text-on-primary shadow-xs'
+                : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            <span>2. Por Zona & Seção</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setReportMode('lider_sublider');
+              setCurrentPage(1);
+            }}
+            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+              reportMode === 'lider_sublider'
+                ? 'bg-primary text-on-primary shadow-xs'
+                : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+            }`}
+          >
+            <Award className="w-3.5 h-3.5" />
+            <span>3. Por Líder & Sub-líder</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setReportMode('folha_fiscal');
+              setCurrentPage(1);
+            }}
+            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+              reportMode === 'folha_fiscal'
+                ? 'bg-primary text-on-primary shadow-xs'
+                : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+            }`}
+          >
+            <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+            <span>4. Caderno de Fiscais (Dia D)</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-          {/* 1. FILTRO ZONA */}
-          <div>
-            <label className="block text-[11px] font-bold text-on-surface-variant mb-1">
-              Zona Eleitoral
-            </label>
-            <select
-              value={selectedZona}
-              onChange={(e) => {
-                setSelectedZona(e.target.value);
-                setSelectedSecao('todas');
-                setCurrentPage(1);
-              }}
-              className="w-full h-9 bg-surface border border-outline-variant/60 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
-            >
-              <option value="todas">Todas as Zonas ({availableZonas.length})</option>
-              {availableZonas.map((z) => (
-                <option key={z} value={z}>
-                  Zona {z}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 2. FILTRO SEÇÃO */}
-          <div>
-            <label className="block text-[11px] font-bold text-on-surface-variant mb-1">
-              Seção Eleitoral
-            </label>
-            <select
-              value={selectedSecao}
-              onChange={(e) => {
-                setSelectedSecao(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full h-9 bg-surface border border-outline-variant/60 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
-            >
-              <option value="todas">Todas as Seções ({availableSecoes.length})</option>
-              {availableSecoes.map((s) => (
-                <option key={s} value={s}>
-                  Seção {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 3. FILTRO LIDERANÇA PRINCIPAL */}
-          <div>
-            <label className="block text-[11px] font-bold text-on-surface-variant mb-1">
-              Liderança Principal
-            </label>
-            <select
-              value={selectedLiderPrincipalId}
-              onChange={(e) => {
-                setSelectedLiderPrincipalId(e.target.value);
-                setSelectedSubLiderId('todos');
-                setCurrentPage(1);
-              }}
-              className="w-full h-9 bg-surface border border-outline-variant/60 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
-            >
-              <option value="todos">Todos os Líderes Principais</option>
-              {liderancasPrincipais.map((lp) => (
-                <option key={lp.id} value={lp.id}>
-                  {lp.nome}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 4. FILTRO SUB-LIDERANÇA */}
-          <div>
-            <label className="block text-[11px] font-bold text-on-surface-variant mb-1">
-              Sub-liderança
-            </label>
-            <select
-              value={selectedSubLiderId}
-              onChange={(e) => {
-                setSelectedSubLiderId(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full h-9 bg-surface border border-outline-variant/60 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
-            >
-              <option value="todos">Todas as Sub-lideranças ({availableSubLiderancas.length})</option>
-              {availableSubLiderancas.map((sub) => (
-                <option key={sub.id} value={sub.id}>
-                  {sub.nome} {sub.liderancaPaiNome ? `(Sub de ${sub.liderancaPaiNome})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 5. FILTRO BAIRRO */}
-          <div>
-            <label className="block text-[11px] font-bold text-on-surface-variant mb-1">
-              Bairro
-            </label>
-            <select
-              value={selectedBairro}
-              onChange={(e) => {
-                setSelectedBairro(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full h-9 bg-surface border border-outline-variant/60 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
-            >
-              <option value="todos">Todos os Bairros ({availableBairros.length})</option>
-              {availableBairros.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 6. FILTRO STATUS */}
-          <div>
-            <label className="block text-[11px] font-bold text-on-surface-variant mb-1">
-              Status do Eleitor
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => {
-                setSelectedStatus(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full h-9 bg-surface border border-outline-variant/60 rounded-md px-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
-            >
-              <option value="todos">Todos os Status</option>
-              <option value="conflito">⚠️ Apenas Conflito de CPF</option>
-              {STATUS_OPCOES.map((st) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* CAMPO DE BUSCA RÁPIDA */}
-        <div className="pt-1 flex items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+        {/* Linha 2: Busca Rápida + Botão de Filtros Expansíveis + Métricas Toggle */}
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-outline-variant/30">
+          {/* Busca por texto */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
             <input
               type="text"
-              placeholder="Pesquisar por nome, CPF, título, telefone, bairro ou líder..."
+              placeholder="Pesquisar eleitor, CPF, título, bairro ou líder..."
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full h-9 bg-surface border border-outline-variant/60 rounded-md pl-9 pr-3 text-xs text-on-surface focus:outline-none focus:border-secondary"
+              className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md pl-8 pr-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
             />
           </div>
 
+          {/* Botão de Toggle de Filtros Avançados */}
+          <button
+            type="button"
+            onClick={() => setIsFiltersOpen((prev) => !prev)}
+            className={`h-8 px-2.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+              isFiltersOpen || activeFiltersCount > 0
+                ? 'bg-secondary/15 text-secondary border-secondary/35'
+                : 'bg-surface hover:bg-surface-container text-on-surface border-outline-variant/60'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-secondary" />
+            <span>Filtros</span>
+            {activeFiltersCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-secondary text-on-secondary text-[10px] flex items-center justify-center font-black">
+                {activeFiltersCount}
+              </span>
+            )}
+            {isFiltersOpen ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
+          </button>
+
+          {/* Botão de Toggle de Indicadores/Métricas */}
+          <button
+            type="button"
+            onClick={() => setShowMetrics((prev) => !prev)}
+            className={`h-8 px-2.5 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer border ${
+              showMetrics
+                ? 'bg-primary/10 text-primary border-primary/30'
+                : 'bg-surface hover:bg-surface-container text-on-surface-variant border-outline-variant/60'
+            }`}
+            title="Exibir ou ocultar barra de indicadores numéricos"
+          >
+            <span>{showMetrics ? 'Ocultar Indicadores' : 'Ver Indicadores'}</span>
+          </button>
+
+          {/* Botão de Limpar Filtros quando ativo */}
+          {(activeFiltersCount > 0 || searchTerm.trim()) && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="h-8 px-2 text-xs text-error hover:bg-error/10 rounded-md font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+              title="Limpar todos os filtros aplicados"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Limpar</span>
+            </button>
+          )}
+
           {/* Seletor de registros por página */}
-          <div className="flex items-center gap-1.5 shrink-0 text-xs text-on-surface-variant">
+          <div className="flex items-center gap-1.5 shrink-0 text-xs text-on-surface-variant ml-auto">
             <span>Exibir:</span>
             <select
               value={pageSize}
@@ -859,41 +784,226 @@ export default function RelatoriosPage() {
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="h-9 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none"
+              className="h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none"
             >
-              <option value={25}>25 por página</option>
-              <option value={50}>50 por página</option>
-              <option value={100}>100 por página</option>
-              <option value={-1}>Ver Todos ({sortedEleitores.length})</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={-1}>Todos ({sortedEleitores.length})</option>
             </select>
           </div>
         </div>
+
+        {/* Linha 3: Barra de Indicadores Compacta (Expansível) */}
+        {showMetrics && (
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2 border-t border-outline-variant/30 animate-fadeIn">
+            <div className="bg-surface border border-outline-variant/50 rounded-lg px-2.5 py-1.5 text-center">
+              <span className="text-[10px] text-on-surface-variant uppercase font-bold block">No Filtro</span>
+              <span className="text-sm font-black text-on-surface">{stats.total} <span className="text-[10px] font-normal text-on-surface-variant">/ {totalEleitores}</span></span>
+            </div>
+            <div className="bg-surface border border-outline-variant/50 rounded-lg px-2.5 py-1.5 text-center">
+              <span className="text-[10px] text-on-surface-variant uppercase font-bold block">Zonas</span>
+              <span className="text-sm font-black text-secondary">{stats.zonasCount}</span>
+            </div>
+            <div className="bg-surface border border-outline-variant/50 rounded-lg px-2.5 py-1.5 text-center">
+              <span className="text-[10px] text-on-surface-variant uppercase font-bold block">Seções</span>
+              <span className="text-sm font-black text-secondary">{stats.secoesCount}</span>
+            </div>
+            <div className="bg-surface border border-outline-variant/50 rounded-lg px-2.5 py-1.5 text-center">
+              <span className="text-[10px] text-on-surface-variant uppercase font-bold block">Lideranças</span>
+              <span className="text-sm font-black text-on-surface">{stats.lideresCount}</span>
+            </div>
+            <div className="bg-surface border border-outline-variant/50 rounded-lg px-2.5 py-1.5 text-center">
+              <span className="text-[10px] text-on-surface-variant uppercase font-bold block">Com Contato</span>
+              <span className="text-sm font-black text-emerald-700">{stats.comTelefone} <span className="text-[10px] font-normal">({stats.total > 0 ? Math.round((stats.comTelefone / stats.total) * 100) : 0}%)</span></span>
+            </div>
+            <div className="bg-surface border border-outline-variant/50 rounded-lg px-2.5 py-1.5 text-center">
+              <span className="text-[10px] text-on-surface-variant uppercase font-bold block">Duplicidades</span>
+              <span className={`text-sm font-black ${stats.conflitosCount > 0 ? 'text-error' : 'text-emerald-700'}`}>{stats.conflitosCount}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Linha 4: Filtros Avançados Expansíveis */}
+        {isFiltersOpen && (
+          <div className="pt-2 border-t border-outline-variant/40 animate-fadeIn space-y-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {/* 1. FILTRO ZONA */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Zona
+                </label>
+                <select
+                  value={selectedZona}
+                  onChange={(e) => {
+                    setSelectedZona(e.target.value);
+                    setSelectedSecao('todas');
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todas">Todas as Zonas ({availableZonas.length})</option>
+                  {availableZonas.map((z) => (
+                    <option key={z} value={z}>
+                      Zona {z}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 2. FILTRO SEÇÃO */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Seção
+                </label>
+                <select
+                  value={selectedSecao}
+                  onChange={(e) => {
+                    setSelectedSecao(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todas">Todas as Seções ({availableSecoes.length})</option>
+                  {availableSecoes.map((s) => (
+                    <option key={s} value={s}>
+                      Seção {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 3. FILTRO LIDERANÇA PRINCIPAL */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Líder Principal
+                </label>
+                <select
+                  value={selectedLiderPrincipalId}
+                  onChange={(e) => {
+                    setSelectedLiderPrincipalId(e.target.value);
+                    setSelectedSubLiderId('todos');
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todos os Líderes Principais</option>
+                  {liderancasPrincipais.map((lp) => (
+                    <option key={lp.id} value={lp.id}>
+                      {lp.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 4. FILTRO SUB-LIDERANÇA */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Sub-líder
+                </label>
+                <select
+                  value={selectedSubLiderId}
+                  onChange={(e) => {
+                    setSelectedSubLiderId(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todas as Sub-lideranças ({availableSubLiderancas.length})</option>
+                  {availableSubLiderancas.map((sub) => (
+                    <option key={sub.id} value={sub.id}>
+                      {sub.nome} {sub.liderancaPaiNome ? `(Sub de ${sub.liderancaPaiNome})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 5. FILTRO BAIRRO */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Bairro
+                </label>
+                <select
+                  value={selectedBairro}
+                  onChange={(e) => {
+                    setSelectedBairro(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todos os Bairros ({availableBairros.length})</option>
+                  {availableBairros.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 6. FILTRO STATUS */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Status
+                </label>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => {
+                    setSelectedStatus(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todos os Status</option>
+                  <option value="conflito">⚠️ Conflito de CPF</option>
+                  {STATUS_OPCOES.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ========================================================
-          PRÉ-VISUALIZAÇÃO DA TABELA DO RELATÓRIO
+          PRÉ-VISUALIZAÇÃO DA TABELA DO RELATÓRIO (ESPAÇO MAXIMIZADO)
           ======================================================== */}
-      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/60 shadow-sm overflow-hidden flex flex-col flex-1 print-container">
+      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/60 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[480px] print-container">
         {/* Barra superior de status do relatório */}
-        <div className="px-4 py-3 bg-surface border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-3 no-print">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-on-surface">{reportTitle}</h3>
-            <span className="text-xs bg-surface-container text-on-surface px-2.5 py-0.5 rounded-full font-medium">
-              {sortedEleitores.length} registros selecionados
+        <div className="px-3.5 py-2 bg-surface border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-2.5 no-print shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-xs md:text-sm font-bold text-on-surface">{reportTitle}</h3>
+            <span className="text-[11px] bg-secondary/15 text-secondary px-2.5 py-0.5 rounded-full font-bold">
+              {sortedEleitores.length} registros
             </span>
+            {activeFiltersCount > 0 && (
+              <span className="text-[11px] text-on-surface-variant hidden sm:inline">
+                • {activeFiltersSummary}
+              </span>
+            )}
           </div>
 
-          <div className="text-xs text-on-surface-variant font-medium">
-            Página {currentPage} de {totalPages}
+          <div className="flex items-center gap-2 text-xs text-on-surface-variant font-medium">
+            <span>Página {currentPage} de {totalPages}</span>
+            <button
+              type="button"
+              onClick={() => setIsFocusMode((prev) => !prev)}
+              className="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded transition-colors"
+              title={isFocusMode ? "Sair do modo tela cheia" : "Maximizar área da tabela"}
+            >
+              {isFocusMode ? <Minimize2 className="w-3.5 h-3.5 text-secondary" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
           </div>
         </div>
 
-        {/* TABELA DE DADOS */}
-        <div className="overflow-x-auto flex-1">
+        {/* TABELA DE DADOS COM SCROLL E HEADER FIXO (STICKY) */}
+        <div className={`overflow-auto flex-1 ${isFocusMode ? 'max-h-[calc(100vh-140px)]' : 'max-h-[calc(100vh-270px)]'}`}>
           <table className="w-full text-left text-xs border-collapse">
-            <thead>
+            <thead className="sticky top-0 z-10 shadow-2xs">
               <tr className="bg-primary text-on-primary">
-                <th className="py-2.5 px-3 font-semibold text-center w-12">#</th>
+                <th className="py-2.5 px-3 font-semibold text-center w-12 sticky top-0 bg-primary">#</th>
 
                 {/* Colunas variáveis conforme o modelo */}
                 {reportMode === 'zona_secao' ? (
