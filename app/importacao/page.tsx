@@ -25,7 +25,7 @@ import {
   X,
   ShieldAlert
 } from 'lucide-react';
-import { useCampaignData, formatTituloUtil } from '@/context/CampaignContext';
+import { useCampaignData, formatTituloUtil, Eleitor } from '@/context/CampaignContext';
 import {
   downloadTemplate,
   parseSpreadsheetFile,
