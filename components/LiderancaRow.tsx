@@ -45,6 +45,13 @@ export const LiderancaRow = React.memo(function LiderancaRow({
           <p className="font-bold text-sm text-on-surface tracking-tight leading-snug">
             {leader.nome}
           </p>
+          {(leader.cpf || leader.tituloEleitor || leader.zona) && (
+            <p className="text-[11px] text-on-surface-variant font-mono">
+              {leader.cpf ? `CPF: ${leader.cpf}` : ''}
+              {leader.tituloEleitor ? ` • Título: ${leader.tituloEleitor}` : ''}
+              {leader.zona ? ` • Z: ${leader.zona}/S: ${leader.secao || '-'}` : ''}
+            </p>
+          )}
           <div className="flex items-center gap-2 flex-wrap">
             <span
               className={`text-[10px] px-2 py-0.5 rounded font-semibold tracking-wide uppercase ${

@@ -226,6 +226,9 @@ export default function CadastroExternoCampoPage() {
   const [nomeLider, setNomeLider] = useState('');
   const [telefoneLider, setTelefoneLider] = useState('');
   const [cpfLider, setCpfLider] = useState('');
+  const [tituloLider, setTituloLider] = useState('');
+  const [zonaLider, setZonaLider] = useState('');
+  const [secaoLider, setSecaoLider] = useState('');
   const [bairroLider, setBairroLider] = useState('');
   const [cidadeLider, setCidadeLider] = useState('');
   const [estadoLider, setEstadoLider] = useState('PI');
@@ -525,56 +528,20 @@ export default function CadastroExternoCampoPage() {
     }
   };
 
-  // ==================== SUBMISSÃO DA LIDERANÇA (EXIGE SENHA DO SISTEMA) ====================
+  // ==================== SUBMISSÃO DA LIDERANÇA (INFORMAÇÕES NÃO OBRIGATÓRIAS) ====================
   const handleSubmitLideranca = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedbackBanner(null);
 
-    const trimmedNomeLider = nomeLider.trim();
+    const trimmedNomeLider = nomeLider.trim() || 'Liderança sem nome';
     const cleanCpf = cpfLider.replace(/\D/g, '');
     const cleanSenha = senhaAutorizacao.trim();
 
-    // 1. Validação de Nome
-    if (!trimmedNomeLider || trimmedNomeLider.length < 3) {
-      playAlertSound();
-      setFeedbackBanner({
-        type: 'error',
-        message: 'Por favor, digite o Nome Completo da nova liderança (mínimo de 3 letras).'
-      });
-      nomeLiderInputRef.current?.focus();
-      return;
-    }
-
-    // 2. Se for Sub-liderança, exige Liderança Principal
-    if (tipoLideranca === 'Sub-liderança' && !parentLiderId) {
-      playAlertSound();
-      setFeedbackBanner({
-        type: 'warn',
-        message: 'Para cadastrar uma Sub-liderança, selecione a Liderança Principal responsável.'
-      });
-      return;
-    }
-
-    // 3. Exige senha de autorização
-    if (!cleanSenha) {
-      playAlertSound();
-      setFeedbackBanner({
-        type: 'error',
-        message: '🔒 Senha de autorização obrigatória! Digite a senha cadastrada no sistema em Configurações.'
-      });
-      senhaInputRef.current?.focus();
-      return;
-    }
-
-    setIsSubmittingLider(true);
-
-    try {
-      const db = getActiveDb();
-
-      // Busca a senha mais atualizada diretamente do banco de configurações
+    // Se senha foi digitada, valida autorização; se deixada em branco, permite prosseguir sem bloqueio
+    if (cleanSenha) {
       let activeExpectedPassword = configuredPassword;
       try {
-        const configSnap = await getDoc(doc(db, 'configuracoes', 'geral'));
+        const configSnap = await getDoc(doc(getActiveDb(), 'configuracoes', 'geral'));
         if (configSnap.exists()) {
           const cfgData = configSnap.data();
           if (cfgData.senhaCadastroLiderancaCampo) {
@@ -586,17 +553,21 @@ export default function CadastroExternoCampoPage() {
         console.warn('Usando senha de cache:', cfgErr);
       }
 
-      // Validação estrita da senha
       if (cleanSenha !== activeExpectedPassword) {
         playAlertSound();
         setFeedbackBanner({
           type: 'error',
-          message: '❌ Senha de autorização incorreta! Solicite a senha configurada no sistema (Configurações > Segurança) à coordenação.'
+          message: '❌ Senha de autorização incorreta! Verifique em Configurações > Segurança ou deixe em branco.'
         });
         senhaInputRef.current?.focus();
-        setIsSubmittingLider(false);
         return;
       }
+    }
+
+    setIsSubmittingLider(true);
+
+    try {
+      const db = getActiveDb();
 
       // Prepara os dados da liderança
       const parentObj = liderancas.find((l) => l.id === parentLiderId);
@@ -607,8 +578,11 @@ export default function CadastroExternoCampoPage() {
         tipo: tipoLideranca,
         liderancaPaiId: tipoLideranca === 'Sub-liderança' ? parentLiderId : '',
         liderancaPaiNome: parentName,
-        telefone: telefoneLider.trim(),
         cpf: cleanCpf ? formatCPF(cleanCpf) : '',
+        tituloEleitor: tituloLider.trim(),
+        zona: zonaLider.trim(),
+        secao: secaoLider.trim(),
+        telefone: telefoneLider.trim(),
         bairro: (bairroLider || fixedBairro || '').trim(),
         cidade: cidadeLider.trim() || currentTenant?.cidade || 'Teresina',
         estado: estadoLider.trim() || currentTenant?.uf || 'PI',
@@ -645,6 +619,9 @@ export default function CadastroExternoCampoPage() {
       setNomeLider('');
       setTelefoneLider('');
       setCpfLider('');
+      setTituloLider('');
+      setZonaLider('');
+      setSecaoLider('');
       setBairroLider('');
       setObservacoesLider('');
       setSenhaAutorizacao('');
@@ -884,7 +861,7 @@ export default function CadastroExternoCampoPage() {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-[11px] font-bold text-slate-300">
-                      Liderança Vinculada <span className="text-rose-400">*</span>
+                      Liderança Vinculada <span className="text-slate-400 font-normal">(Opcional)</span>
                     </label>
                     <button
                       type="button"
@@ -903,6 +880,7 @@ export default function CadastroExternoCampoPage() {
                     disabled={isLoadingLiderancas}
                     className="w-full h-9 bg-slate-900 border border-slate-700 rounded-xl px-2.5 text-xs text-white focus:outline-none focus:border-secondary cursor-pointer font-medium"
                   >
+                    <option value="">Sem Liderança Definida (Opcional)</option>
                     {isLoadingLiderancas ? (
                       <option value="">Carregando lideranças...</option>
                     ) : (
@@ -1255,15 +1233,14 @@ export default function CadastroExternoCampoPage() {
               {tipoLideranca === 'Sub-liderança' && (
                 <div className="p-3.5 bg-slate-900/90 rounded-xl border border-primary/40 space-y-1.5 animate-in fade-in duration-150">
                   <label className="block text-xs font-bold text-primary-fixed">
-                    Vincular à Liderança Principal Responsável <span className="text-rose-400">*</span>
+                    Vincular à Liderança Principal Responsável <span className="text-slate-400 font-normal">(Opcional)</span>
                   </label>
                   <select
                     value={parentLiderId}
                     onChange={(e) => setParentLiderId(e.target.value)}
-                    required
                     className="w-full h-10 bg-slate-950 border border-primary/40 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-secondary font-medium cursor-pointer"
                   >
-                    <option value="">Selecione a liderança principal...</option>
+                    <option value="">Nenhuma ou selecione depois...</option>
                     {principaisLiderancas.map((l) => (
                       <option key={l.id} value={l.id}>
                         {l.nome} {l.bairro ? `(${l.bairro})` : ''}
@@ -1279,35 +1256,20 @@ export default function CadastroExternoCampoPage() {
               {/* Nome Completo da Liderança */}
               <div>
                 <label className="block text-xs font-bold text-slate-200 mb-1.5">
-                  Nome Completo da Liderança <span className="text-rose-400">*</span>
+                  Nome Completo da Liderança <span className="text-slate-400 font-normal">(Opcional)</span>
                 </label>
                 <input
                   ref={nomeLiderInputRef}
                   type="text"
-                  required
-                  placeholder="Nome completo do líder ou sub-líder..."
+                  placeholder="Nome completo do líder ou sub-líder (opcional)..."
                   value={nomeLider}
                   onChange={(e) => setNomeLider(e.target.value)}
                   className="w-full h-11 bg-slate-900 border-2 border-slate-700 rounded-xl px-3.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-all font-medium"
                 />
               </div>
 
-              {/* Telefone / WhatsApp e CPF */}
+              {/* Documentos & Dados Eleitorais da Liderança (CPF e Título) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-200 mb-1.5">
-                    WhatsApp / Telefone de Contato <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="(00) 00000-0000"
-                    value={telefoneLider}
-                    onChange={(e) => setTelefoneLider(formatPhone(e.target.value))}
-                    className="w-full h-11 bg-slate-900 border-2 border-slate-700 rounded-xl px-3.5 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-all"
-                  />
-                </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-200 mb-1.5">
                     CPF <span className="text-slate-400 font-normal">(Opcional)</span>
@@ -1320,6 +1282,62 @@ export default function CadastroExternoCampoPage() {
                     className="w-full h-11 bg-slate-900 border-2 border-slate-700 rounded-xl px-3.5 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-all"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-200 mb-1.5">
+                    Título de Eleitor <span className="text-slate-400 font-normal">(Opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="0000 0000 0000 (opcional)"
+                    value={tituloLider}
+                    onChange={(e) => setTituloLider(e.target.value)}
+                    className="w-full h-11 bg-slate-900 border-2 border-slate-700 rounded-xl px-3.5 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Zona e Seção da Liderança */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-200 mb-1.5">
+                    Zona Eleitoral <span className="text-slate-400 font-normal">(Opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 001 (opcional)"
+                    value={zonaLider}
+                    onChange={(e) => setZonaLider(e.target.value)}
+                    className="w-full h-11 bg-slate-900 border-2 border-slate-700 rounded-xl px-3.5 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-200 mb-1.5">
+                    Seção Eleitoral <span className="text-slate-400 font-normal">(Opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 0042 (opcional)"
+                    value={secaoLider}
+                    onChange={(e) => setSecaoLider(e.target.value)}
+                    className="w-full h-11 bg-slate-900 border-2 border-slate-700 rounded-xl px-3.5 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Telefone / WhatsApp */}
+              <div>
+                <label className="block text-xs font-bold text-slate-200 mb-1.5">
+                  WhatsApp / Telefone de Contato <span className="text-slate-400 font-normal">(Opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="(00) 00000-0000 (opcional)"
+                  value={telefoneLider}
+                  onChange={(e) => setTelefoneLider(formatPhone(e.target.value))}
+                  className="w-full h-11 bg-slate-900 border-2 border-slate-700 rounded-xl px-3.5 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-all"
+                />
               </div>
 
               {/* Bairro e Meta de Votos */}
@@ -1408,7 +1426,7 @@ export default function CadastroExternoCampoPage() {
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-extrabold text-amber-200 flex items-center gap-1.5">
                       <KeyRound className="w-4 h-4 text-amber-400" />
-                      Senha de Autorização de Campo <span className="text-rose-400">*</span>
+                      Senha de Autorização de Campo <span className="text-slate-400 font-normal">(Opcional se configurada)</span>
                     </label>
                     <span className="text-[10px] text-amber-300 font-semibold bg-amber-500/20 px-2 py-0.5 rounded-full">
                       Cadastrada nas Configurações
@@ -1419,8 +1437,7 @@ export default function CadastroExternoCampoPage() {
                     <input
                       ref={senhaInputRef}
                       type={mostrarSenhaAutorizacao ? 'text' : 'password'}
-                      required
-                      placeholder="Digite a senha de autorização..."
+                      placeholder="Digite a senha de autorização (opcional)..."
                       value={senhaAutorizacao}
                       onChange={(e) => setSenhaAutorizacao(e.target.value)}
                       className="w-full h-11 bg-slate-950 border-2 border-amber-500/60 rounded-xl pl-3.5 pr-11 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-amber-400 transition-all font-bold"

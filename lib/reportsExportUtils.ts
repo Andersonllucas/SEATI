@@ -329,7 +329,6 @@ export async function generateReportPDF(options: ReportExportOptions) {
     const tableRows = voters.map((v, i) => {
       const isCpfConflict = options.conflictingCpfIds ? options.conflictingCpfIds.has(v.id) : conflictingIds.has(v.id);
       const isTituloConflict = options.conflictingTituloIds ? options.conflictingTituloIds.has(v.id) : false;
-      const isConflict = conflictingIds.has(v.id) || isCpfConflict || isTituloConflict;
       const hasNoDoc = !v.cpf && !v.tituloEleitor;
 
       const auditStatus = isCpfConflict && isTituloConflict

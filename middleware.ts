@@ -15,9 +15,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Detecta se é uma requisição interna de RSC (React Server Component) ou prefetch
+  const isRSC =
+    request.headers.get('rsc') === '1' ||
+    request.nextUrl.searchParams.has('_rsc') ||
+    request.headers.has('next-router-prefetch') ||
+    request.headers.has('next-router-state-tree');
+
   // Captura o hostname da requisição
   const hostHeader = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host || '';
   const hostname = hostHeader.split(':')[0].toLowerCase().trim();
+
+  // Verifica se está em ambiente de desenvolvimento ou preview Cloud Run
+  const isDevOrPreview =
+    hostname.endsWith('.run.app') ||
+    hostname.includes('localhost') ||
+    hostname.includes('127.0.0.1') ||
+    !hostname.includes('.');
 
   // 1. DOMÍNIO EXCLUSIVO DO ADMIN MASTER (admin.adti.app.br)
   if (hostname === 'admin.adti.app.br') {
@@ -26,7 +40,7 @@ export async function middleware(request: NextRequest) {
     requestHeaders.set('x-tenant-subdomain', 'admin');
 
     // Se estiver acessando a raiz ou rota interna que não seja /admin-master, redireciona para o painel isolado
-    if (pathname !== '/admin-master') {
+    if (pathname !== '/admin-master' && !isRSC) {
       const url = request.nextUrl.clone();
       url.pathname = '/admin-master';
       return NextResponse.redirect(url, {
@@ -55,7 +69,7 @@ export async function middleware(request: NextRequest) {
     requestHeaders.set('x-is-admin-domain', 'true');
     requestHeaders.set('x-tenant-subdomain', 'admin');
 
-    if (pathname !== '/admin-master') {
+    if (pathname !== '/admin-master' && !isRSC) {
       const url = request.nextUrl.clone();
       url.pathname = '/admin-master';
       return NextResponse.redirect(url, {
@@ -68,7 +82,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Se for domínio de cliente (*.adti.app.br) e tentar acessar /admin-master, redireciona para o domínio exclusivo
-  if (subdomain && subdomain !== 'admin' && pathname.startsWith('/admin-master')) {
+  if (subdomain && subdomain !== 'admin' && pathname.startsWith('/admin-master') && !isRSC) {
     return NextResponse.redirect('https://admin.adti.app.br/admin-master');
   }
 
@@ -96,28 +110,31 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Se for subdomínio padrão de desenvolvimento/preview, resolve instantaneamente sem fetch interno
-  if (subdomain === 'demo' || subdomain === 'preview' || subdomain === 'teresina') {
+  // 3. Em ambientes Cloud Run, Dev, Preview ou requisições RSC:
+  // NUNCA faz sub-requisição fetch() interna dentro do middleware (evita loop/timeout que quebra o payload RSC)
+  if (isDevOrPreview || isRSC || subdomain === 'demo' || subdomain === 'preview' || subdomain === 'teresina') {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set('x-tenant-subdomain', subdomain);
     requestHeaders.set('x-tenant-id', subdomain);
-    requestHeaders.set('x-tenant-name', encodeURIComponent('Campanha Teresina'));
+    requestHeaders.set('x-tenant-name', encodeURIComponent(subdomain === 'demo' ? 'Campanha Teresina' : subdomain));
     requestHeaders.set('x-is-admin-domain', 'false');
 
     const response = NextResponse.next({
       request: { headers: requestHeaders }
     });
 
-    response.cookies.set('adti_subdomain', subdomain, {
-      path: '/',
-      maxAge: 60 * 60 * 24 * 365,
-      sameSite: 'lax'
-    });
+    if (!isRSC && subdomain && subdomain !== 'admin') {
+      response.cookies.set('adti_subdomain', subdomain, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365,
+        sameSite: 'lax'
+      });
+    }
 
     return response;
   }
 
-  // 3. RESOLUÇÃO E VALIDAÇÃO DO CLIENTE PERSONALIZADO
+  // 4. RESOLUÇÃO E VALIDAÇÃO DO CLIENTE PERSONALIZADO (PRODUÇÃO *.adti.app.br)
   try {
     const resolveUrl = new URL(`/api/tenant/resolve?subdomain=${encodeURIComponent(subdomain)}`, request.url);
     const resolveRes = await fetch(resolveUrl.toString(), {
@@ -157,7 +174,7 @@ export async function middleware(request: NextRequest) {
     });
 
     // Se o subdomínio foi informado ou atualizado, grava no cookie para manter navegação íntegra
-    if (subdomain && subdomain !== 'admin') {
+    if (!isRSC && subdomain && subdomain !== 'admin') {
       response.cookies.set('adti_subdomain', subdomain, {
         path: '/',
         maxAge: 60 * 60 * 24 * 365,
@@ -175,7 +192,7 @@ export async function middleware(request: NextRequest) {
     const response = NextResponse.next({
       request: { headers: requestHeaders }
     });
-    if (subdomain && subdomain !== 'admin') {
+    if (!isRSC && subdomain && subdomain !== 'admin') {
       response.cookies.set('adti_subdomain', subdomain, {
         path: '/',
         maxAge: 60 * 60 * 24 * 365,

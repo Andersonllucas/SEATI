@@ -58,6 +58,8 @@ export default function RelatoriosPage() {
     eleitores,
     liderancas,
     locais,
+    conflictingCpfVoterIds,
+    conflictingTituloVoterIds,
     conflictingVoterIds,
     totalEleitores
   } = useCampaignData();
@@ -75,6 +77,7 @@ export default function RelatoriosPage() {
   const [selectedSubLiderId, setSelectedSubLiderId] = useState<string>('todos');
   const [selectedBairro, setSelectedBairro] = useState<string>('todos');
   const [selectedStatus, setSelectedStatus] = useState<string>('todos');
+  const [selectedPendencia, setSelectedPendencia] = useState<string>('todas');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // 3. PAGINAÇÃO E CONTROLES DE VISUALIZAÇÃO
@@ -96,8 +99,9 @@ export default function RelatoriosPage() {
     if (selectedSubLiderId !== 'todos') count++;
     if (selectedBairro !== 'todos') count++;
     if (selectedStatus !== 'todos') count++;
+    if (selectedPendencia !== 'todas') count++;
     return count;
-  }, [selectedZona, selectedSecao, selectedLiderPrincipalId, selectedSubLiderId, selectedBairro, selectedStatus]);
+  }, [selectedZona, selectedSecao, selectedLiderPrincipalId, selectedSubLiderId, selectedBairro, selectedStatus, selectedPendencia]);
 
   // Mapeamentos de Lideranças
   const { liderancasPrincipais, subLiderancas, leaderByIdMap } = useMemo(() => {
@@ -243,6 +247,12 @@ export default function RelatoriosPage() {
       if (selectedStatus !== 'todos') {
         if (selectedStatus === 'conflito') {
           if (!conflictingVoterIds.has(e.id)) return false;
+        } else if (selectedStatus === 'conflito_cpf') {
+          if (!conflictingCpfVoterIds.has(e.id)) return false;
+        } else if (selectedStatus === 'conflito_titulo') {
+          if (!conflictingTituloVoterIds.has(e.id)) return false;
+        } else if (selectedStatus === 'sem_doc') {
+          if (e.cpf || e.tituloEleitor) return false;
         } else if (selectedStatus === 'Pendente') {
           const s = e.status || 'Pendente';
           if (s !== 'Pendente' && s !== 'Pendente de confirmação') return false;
@@ -251,6 +261,34 @@ export default function RelatoriosPage() {
           if (s !== 'Auditado' && s !== 'Auditado e Validado') return false;
         } else {
           if ((e.status || 'Pendente') !== selectedStatus) return false;
+        }
+      }
+
+      // Filtro Pendência de Informação Cadastral (Título, CPF, etc.)
+      if (selectedPendencia !== 'todas') {
+        const hasNoCpf = !e.cpf || !e.cpf.trim() || e.cpf.replace(/\D/g, '').length < 11;
+        const hasNoTitulo = !e.tituloEleitor || !e.tituloEleitor.trim() || e.tituloEleitor.replace(/\D/g, '').length < 5;
+        const hasNoTelefone = !e.telefone || !e.telefone.trim() || e.telefone.replace(/\D/g, '').length < 8;
+        const hasNoZonaSecao = !e.zona || !e.zona.trim() || !e.secao || !e.secao.trim();
+        const hasNoBairro = !e.bairro || !e.bairro.trim();
+        const hasNoLideranca = !e.liderancaId && (!e.lideranca || e.lideranca.trim() === '' || e.lideranca === 'Sem Liderança' || e.lideranca === 'Sem Liderança Definida');
+
+        if (selectedPendencia === 'qualquer') {
+          if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao) return false;
+        } else if (selectedPendencia === 'sem_titulo') {
+          if (!hasNoTitulo) return false;
+        } else if (selectedPendencia === 'sem_cpf') {
+          if (!hasNoCpf) return false;
+        } else if (selectedPendencia === 'sem_zona') {
+          if (!hasNoZonaSecao) return false;
+        } else if (selectedPendencia === 'sem_telefone') {
+          if (!hasNoTelefone) return false;
+        } else if (selectedPendencia === 'sem_lideranca') {
+          if (!hasNoLideranca) return false;
+        } else if (selectedPendencia === 'sem_bairro') {
+          if (!hasNoBairro) return false;
+        } else if (selectedPendencia === 'completos') {
+          if (hasNoCpf || hasNoTitulo || hasNoTelefone || hasNoZonaSecao) return false;
         }
       }
 
@@ -279,9 +317,12 @@ export default function RelatoriosPage() {
     selectedSubLiderId,
     selectedBairro,
     selectedStatus,
+    selectedPendencia,
     searchTerm,
     leaderByIdMap,
-    conflictingVoterIds
+    conflictingVoterIds,
+    conflictingCpfVoterIds,
+    conflictingTituloVoterIds
   ]);
 
   // Lista ordenada por nome ou zona/seção dependendo do modo
@@ -334,6 +375,19 @@ export default function RelatoriosPage() {
     if (selectedStatus !== 'todos') {
       parts.push(selectedStatus === 'conflito' ? 'Apenas Conflitos de CPF' : `Status: ${selectedStatus}`);
     }
+    if (selectedPendencia !== 'todas') {
+      const pendMap: Record<string, string> = {
+        qualquer: 'Pendência: Qualquer Info',
+        sem_titulo: 'Pendência: Sem Título',
+        sem_cpf: 'Pendência: Sem CPF',
+        sem_zona: 'Pendência: Sem Zona/Seção',
+        sem_telefone: 'Pendência: Sem Telefone',
+        sem_lideranca: 'Pendência: Sem Liderança',
+        sem_bairro: 'Pendência: Sem Bairro',
+        completos: 'Situação: Cadastro Completo'
+      };
+      parts.push(pendMap[selectedPendencia] || `Pendência: ${selectedPendencia}`);
+    }
     if (searchTerm.trim()) parts.push(`Busca: "${searchTerm}"`);
 
     return parts.length > 0 ? parts.join('  |  ') : 'Todos os registros (Sem filtros restritivos)';
@@ -344,6 +398,7 @@ export default function RelatoriosPage() {
     selectedSubLiderId,
     selectedBairro,
     selectedStatus,
+    selectedPendencia,
     searchTerm,
     leaderByIdMap
   ]);
@@ -372,6 +427,7 @@ export default function RelatoriosPage() {
     setSelectedSubLiderId('todos');
     setSelectedBairro('todos');
     setSelectedStatus('todos');
+    setSelectedPendencia('todas');
     setSearchTerm('');
     setCurrentPage(1);
   };
@@ -393,7 +449,9 @@ export default function RelatoriosPage() {
         voters: sortedEleitores,
         liderancas,
         locais,
-        conflictingIds: conflictingVoterIds
+        conflictingIds: conflictingVoterIds,
+        conflictingCpfIds: conflictingCpfVoterIds,
+        conflictingTituloIds: conflictingTituloVoterIds
       });
       setExportFeedback('Relatório PDF gerado com sucesso!');
       setTimeout(() => setExportFeedback(null), 3500);
@@ -416,7 +474,9 @@ export default function RelatoriosPage() {
         voters: sortedEleitores,
         liderancas,
         locais,
-        conflictingIds: conflictingVoterIds
+        conflictingIds: conflictingVoterIds,
+        conflictingCpfIds: conflictingCpfVoterIds,
+        conflictingTituloIds: conflictingTituloVoterIds
       });
       setExportFeedback('Planilha Excel (.xlsx) baixada com sucesso!');
       setTimeout(() => setExportFeedback(null), 3500);
@@ -439,7 +499,9 @@ export default function RelatoriosPage() {
         voters: sortedEleitores,
         liderancas,
         locais,
-        conflictingIds: conflictingVoterIds
+        conflictingIds: conflictingVoterIds,
+        conflictingCpfIds: conflictingCpfVoterIds,
+        conflictingTituloIds: conflictingTituloVoterIds
       });
       setExportFeedback('Arquivo CSV baixado com sucesso!');
       setTimeout(() => setExportFeedback(null), 3500);
@@ -711,7 +773,7 @@ export default function RelatoriosPage() {
           </button>
         </div>
 
-        {/* Linha 2: Busca Rápida + Botão de Filtros Expansíveis + Métricas Toggle */}
+        {/* Linha 2: Busca Rápida + Filtro Rápido de Pendência + Botão de Filtros Expansíveis + Métricas Toggle */}
         <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-outline-variant/30">
           {/* Busca por texto */}
           <div className="relative flex-1 min-w-[200px]">
@@ -727,6 +789,31 @@ export default function RelatoriosPage() {
               className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md pl-8 pr-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
             />
           </div>
+
+          {/* Filtro Rápido de Informações Pendentes (Título, CPF, etc.) */}
+          <select
+            value={selectedPendencia}
+            onChange={(e) => {
+              setSelectedPendencia(e.target.value);
+              setCurrentPage(1);
+            }}
+            className={`h-8 border rounded-md px-2 text-xs focus:outline-none focus:border-secondary transition-colors shrink-0 ${
+              selectedPendencia !== 'todas'
+                ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                : 'bg-surface border-outline-variant/60 text-on-surface'
+            }`}
+            title="Filtrar eleitores por informação cadastral pendente (Título, CPF, Zona, etc.)"
+          >
+            <option value="todas">Situação: Todas as Informações</option>
+            <option value="qualquer">⚠️ Qualquer Informação Pendente</option>
+            <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
+            <option value="sem_cpf">📄 Sem CPF (Pendente)</option>
+            <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+            <option value="sem_telefone">📱 Sem Telefone / Contato</option>
+            <option value="sem_lideranca">👥 Sem Liderança Vinculada</option>
+            <option value="sem_bairro">📍 Sem Bairro</option>
+            <option value="completos">✅ Cadastros 100% Completos</option>
+          </select>
 
           {/* Botão de Toggle de Filtros Avançados */}
           <button
@@ -827,7 +914,7 @@ export default function RelatoriosPage() {
         {/* Linha 4: Filtros Avançados Expansíveis */}
         {isFiltersOpen && (
           <div className="pt-2 border-t border-outline-variant/40 animate-fadeIn space-y-2">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
               {/* 1. FILTRO ZONA */}
               <div>
                 <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
@@ -954,7 +1041,10 @@ export default function RelatoriosPage() {
                   className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
                 >
                   <option value="todos">Todos os Status</option>
-                  <option value="conflito">⚠️ Conflito de CPF</option>
+                  <option value="conflito">⚠️ Todos os Conflitos / Duplicidades</option>
+                  <option value="conflito_cpf">⚠️ Apenas Conflitos de CPF</option>
+                  <option value="conflito_titulo">⚠️ Apenas Duplicidades de Título</option>
+                  <option value="sem_doc">📄 Sem Documentação (CPF/Título)</option>
                   {STATUS_OPCOES.map((st) => (
                     <option key={st} value={st}>
                       {st}
@@ -962,7 +1052,66 @@ export default function RelatoriosPage() {
                   ))}
                 </select>
               </div>
+
+              {/* 7. FILTRO PENDÊNCIA CADASTRAL */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Pendência
+                </label>
+                <select
+                  value={selectedPendencia}
+                  onChange={(e) => {
+                    setSelectedPendencia(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className={`w-full h-8 border rounded-md px-2 text-xs focus:outline-none focus:border-secondary ${
+                    selectedPendencia !== 'todas'
+                      ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                      : 'bg-surface border border-outline-variant/60 text-on-surface'
+                  }`}
+                >
+                  <option value="todas">Todas as Situações</option>
+                  <option value="qualquer">⚠️ Qualquer Pendência</option>
+                  <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
+                  <option value="sem_cpf">📄 Sem CPF</option>
+                  <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+                  <option value="sem_telefone">📱 Sem Telefone / Contato</option>
+                  <option value="sem_lideranca">👥 Sem Liderança</option>
+                  <option value="sem_bairro">📍 Sem Bairro</option>
+                  <option value="completos">✅ Cadastros Completos</option>
+                </select>
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* Banner de Pendência Ativa no Relatório */}
+        {selectedPendencia !== 'todas' && (
+          <div className="px-3.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-3 text-xs text-amber-950 animate-fadeIn">
+            <div className="flex items-center gap-2 font-medium">
+              <span className="font-bold">⚠️ Filtro de Pendência Ativo:</span>
+              <span>
+                Exibindo apenas os <strong>{filteredEleitores.length}</strong> eleitores com {
+                  selectedPendencia === 'qualquer' ? 'qualquer informação pendente' :
+                  selectedPendencia === 'sem_titulo' ? 'Título de Eleitor não preenchido' :
+                  selectedPendencia === 'sem_cpf' ? 'CPF não preenchido' :
+                  selectedPendencia === 'sem_zona' ? 'Zona ou Seção não preenchida' :
+                  selectedPendencia === 'sem_telefone' ? 'Telefone/WhatsApp não preenchido' :
+                  selectedPendencia === 'sem_lideranca' ? 'Liderança não vinculada' :
+                  selectedPendencia === 'sem_bairro' ? 'Bairro não preenchido' :
+                  'cadastro completo sem pendências'
+                }.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setSelectedPendencia('todas');
+                setCurrentPage(1);
+              }}
+              className="text-xs font-bold text-amber-800 hover:underline flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" /> Limpar Pendência
+            </button>
           </div>
         )}
       </div>
@@ -1079,7 +1228,10 @@ export default function RelatoriosPage() {
               ) : (
                 paginatedEleitores.map((eleitor, index) => {
                   const globalIndex = pageSize === -1 ? index + 1 : (currentPage - 1) * pageSize + index + 1;
-                  const isConflict = conflictingVoterIds.has(eleitor.id);
+                  const isCpfConflict = conflictingCpfVoterIds.has(eleitor.id);
+                  const isTituloConflict = conflictingTituloVoterIds.has(eleitor.id);
+                  const isConflict = conflictingVoterIds.has(eleitor.id) || isCpfConflict || isTituloConflict;
+                  const hasNoDoc = !eleitor.cpf && !eleitor.tituloEleitor;
                   const liderObj = eleitor.liderancaId
                     ? leaderByIdMap.get(eleitor.liderancaId)
                     : leaderByIdMap.get((eleitor.lideranca || '').trim().toLowerCase());
@@ -1171,14 +1323,41 @@ export default function RelatoriosPage() {
                               {eleitor.status || 'Validado'}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-center">
-                            {isConflict ? (
-                              <span className="text-[9px] bg-rose-100 text-rose-800 border border-rose-300 px-1.5 py-0.5 rounded font-bold">
-                                DUPLICADO
+                          <td className="py-2 px-3 text-center whitespace-nowrap">
+                            {isCpfConflict && isTituloConflict ? (
+                              <span
+                                className="text-[9px] bg-rose-100 text-rose-900 border border-rose-300 px-2 py-0.5 rounded-full font-black tracking-tight"
+                                title="Conflito Duplo: Tanto o CPF quanto o Título de Eleitor estão duplicados na base"
+                              >
+                                ⚠️ DUPLO CONFLITO
+                              </span>
+                            ) : isCpfConflict ? (
+                              <span
+                                className="text-[9px] bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 rounded-full font-bold"
+                                title="CPF Duplicado: Este CPF já consta cadastrado para outro eleitor"
+                              >
+                                ⚠️ CPF DUPLICADO
+                              </span>
+                            ) : isTituloConflict ? (
+                              <span
+                                className="text-[9px] bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full font-bold"
+                                title="Título Duplicado: Este Título de Eleitor já consta cadastrado para outro eleitor"
+                              >
+                                ⚠️ TÍTULO DUPLICADO
+                              </span>
+                            ) : hasNoDoc ? (
+                              <span
+                                className="text-[9px] bg-slate-100 text-slate-700 border border-slate-300 px-2 py-0.5 rounded-full font-medium"
+                                title="Cadastro sem CPF e sem Título de Eleitor"
+                              >
+                                SEM DOC
                               </span>
                             ) : (
-                              <span className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold">
-                                ÍNTEGRO
+                              <span
+                                className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full font-bold"
+                                title="Registro íntegro e verificado na auditoria"
+                              >
+                                ✓ ÍNTEGRO
                               </span>
                             )}
                           </td>
@@ -1241,14 +1420,41 @@ export default function RelatoriosPage() {
                               {eleitor.status || 'Validado'}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-center">
-                            {isConflict ? (
-                              <span className="text-[9px] bg-rose-100 text-rose-800 border border-rose-300 px-1.5 py-0.5 rounded font-bold">
-                                CONFLITO
+                          <td className="py-2 px-3 text-center whitespace-nowrap">
+                            {isCpfConflict && isTituloConflict ? (
+                              <span
+                                className="text-[9px] bg-rose-100 text-rose-900 border border-rose-300 px-2 py-0.5 rounded-full font-black tracking-tight"
+                                title="Conflito Duplo: Tanto o CPF quanto o Título de Eleitor estão duplicados na base"
+                              >
+                                ⚠️ DUPLO CONFLITO
+                              </span>
+                            ) : isCpfConflict ? (
+                              <span
+                                className="text-[9px] bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 rounded-full font-bold"
+                                title="CPF Duplicado: Este CPF já consta cadastrado para outro eleitor"
+                              >
+                                ⚠️ CPF DUPLICADO
+                              </span>
+                            ) : isTituloConflict ? (
+                              <span
+                                className="text-[9px] bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full font-bold"
+                                title="Título Duplicado: Este Título de Eleitor já consta cadastrado para outro eleitor"
+                              >
+                                ⚠️ TÍTULO DUPLICADO
+                              </span>
+                            ) : hasNoDoc ? (
+                              <span
+                                className="text-[9px] bg-slate-100 text-slate-700 border border-slate-300 px-2 py-0.5 rounded-full font-medium"
+                                title="Cadastro sem CPF e sem Título de Eleitor"
+                              >
+                                SEM DOC
                               </span>
                             ) : (
-                              <span className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold">
-                                VÁLIDO
+                              <span
+                                className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full font-bold"
+                                title="Registro íntegro e verificado na auditoria"
+                              >
+                                ✓ ÍNTEGRO
                               </span>
                             )}
                           </td>

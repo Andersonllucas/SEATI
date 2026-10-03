@@ -211,6 +211,7 @@ export default function Eleitores() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLiderancaFilter, setSelectedLiderancaFilter] = useState('todas');
   const [statusFilter, setStatusFilter] = useState('todos');
+  const [pendenciaFilter, setPendenciaFilter] = useState('todas');
   const [isShareFieldModalOpen, setIsShareFieldModalOpen] = useState(false);
 
   // Form State
@@ -656,13 +657,44 @@ export default function Eleitores() {
           ? (eleitor.status === 'Auditado' || eleitor.status === 'Auditado e Validado')
           : (eleitor.status || 'Pendente') === statusFilter;
 
-      return matchesSearch && matchesLideranca && matchesStatus;
+      if (!matchesSearch || !matchesLideranca || !matchesStatus) return false;
+
+      // Filtro de Pendências Específicas
+      if (pendenciaFilter !== 'todas') {
+        const hasNoCpf = !eleitor.cpf || !eleitor.cpf.trim() || eleitor.cpf.replace(/\D/g, '').length < 11;
+        const hasNoTitulo = !eleitor.tituloEleitor || !eleitor.tituloEleitor.trim() || eleitor.tituloEleitor.replace(/\D/g, '').length < 5;
+        const hasNoTelefone = !eleitor.telefone || !eleitor.telefone.trim() || eleitor.telefone.replace(/\D/g, '').length < 8;
+        const hasNoZonaSecao = !eleitor.zona || !eleitor.zona.trim() || !eleitor.secao || !eleitor.secao.trim();
+        const hasNoBairro = !eleitor.bairro || !eleitor.bairro.trim();
+        const hasNoLideranca = !eleitor.liderancaId && (!eleitor.lideranca || eleitor.lideranca.trim() === '' || eleitor.lideranca === 'Sem Liderança' || eleitor.lideranca === 'Sem Liderança Definida');
+
+        if (pendenciaFilter === 'qualquer') {
+          if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao) return false;
+        } else if (pendenciaFilter === 'sem_titulo') {
+          if (!hasNoTitulo) return false;
+        } else if (pendenciaFilter === 'sem_cpf') {
+          if (!hasNoCpf) return false;
+        } else if (pendenciaFilter === 'sem_telefone') {
+          if (!hasNoTelefone) return false;
+        } else if (pendenciaFilter === 'sem_zona') {
+          if (!hasNoZonaSecao) return false;
+        } else if (pendenciaFilter === 'sem_bairro') {
+          if (!hasNoBairro) return false;
+        } else if (pendenciaFilter === 'sem_lideranca') {
+          if (!hasNoLideranca) return false;
+        } else if (pendenciaFilter === 'completos') {
+          if (hasNoCpf || hasNoTitulo || hasNoTelefone || hasNoZonaSecao) return false;
+        }
+      }
+
+      return true;
     });
   }, [
     eleitores,
     searchTerm,
     selectedLiderancaFilter,
     statusFilter,
+    pendenciaFilter,
     filterOnlyConflicts,
     conflictingVoterIds
   ]);
@@ -1089,6 +1121,31 @@ export default function Eleitores() {
               ))}
             </select>
 
+            {/* Filter by Pendência Cadastral */}
+            <select
+              value={pendenciaFilter}
+              onChange={(e) => {
+                setPendenciaFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={`h-8 border rounded-md px-2 text-xs focus:outline-none focus:border-secondary transition-colors ${
+                pendenciaFilter !== 'todas'
+                  ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                  : 'bg-surface-container-lowest border-outline-variant/50 text-on-surface'
+              }`}
+              title="Filtrar eleitores por tipo de informação cadastral pendente"
+            >
+              <option value="todas">Sem filtro de pendência</option>
+              <option value="qualquer">⚠️ Qualquer Informação Pendente</option>
+              <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
+              <option value="sem_cpf">📄 Sem CPF (Pendente)</option>
+              <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+              <option value="sem_telefone">📱 Sem Telefone / WhatsApp</option>
+              <option value="sem_lideranca">👥 Sem Liderança Vinculada</option>
+              <option value="sem_bairro">📍 Sem Bairro</option>
+              <option value="completos">✅ Cadastros Completos (Sem Pendências)</option>
+            </select>
+
             {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
@@ -1139,6 +1196,36 @@ export default function Eleitores() {
               className="text-xs font-bold text-error hover:underline flex items-center gap-1 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" /> Limpar Filtro
+            </button>
+          </div>
+        )}
+
+        {/* Pendência Filter Banner if active */}
+        {pendenciaFilter !== 'todas' && (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 text-xs text-amber-950">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>
+                Filtro de Pendências ativo: Exibindo apenas os <strong>{filteredEleitores.length}</strong> eleitores com {
+                  pendenciaFilter === 'qualquer' ? 'qualquer informação pendente' :
+                  pendenciaFilter === 'sem_titulo' ? 'Título de Eleitor não preenchido' :
+                  pendenciaFilter === 'sem_cpf' ? 'CPF não preenchido' :
+                  pendenciaFilter === 'sem_zona' ? 'Zona ou Seção não preenchida' :
+                  pendenciaFilter === 'sem_telefone' ? 'Telefone/WhatsApp não preenchido' :
+                  pendenciaFilter === 'sem_lideranca' ? 'Liderança não vinculada' :
+                  pendenciaFilter === 'sem_bairro' ? 'Bairro não preenchido' :
+                  'cadastro 100% completo (sem pendências)'
+                }.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setPendenciaFilter('todas');
+                setCurrentPage(1);
+              }}
+              className="text-xs font-bold text-amber-800 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" /> Limpar Pendência
             </button>
           </div>
         )}
@@ -1654,7 +1741,7 @@ export default function Eleitores() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-semibold text-on-surface">
-                  Liderança ou Sub-liderança Responsável <span className="text-error">*</span>
+                  Liderança ou Sub-liderança Responsável <span className="text-on-surface-variant font-normal">(Opcional)</span>
                 </label>
                 <Link
                   href="/liderancas"
@@ -1677,12 +1764,11 @@ export default function Eleitores() {
                 </div>
               ) : (
                 <select
-                  required
                   value={selectedLiderId}
                   onChange={(e) => setSelectedLiderId(e.target.value)}
                   className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none bg-surface text-on-surface"
                 >
-                  <option value="">Selecione quem captou este eleitor...</option>
+                  <option value="">Sem Liderança Vinculada (Opcional)</option>
                   {liderancasPrincipais.length > 0 && (
                     <optgroup label="Lideranças Principais (Polos)">
                       {liderancasPrincipais.map((l) => (

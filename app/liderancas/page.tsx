@@ -68,6 +68,10 @@ export default function LiderancasPage() {
   const [nome, setNome] = useState('');
   const [tipo, setTipo] = useState<'Liderança Principal' | 'Sub-liderança'>('Liderança Principal');
   const [liderancaPaiId, setLiderancaPaiId] = useState('');
+  const [cpf, setCpf] = useState('');
+  const [tituloEleitor, setTituloEleitor] = useState('');
+  const [zona, setZona] = useState('');
+  const [secao, setSecao] = useState('');
   const [telefone, setTelefone] = useState('');
   const [email, setEmail] = useState('');
   const [regiao, setRegiao] = useState('Zona Norte');
@@ -112,6 +116,10 @@ export default function LiderancasPage() {
   const handleOpenCreate = (presetPaiId?: string) => {
     setEditingId(null);
     setNome('');
+    setCpf('');
+    setTituloEleitor('');
+    setZona('');
+    setSecao('');
     if (presetPaiId) {
       setTipo('Sub-liderança');
       setLiderancaPaiId(presetPaiId);
@@ -137,6 +145,10 @@ export default function LiderancasPage() {
     setNome(leader.nome);
     setTipo(leader.tipo);
     setLiderancaPaiId(leader.liderancaPaiId || '');
+    setCpf(leader.cpf || '');
+    setTituloEleitor(leader.tituloEleitor || '');
+    setZona(leader.zona || '');
+    setSecao(leader.secao || '');
     setTelefone(leader.telefone || '');
     setEmail(leader.email || '');
     setRegiao(leader.regiao || 'Zona Norte');
@@ -159,18 +171,10 @@ export default function LiderancasPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isDrawerOpen, isExportMenuOpen]);
 
-  // Save handler
+  // Save handler - TODAS AS INFORMAÇÕES SÃO NÃO OBRIGATÓRIAS
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nome.trim() || !telefone.trim() || !bairro.trim()) {
-      alert('Por favor, preencha o Nome, Telefone e Bairro.');
-      return;
-    }
-
-    if (tipo === 'Sub-liderança' && !liderancaPaiId) {
-      alert('Selecione a Liderança Principal à qual esta Sub-liderança está vinculada.');
-      return;
-    }
+    const leaderNome = nome.trim() || 'Liderança sem nome';
 
     let paiNome = '';
     if (tipo === 'Sub-liderança' && liderancaPaiId) {
@@ -181,13 +185,17 @@ export default function LiderancasPage() {
     setIsSubmitting(true);
     try {
       const payload: Partial<Lideranca> = {
-        nome: nome.trim(),
+        nome: leaderNome,
         tipo,
         liderancaPaiId: tipo === 'Sub-liderança' ? liderancaPaiId : '',
         liderancaPaiNome: tipo === 'Sub-liderança' ? paiNome : '',
+        cpf: cpf.trim(),
+        tituloEleitor: tituloEleitor.trim(),
+        zona: zona.trim(),
+        secao: secao.trim(),
         telefone: telefone.trim(),
         email: email.trim(),
-        regiao,
+        regiao: regiao.trim(),
         bairro: bairro.trim(),
         metaVotos: Number(metaVotos) || 0,
         status,
@@ -1025,15 +1033,14 @@ export default function LiderancasPage() {
             {tipo === 'Sub-liderança' && (
               <div className="bg-surface-container-low p-3.5 rounded-lg border border-secondary/30 space-y-1.5">
                 <label className="block text-xs font-semibold text-on-surface">
-                  Vincular à Liderança Principal <span className="text-error">*</span>
+                  Vincular à Liderança Principal <span className="text-on-surface-variant font-normal">(Opcional)</span>
                 </label>
                 <select
-                  required
                   value={liderancaPaiId}
                   onChange={(e) => setLiderancaPaiId(e.target.value)}
                   className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none bg-surface text-on-surface"
                 >
-                  <option value="">Selecione a coordenação responsável...</option>
+                  <option value="">Nenhuma ou selecione depois...</option>
                   {liderancasPrincipais.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nome} ({p.regiao} - {p.bairro})
@@ -1053,11 +1060,10 @@ export default function LiderancasPage() {
 
             <div>
               <label className="block text-xs font-semibold mb-1 text-on-surface">
-                Nome Completo <span className="text-error">*</span>
+                Nome da Liderança <span className="text-on-surface-variant font-normal">(Opcional)</span>
               </label>
               <input
                 type="text"
-                required
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
                 placeholder="Ex: Carlos Eduardo Silveira"
@@ -1065,14 +1071,74 @@ export default function LiderancasPage() {
               />
             </div>
 
+            {/* Documentos & Dados Eleitorais da Liderança (Opcionais) */}
+            <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface-variant border-b border-outline-variant/30 pb-2 pt-2">
+              Documentos & Dados Eleitorais (Opcional)
+            </h3>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold mb-1 text-on-surface">
-                  Telefone / WhatsApp <span className="text-error">*</span>
+                  CPF <span className="text-on-surface-variant font-normal">(Opcional)</span>
                 </label>
                 <input
                   type="text"
-                  required
+                  value={cpf}
+                  onChange={(e) => setCpf(formatCpf(e.target.value))}
+                  placeholder="000.000.000-00"
+                  className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none font-mono placeholder:text-outline/70 bg-surface text-on-surface"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-on-surface">
+                  Título de Eleitor <span className="text-on-surface-variant font-normal">(Opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={tituloEleitor}
+                  onChange={(e) => setTituloEleitor(e.target.value)}
+                  placeholder="0000 0000 0000"
+                  className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none font-mono placeholder:text-outline/70 bg-surface text-on-surface"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-on-surface">
+                  Zona Eleitoral <span className="text-on-surface-variant font-normal">(Opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={zona}
+                  onChange={(e) => setZona(e.target.value)}
+                  placeholder="Ex: 001"
+                  className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none font-mono placeholder:text-outline/70 bg-surface text-on-surface"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-on-surface">
+                  Seção Eleitoral <span className="text-on-surface-variant font-normal">(Opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={secao}
+                  onChange={(e) => setSecao(e.target.value)}
+                  placeholder="Ex: 0042"
+                  className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none font-mono placeholder:text-outline/70 bg-surface text-on-surface"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-on-surface">
+                  Telefone / WhatsApp <span className="text-on-surface-variant font-normal">(Opcional)</span>
+                </label>
+                <input
+                  type="text"
                   value={telefone}
                   onChange={(e) => setTelefone(e.target.value)}
                   placeholder="(11) 98888-7777"
@@ -1081,7 +1147,9 @@ export default function LiderancasPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold mb-1 text-on-surface">E-mail (Opcional)</label>
+                <label className="block text-xs font-semibold mb-1 text-on-surface">
+                  E-mail <span className="text-on-surface-variant font-normal">(Opcional)</span>
+                </label>
                 <input
                   type="email"
                   value={email}
@@ -1094,20 +1162,20 @@ export default function LiderancasPage() {
 
             {/* Território & Meta */}
             <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface-variant border-b border-outline-variant/30 pb-2 pt-2">
-              Território de Atuação & Metas
+              Território de Atuação & Metas (Opcional)
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold mb-1 text-on-surface">
-                  Região / Polo <span className="text-error">*</span>
+                  Região / Polo <span className="text-on-surface-variant font-normal">(Opcional)</span>
                 </label>
                 <select
-                  required
                   value={regiao}
                   onChange={(e) => setRegiao(e.target.value)}
                   className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none bg-surface text-on-surface"
                 >
+                  <option value="">Não especificada</option>
                   {REGIOES_DISPONIVEIS.map((r) => (
                     <option key={r} value={r}>
                       {r}
@@ -1118,11 +1186,10 @@ export default function LiderancasPage() {
 
               <div>
                 <label className="block text-xs font-semibold mb-1 text-on-surface">
-                  Bairro Principal <span className="text-error">*</span>
+                  Bairro Principal <span className="text-on-surface-variant font-normal">(Opcional)</span>
                 </label>
                 <input
                   type="text"
-                  required
                   value={bairro}
                   onChange={(e) => setBairro(e.target.value)}
                   placeholder="Ex: Santana, Tatuapé"
@@ -1134,11 +1201,10 @@ export default function LiderancasPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold mb-1 text-on-surface">
-                  Meta de Votos / Eleitores <span className="text-error">*</span>
+                  Meta de Votos / Eleitores <span className="text-on-surface-variant font-normal">(Opcional)</span>
                 </label>
                 <input
                   type="number"
-                  required
                   min="0"
                   step="10"
                   value={metaVotos}
