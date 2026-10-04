@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['@google/genai', 'protobufjs'],
   experimental: {
     optimizePackageImports: ['lucide-react'],
+    allowedDevOrigins: ['*.run.app', '*.google.com', 'localhost:*'],
   },
   eslint: {
     ignoreDuringBuilds: true,

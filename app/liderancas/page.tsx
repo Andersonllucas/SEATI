@@ -21,7 +21,7 @@ import {
   FileText,
   FileSpreadsheet
 } from 'lucide-react';
-import { exportLiderancasReal } from '@/lib/importExportUtils';
+import { exportLiderancasReal, formatCpf } from '@/lib/importExportUtils';
 import { LiderancaRow } from '@/components/LiderancaRow';
 import {
   collection,
@@ -124,7 +124,7 @@ export default function LiderancasPage() {
       setTipo('Sub-liderança');
       setLiderancaPaiId(presetPaiId);
       const pai = liderancas.find((l) => l.id === presetPaiId);
-      if (pai) setRegiao(pai.regiao);
+      if (pai) setRegiao(pai.regiao || 'Zona Norte');
     } else {
       setTipo('Liderança Principal');
       setLiderancaPaiId('');

@@ -56,9 +56,9 @@ import {
   formatCpf
 } from '@/lib/importExportUtils';
 
-export type ImportTarget = 'eleitores' | 'liderancas' | 'locais';
+type ImportTarget = 'eleitores' | 'liderancas' | 'locais';
 
-export interface HistoricoImportacao {
+interface HistoricoImportacao {
   id: string;
   nomeArquivo: string;
   dataHora: string;
@@ -73,7 +73,7 @@ export interface HistoricoImportacao {
 }
 
 // Normaliza o nome da liderança para comparação insensível a maiúsculas/minúsculas e acentuação
-export function normalizeLeaderName(name?: string): string {
+function normalizeLeaderName(name?: string): string {
   if (!name) return '';
   return name
     .trim()
