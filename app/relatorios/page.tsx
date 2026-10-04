@@ -217,17 +217,23 @@ export default function RelatoriosPage() {
 
       // Filtro por Liderança Principal
       if (selectedLiderPrincipalId !== 'todos') {
-        const principalSelected = leaderByIdMap.get(selectedLiderPrincipalId);
-        if (!voterLeader || !principalSelected) return false;
+        if (selectedLiderPrincipalId === 'sem_lideranca') {
+          const l = (e.lideranca || '').trim().toLowerCase();
+          const hasNoLid = !e.liderancaId || l === '' || l === 'sem liderança' || l === 'sem lideranca' || l === 'não informada' || l === 'nao informada' || l === 'sem liderança definida';
+          if (!hasNoLid) return false;
+        } else {
+          const principalSelected = leaderByIdMap.get(selectedLiderPrincipalId);
+          if (!voterLeader || !principalSelected) return false;
 
-        const isDirectPrincipal = voterLeader.id === principalSelected.id;
-        const isSubOfThisPrincipal =
-          voterLeader.tipo === 'Sub-liderança' &&
-          (voterLeader.liderancaPaiId === principalSelected.id ||
-            voterLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase());
+          const isDirectPrincipal = voterLeader.id === principalSelected.id;
+          const isSubOfThisPrincipal =
+            voterLeader.tipo === 'Sub-liderança' &&
+            (voterLeader.liderancaPaiId === principalSelected.id ||
+              voterLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase());
 
-        if (!isDirectPrincipal && !isSubOfThisPrincipal) {
-          return false;
+          if (!isDirectPrincipal && !isSubOfThisPrincipal) {
+            return false;
+          }
         }
       }
 
@@ -975,6 +981,7 @@ export default function RelatoriosPage() {
                   className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
                 >
                   <option value="todos">Todos os Líderes Principais</option>
+                  <option value="sem_lideranca">⚠️ Apenas Sem Liderança</option>
                   {liderancasPrincipais.map((lp) => (
                     <option key={lp.id} value={lp.id}>
                       {lp.nome}

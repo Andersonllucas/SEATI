@@ -1363,6 +1363,7 @@ export default function CadastroExternoCampoPage() {
                   <input
                     type="number"
                     min="0"
+                    step="1"
                     placeholder="100"
                     value={metaVotosLider}
                     onChange={(e) => setMetaVotosLider(e.target.value)}

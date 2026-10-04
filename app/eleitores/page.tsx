@@ -214,6 +214,21 @@ export default function Eleitores() {
   const [pendenciaFilter, setPendenciaFilter] = useState('todas');
   const [isShareFieldModalOpen, setIsShareFieldModalOpen] = useState(false);
 
+  // Lê parâmetros da URL para abrir com filtros ativos (ex: ?lideranca=sem_lideranca vindo da importação)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const lidParam = params.get('lideranca');
+      const pendParam = params.get('pendencia');
+      if (lidParam === 'sem_lideranca') {
+        setSelectedLiderancaFilter('sem_lideranca');
+      }
+      if (pendParam) {
+        setPendenciaFilter(pendParam);
+      }
+    }
+  }, []);
+
   // Form State
   const [nome, setNome] = useState('');
   const [cpf, setCpf] = useState('');
@@ -643,6 +658,14 @@ export default function Eleitores() {
       const matchesLideranca =
         selectedLiderancaFilter === 'todas'
           ? true
+          : selectedLiderancaFilter === 'sem_lideranca'
+          ? !eleitor.liderancaId ||
+            !eleitor.lideranca ||
+            eleitor.lideranca.trim() === '' ||
+            eleitor.lideranca.trim().toLowerCase() === 'sem liderança' ||
+            eleitor.lideranca.trim().toLowerCase() === 'sem lideranca' ||
+            eleitor.lideranca.trim().toLowerCase() === 'não informada' ||
+            eleitor.lideranca.trim().toLowerCase() === 'nao informada'
           : eleitor.liderancaId === selectedLiderancaFilter ||
             eleitor.lideranca === selectedLiderancaFilter;
 
@@ -666,7 +689,15 @@ export default function Eleitores() {
         const hasNoTelefone = !eleitor.telefone || !eleitor.telefone.trim() || eleitor.telefone.replace(/\D/g, '').length < 8;
         const hasNoZonaSecao = !eleitor.zona || !eleitor.zona.trim() || !eleitor.secao || !eleitor.secao.trim();
         const hasNoBairro = !eleitor.bairro || !eleitor.bairro.trim();
-        const hasNoLideranca = !eleitor.liderancaId && (!eleitor.lideranca || eleitor.lideranca.trim() === '' || eleitor.lideranca === 'Sem Liderança' || eleitor.lideranca === 'Sem Liderança Definida');
+        const hasNoLideranca =
+          !eleitor.liderancaId ||
+          !eleitor.lideranca ||
+          eleitor.lideranca.trim() === '' ||
+          eleitor.lideranca.trim().toLowerCase() === 'sem liderança' ||
+          eleitor.lideranca.trim().toLowerCase() === 'sem lideranca' ||
+          eleitor.lideranca.trim().toLowerCase() === 'sem liderança definida' ||
+          eleitor.lideranca.trim().toLowerCase() === 'não informada' ||
+          eleitor.lideranca.trim().toLowerCase() === 'nao informada';
 
         if (pendenciaFilter === 'qualquer') {
           if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao) return false;
@@ -1083,6 +1114,7 @@ export default function Eleitores() {
               className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary max-w-[170px]"
             >
               <option value="todas">Todas as Lideranças</option>
+              <option value="sem_lideranca">⚠️ Apenas Sem Liderança</option>
               {liderancasPrincipais.length > 0 && (
                 <optgroup label="Lideranças Principais">
                   {liderancasPrincipais.map((l) => (
@@ -1196,6 +1228,27 @@ export default function Eleitores() {
               className="text-xs font-bold text-error hover:underline flex items-center gap-1 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" /> Limpar Filtro
+            </button>
+          </div>
+        )}
+
+        {/* Liderança Filter Banner if active (Sem Liderança) */}
+        {selectedLiderancaFilter === 'sem_lideranca' && (
+          <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 flex items-center justify-between gap-3 text-xs text-amber-950 dark:text-amber-200">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                Filtro de Liderança ativo: Exibindo apenas os <strong>{filteredEleitores.length}</strong> eleitor(es) <strong>sem liderança</strong> vinculada.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setSelectedLiderancaFilter('todas');
+                setCurrentPage(1);
+              }}
+              className="text-xs font-bold text-amber-700 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" /> Ver Todas as Lideranças
             </button>
           </div>
         )}

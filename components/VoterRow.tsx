@@ -148,13 +148,27 @@ export const VoterRow = React.memo(function VoterRow({
         <span className="text-on-surface-variant text-[11px]"> / {eleitor.secao || ''}</span>
       </td>
       <td className="py-1.5 px-3 md:py-2 md:px-3.5">
-        <div className="text-xs md:text-sm font-medium text-on-surface flex items-center gap-1.5 leading-tight">
-          <span>{eleitor.lideranca}</span>
-        </div>
-        {linkedLeader?.tipo === 'Sub-liderança' && (
-          <span className="text-[10px] text-secondary font-medium block mt-0.5 leading-none">
-            Sub de: {linkedLeader.liderancaPaiNome || 'Coordenação'}
+        {!eleitor.lideranca ||
+        eleitor.lideranca.trim() === '' ||
+        eleitor.lideranca.trim().toLowerCase() === 'sem liderança' ||
+        eleitor.lideranca.trim().toLowerCase() === 'sem lideranca' ||
+        eleitor.lideranca.trim().toLowerCase() === 'não informada' ||
+        eleitor.lideranca.trim().toLowerCase() === 'nao informada' ? (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/40">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            Sem Liderança
           </span>
+        ) : (
+          <>
+            <div className="text-xs md:text-sm font-medium text-on-surface flex items-center gap-1.5 leading-tight">
+              <span>{eleitor.lideranca}</span>
+            </div>
+            {linkedLeader?.tipo === 'Sub-liderança' && (
+              <span className="text-[10px] text-secondary font-medium block mt-0.5 leading-none">
+                Sub de: {linkedLeader.liderancaPaiNome || 'Coordenação'}
+              </span>
+            )}
+          </>
         )}
       </td>
       <td className="py-1.5 px-3 md:py-2 md:px-3.5 text-center">

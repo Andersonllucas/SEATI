@@ -1206,10 +1206,10 @@ export default function LiderancasPage() {
                 <input
                   type="number"
                   min="0"
-                  step="10"
+                  step="1"
                   value={metaVotos}
                   onChange={(e) => setMetaVotos(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="200"
+                  placeholder="Ex: 50, 100, 250 (qualquer quantidade)"
                   className="w-full h-10 border border-outline-variant rounded-md px-3 text-sm focus:border-secondary outline-none font-mono bg-surface text-on-surface"
                 />
               </div>

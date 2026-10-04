@@ -38,6 +38,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Coleção de Histórico de Importações
+    match /historico_importacoes/{document=**} {
+      allow read, write: if true;
+    }
+
     // Coleção Central de Registro de Clientes (Multi-tenant)
     match /clientes_registry/{clienteId=**} {
       allow read, write: if true;
