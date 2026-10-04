@@ -102,6 +102,8 @@ export function useCampaignData() {
     batchUpdateEleitores: voters.batchUpdateEleitores,
     registrarValidacao: voters.registrarValidacao,
     batchImportLiderancas: leaders.batchImportLiderancas,
+    batchDeleteLiderancas: leaders.batchDeleteLiderancas,
+    recarregarLiderancas: leaders.recarregarLiderancas,
     addLocalVotacao: locations.addLocalVotacao,
     updateLocalVotacao: locations.updateLocalVotacao,
     deleteLocalVotacao: locations.deleteLocalVotacao,
@@ -110,3 +112,5 @@ export function useCampaignData() {
     batchSaveLocais: locations.batchSaveLocais
   };
 }
+
+export const useCampaignActions = useCampaignData;

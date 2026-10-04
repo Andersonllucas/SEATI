@@ -70,6 +70,33 @@ export async function GET(request: NextRequest) {
 
       if (matched.length > 0) {
         clientData = matched[0] as TenantClient;
+      } else {
+        // Busca ampla por projectId, ID sem hífens ou nome de campanha
+        const allClients = await queryFirestoreRest('clientes_registry', undefined, 100);
+        const cleanTarget = subdomain.replace(/[^a-z0-9]/g, '');
+        const found = allClients.find((c: any) => {
+          const cSub = (c.subdominio || '').toLowerCase();
+          const cId = (c.id || '').toLowerCase();
+          const cProj = (c.firebaseConfig?.projectId || '').toLowerCase();
+          const cNome = (c.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '-');
+          const cCleanSub = cSub.replace(/[^a-z0-9]/g, '');
+          const cCleanProj = cProj.replace(/[^a-z0-9]/g, '');
+
+          return (
+            cSub === subdomain ||
+            cId === subdomain ||
+            cProj === subdomain ||
+            cNome === subdomain ||
+            cCleanSub === cleanTarget ||
+            cCleanProj === cleanTarget ||
+            cCleanProj.includes(cleanTarget) ||
+            cleanTarget.includes(cCleanProj)
+          );
+        });
+
+        if (found) {
+          clientData = found as TenantClient;
+        }
       }
     }
 

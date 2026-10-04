@@ -19,7 +19,9 @@ import {
   UserCheck,
   Download,
   FileText,
-  FileSpreadsheet
+  FileSpreadsheet,
+  RefreshCw,
+  CheckSquare
 } from 'lucide-react';
 import { exportLiderancasReal, formatCpf } from '@/lib/importExportUtils';
 import { LiderancaRow } from '@/components/LiderancaRow';
@@ -32,7 +34,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { getActiveDb } from '@/lib/firebase';
-import { useCampaignData, Lideranca } from '@/context/CampaignContext';
+import { useCampaignData, useCampaignActions, Lideranca } from '@/context/CampaignContext';
 import { useAuth } from '@/context/AuthContext';
 
 const REGIOES_DISPONIVEIS = [
@@ -47,9 +49,16 @@ const REGIOES_DISPONIVEIS = [
 
 export default function LiderancasPage() {
   const { liderancas, eleitores, isLoaded } = useCampaignData();
+  const { batchDeleteLiderancas, recarregarLiderancas } = useCampaignActions();
   const { solicitarSenhaMestre, registrarLog } = useAuth();
   const loading = !isLoaded;
   const [viewMode, setViewMode] = useState<'table' | 'hierarchy'>('table');
+
+  // Batch Selection State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -249,7 +258,7 @@ export default function LiderancasPage() {
       description: desc,
       onSuccess: async () => {
         try {
-          await deleteDoc(doc(getActiveDb(), 'liderancas', leader.id));
+          await batchDeleteLiderancas([leader.id]);
           await registrarLog({
             tipo: 'EXCLUSAO',
             acao: `Exclusão da liderança: ${leader.nome} (${leader.tipo})`,
@@ -257,6 +266,13 @@ export default function LiderancasPage() {
             entidade: 'Liderança',
             entidadeId: leader.id
           });
+          setSelectedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(leader.id);
+            return next;
+          });
+          setActionFeedback(`Liderança "${leader.nome}" excluída com sucesso.`);
+          setTimeout(() => setActionFeedback(null), 3500);
         } catch (err) {
           console.error('Error deleting lideranca:', err);
           alert('Erro ao excluir liderança.');
@@ -424,6 +440,98 @@ export default function LiderancasPage() {
     setExpandedClusters((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // Contagem de lideranças selecionadas por categoria
+  const selectedPrincipaisCount = useMemo(() => {
+    return liderancas.filter((l) => selectedIds.has(l.id) && l.tipo === 'Liderança Principal').length;
+  }, [liderancas, selectedIds]);
+
+  const selectedSubsCount = useMemo(() => {
+    return liderancas.filter((l) => selectedIds.has(l.id) && l.tipo === 'Sub-liderança').length;
+  }, [liderancas, selectedIds]);
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.size === filteredLiderancas.length && filteredLiderancas.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredLiderancas.map((l) => l.id)));
+    }
+  };
+
+  const handleSelectAllFiltered = () => {
+    setSelectedIds(new Set(filteredLiderancas.map((l) => l.id)));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await recarregarLiderancas();
+      setActionFeedback('Dados de lideranças sincronizados com o banco de dados.');
+      setTimeout(() => setActionFeedback(null), 3500);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleTriggerBatchDelete = () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    const ids = Array.from(selectedIds);
+
+    // Identifica se alguma liderança principal possui sub-lideranças NÃO selecionadas
+    const subsOrphanedCount = liderancas.filter(
+      (l) => l.tipo === 'Sub-liderança' && l.liderancaPaiId && selectedIds.has(l.liderancaPaiId) && !selectedIds.has(l.id)
+    ).length;
+
+    let warningText = `Você está excluindo permanentemente ${count} ${count === 1 ? 'liderança' : 'lideranças'} (${selectedPrincipaisCount} principais e ${selectedSubsCount} sub-lideranças).`;
+    if (subsOrphanedCount > 0) {
+      warningText += ` Atenção: ${subsOrphanedCount} sub-liderança(s) vinculada(s) ficarão sem liderança principal.`;
+    }
+    warningText += ` Esta ação exige autorização com a Senha Mestre.`;
+
+    solicitarSenhaMestre({
+      title: `Excluir ${count} Liderança${count > 1 ? 's' : ''} em Lote`,
+      description: warningText,
+      onSuccess: async () => {
+        setIsBatchDeleting(true);
+        try {
+          const { deleted } = await batchDeleteLiderancas(ids);
+          await registrarLog({
+            tipo: 'EXCLUSAO',
+            acao: `Exclusão em lote de ${deleted} lideranças (${selectedPrincipaisCount} principais, ${selectedSubsCount} sub-lideranças)`,
+            detalhes: `Registros de liderança removidos em massa da base de dados.`,
+            entidade: 'Liderança'
+          });
+          setActionFeedback(`${deleted} ${deleted === 1 ? 'liderança foi excluída' : 'lideranças foram excluídas'} com sucesso.`);
+          setSelectedIds(new Set());
+          setTimeout(() => setActionFeedback(null), 4000);
+        } catch (err) {
+          console.error('Erro ao excluir lideranças em lote:', err);
+          alert('Erro ao excluir lideranças selecionadas.');
+        } finally {
+          setIsBatchDeleting(false);
+        }
+      }
+    });
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
       {/* Top Banner & Header */}
@@ -492,6 +600,17 @@ export default function LiderancasPage() {
             )}
           </div>
 
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            title="Sincronizar dados em tempo real com o banco de dados"
+            className="px-3 py-2 bg-surface-container hover:bg-surface-container-high border border-outline-variant/60 text-on-surface rounded-md text-sm font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 text-secondary ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{isRefreshing ? 'Sincronizando...' : 'Sincronizar'}</span>
+          </button>
+
           {liderancas.length === 0 && !loading && (
             <button
               onClick={handleSeedDemo}
@@ -511,6 +630,19 @@ export default function LiderancasPage() {
           </button>
         </div>
       </div>
+
+      {actionFeedback && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-semibold flex items-center justify-between shadow-xs">
+          <span>{actionFeedback}</span>
+          <button
+            type="button"
+            onClick={() => setActionFeedback(null)}
+            className="text-emerald-700 hover:text-emerald-900"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
@@ -685,6 +817,15 @@ export default function LiderancasPage() {
             <table className="w-full text-left border-collapse min-w-[950px]">
               <thead>
                 <tr className="bg-surface-container-low border-b border-outline-variant/60 text-xs text-on-surface-variant uppercase font-semibold">
+                  <th className="py-3 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredLiderancas.length > 0 && selectedIds.size === filteredLiderancas.length}
+                      onChange={handleToggleSelectAll}
+                      aria-label="Selecionar todas as lideranças"
+                      className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-secondary cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4">Articulador / Cargo</th>
                   <th className="py-3 px-4">Vínculo Hierárquico</th>
                   <th className="py-3 px-4">Território / Base</th>
@@ -697,13 +838,13 @@ export default function LiderancasPage() {
               <tbody className="divide-y divide-outline-variant/30 text-sm">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-12 text-on-surface-variant">
+                    <td colSpan={8} className="text-center py-12 text-on-surface-variant">
                       Carregando lideranças do banco de dados...
                     </td>
                   </tr>
                 ) : filteredLiderancas.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-12 text-on-surface-variant">
+                    <td colSpan={8} className="text-center py-12 text-on-surface-variant">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Users className="w-8 h-8 text-outline-variant" />
                         <p className="font-semibold text-on-surface">Nenhuma liderança encontrada</p>
@@ -739,6 +880,8 @@ export default function LiderancasPage() {
                         pct={pct}
                         isPrincipal={isPrincipal}
                         subsCount={subsCount}
+                        isSelected={selectedIds.has(leader.id)}
+                        onToggleSelect={() => handleToggleSelect(leader.id)}
                         onAddSub={() => handleOpenCreate(leader.id)}
                         onEdit={() => handleOpenEdit(leader)}
                         onDelete={() => handleDelete(leader)}
@@ -792,17 +935,30 @@ export default function LiderancasPage() {
                     ? Math.min(100, Math.round((totalClusterVoters / totalClusterMeta) * 100))
                     : 0;
 
+                const isPrincipalSelected = selectedIds.has(principal.id);
+
                 return (
                   <div
                     key={principal.id}
-                    className="border border-outline-variant/70 rounded-xl bg-surface-container-lowest overflow-hidden shadow-xs"
+                    className={`border rounded-xl bg-surface-container-lowest overflow-hidden shadow-xs transition-colors ${
+                      isPrincipalSelected ? 'border-primary/60 ring-1 ring-primary/30' : 'border-outline-variant/70'
+                    }`}
                   >
                     {/* Header: Liderança Principal */}
-                    <div className="p-4 bg-surface-container-low/60 border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-4">
+                    <div className={`p-4 border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-4 transition-colors ${
+                      isPrincipalSelected ? 'bg-primary/10' : 'bg-surface-container-low/60'
+                    }`}>
                       <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isPrincipalSelected}
+                          onChange={() => handleToggleSelect(principal.id)}
+                          aria-label={`Selecionar ${principal.nome}`}
+                          className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-secondary cursor-pointer shrink-0"
+                        />
                         <button
                           onClick={() => toggleCluster(principal.id)}
-                          className="p-1 hover:bg-surface-container rounded text-on-surface-variant"
+                          className="p-1 hover:bg-surface-container rounded text-on-surface-variant cursor-pointer"
                         >
                           {isExpanded ? (
                             <ChevronDown className="w-5 h-5 text-secondary" />
@@ -846,19 +1002,19 @@ export default function LiderancasPage() {
                         <div className="flex items-center gap-1 border-l border-outline-variant/50 pl-4">
                           <button
                             onClick={() => handleOpenCreate(principal.id)}
-                            className="px-2.5 py-1.5 bg-secondary-container text-on-secondary-container rounded text-xs font-semibold flex items-center gap-1 hover:bg-secondary hover:text-on-primary transition-colors"
+                            className="px-2.5 py-1.5 bg-secondary-container text-on-secondary-container rounded text-xs font-semibold flex items-center gap-1 hover:bg-secondary hover:text-on-primary transition-colors cursor-pointer"
                           >
                             <PlusCircle className="w-3.5 h-3.5" /> + Sub
                           </button>
                           <button
                             onClick={() => handleOpenEdit(principal)}
-                            className="p-1.5 text-on-surface-variant hover:text-on-surface rounded"
+                            className="p-1.5 text-on-surface-variant hover:text-on-surface rounded cursor-pointer"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(principal)}
-                            className="p-1.5 text-error hover:bg-error/10 rounded"
+                            className="p-1.5 text-error hover:bg-error/10 rounded cursor-pointer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -876,7 +1032,7 @@ export default function LiderancasPage() {
                             </p>
                             <button
                               onClick={() => handleOpenCreate(principal.id)}
-                              className="text-xs text-secondary font-semibold hover:underline mt-1 inline-block"
+                              className="text-xs text-secondary font-semibold hover:underline mt-1 inline-block cursor-pointer"
                             >
                               + Vincular primeira sub-liderança
                             </button>
@@ -887,22 +1043,36 @@ export default function LiderancasPage() {
                             const subMeta = sub.metaVotos || 0;
                             const subPct =
                               subMeta > 0 ? Math.min(100, Math.round((subVoters / subMeta) * 100)) : 0;
+                            const isSubSelected = selectedIds.has(sub.id);
 
                             return (
                               <div
                                 key={sub.id}
-                                className="flex flex-wrap items-center justify-between gap-3 p-3 bg-surface-container-low/40 border border-outline-variant/40 rounded-lg hover:border-secondary/40 transition-colors"
+                                className={`flex flex-wrap items-center justify-between gap-3 p-3 border rounded-lg transition-colors ${
+                                  isSubSelected
+                                    ? 'bg-primary/10 border-primary/40'
+                                    : 'bg-surface-container-low/40 border-outline-variant/40 hover:border-secondary/40'
+                                }`}
                               >
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-sm font-bold text-on-surface">{sub.nome}</p>
-                                    <span className="text-[9px] bg-secondary/10 text-secondary border border-secondary/20 px-1.5 py-0.5 rounded font-bold uppercase">
-                                      Sub
-                                    </span>
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSubSelected}
+                                    onChange={() => handleToggleSelect(sub.id)}
+                                    aria-label={`Selecionar ${sub.nome}`}
+                                    className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-secondary cursor-pointer shrink-0"
+                                  />
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-bold text-on-surface">{sub.nome}</p>
+                                      <span className="text-[9px] bg-secondary/10 text-secondary border border-secondary/20 px-1.5 py-0.5 rounded font-bold uppercase">
+                                        Sub
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-on-surface-variant mt-0.5">
+                                      {sub.bairro} ({sub.regiao}) • Tel: {sub.telefone}
+                                    </p>
                                   </div>
-                                  <p className="text-xs text-on-surface-variant mt-0.5">
-                                    {sub.bairro} ({sub.regiao}) • Tel: {sub.telefone}
-                                  </p>
                                 </div>
 
                                 <div className="flex items-center gap-6">
@@ -924,13 +1094,13 @@ export default function LiderancasPage() {
                                   <div className="flex items-center gap-1">
                                     <button
                                       onClick={() => handleOpenEdit(sub)}
-                                      className="p-1 text-on-surface-variant hover:text-on-surface"
+                                      className="p-1 text-on-surface-variant hover:text-on-surface cursor-pointer"
                                     >
                                       <Edit className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       onClick={() => handleDelete(sub)}
-                                      className="p-1 text-error hover:bg-error/10 rounded"
+                                      className="p-1 text-error hover:bg-error/10 rounded cursor-pointer"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -949,6 +1119,55 @@ export default function LiderancasPage() {
           </div>
         )}
       </div>
+
+      {/* Barra Flutuante de Ações em Lote */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-surface-container-highest/95 backdrop-blur-md border border-outline-variant shadow-2xl rounded-2xl px-5 py-3.5 flex flex-wrap items-center gap-4 text-xs animate-in fade-in slide-in-from-bottom-4 duration-200 max-w-[95vw]">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary font-bold text-xs">
+              {selectedIds.size}
+            </span>
+            <span className="font-semibold text-on-surface">
+              {selectedIds.size === 1 ? '1 liderança selecionada' : `${selectedIds.size} lideranças selecionadas`}
+            </span>
+            <span className="text-on-surface-variant hidden sm:inline">
+              ({selectedPrincipaisCount} principais, {selectedSubsCount} sub-lideranças)
+            </span>
+          </div>
+
+          <div className="h-5 w-px bg-outline-variant/60 hidden sm:block" />
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {selectedIds.size < filteredLiderancas.length && (
+              <button
+                type="button"
+                onClick={handleSelectAllFiltered}
+                className="px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-medium transition-colors cursor-pointer"
+              >
+                Selecionar todas ({filteredLiderancas.length})
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-medium transition-colors cursor-pointer"
+            >
+              Desmarcar todas
+            </button>
+
+            <button
+              type="button"
+              onClick={handleTriggerBatchDelete}
+              disabled={isBatchDeleting}
+              className="px-4 py-1.5 rounded-lg bg-error text-on-error hover:bg-error/90 font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isBatchDeleting ? 'Excluindo...' : `Excluir Selecionadas (${selectedIds.size})`}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Overlay Backdrop */}
       {isDrawerOpen && (

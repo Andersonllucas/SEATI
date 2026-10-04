@@ -53,11 +53,12 @@ interface LeaderContextType {
   liderancas: Lideranca[];
   isLoaded: boolean;
   totalLiderancasAtivas: number;
-  recarregarLiderancas: () => void;
+  recarregarLiderancas: () => Promise<void>;
   batchImportLiderancas: (
     leaders: Omit<Lideranca, 'id' | 'dataCadastro'>[],
     onProgress?: (done: number, total: number) => void
   ) => Promise<{ imported: number }>;
+  batchDeleteLiderancas: (ids: string[]) => Promise<{ deleted: number }>;
 }
 
 const LeaderContext = createContext<LeaderContextType | undefined>(undefined);
@@ -79,12 +80,42 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
 
   const currentUserId = currentUser?.id;
 
-  // Quando o tenant mudar, sincroniza com o cache específico desse cliente
+  // Busca de fallback via API REST do servidor (garante leitura mesmo com restrições de rede ou regras)
+  const fetchLiderancasRest = useCallback(async (key: string) => {
+    try {
+      const res = await fetch(`/api/tenant/liderancas?subdomain=${encodeURIComponent(key)}`, {
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.liderancas)) {
+          const sorted = [...data.liderancas].sort((a, b) =>
+            (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' })
+          );
+          setLiderancas(sorted);
+          setIsLoaded(true);
+          setCachedCollection('liderancas', sorted, key);
+          return sorted;
+        }
+      }
+    } catch (e) {
+      console.warn('Fallback REST de lideranças falhou:', e);
+    }
+    return null;
+  }, []);
+
+  // Quando o tenant mudar, sincroniza com o cache específico desse cliente e busca se vazio
   useEffect(() => {
     const cached = getCachedCollection<Lideranca>('liderancas', undefined, tenantKey);
-    setLiderancas(cached?.data || []);
-    setIsLoaded(!!cached?.data);
-  }, [tenantKey, tenantVersion]);
+    if (cached?.data && cached.data.length > 0) {
+      setLiderancas(cached.data);
+      setIsLoaded(true);
+    } else {
+      setLiderancas([]);
+      // Tenta carregar via REST imediatamente
+      fetchLiderancasRest(tenantKey);
+    }
+  }, [tenantKey, tenantVersion, fetchLiderancasRest]);
 
   useEffect(() => {
     if (!isAuthReady || !currentUserId || isLoadingTenant) {
@@ -96,12 +127,15 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
       if (cached?.data) {
         setLiderancas(cached.data);
         setIsLoaded(true);
+      } else {
+        fetchLiderancasRest(tenantKey);
       }
       return;
     }
 
     const targetDb = activeDb || getActiveDb();
-    const q = query(collection(targetDb, 'liderancas'), orderBy('nome', 'asc'), limit(500));
+    // Consulta direta sem dependência de index de ordenação do Firestore
+    const q = query(collection(targetDb, 'liderancas'), limit(1000));
     let isSubscribed = true;
 
     const unsubscribe = onSnapshot(
@@ -112,9 +146,24 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
         snapshot.forEach((d) => {
           leaders.push({ id: d.id, ...d.data() } as Lideranca);
         });
-        setLiderancas(leaders);
+
+        // Ordenação segura em memória por ordem alfabética de nome
+        leaders.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+
+        if (leaders.length === 0) {
+          // Se snapshot vier vazio, checa se há dados no fallback REST (ex: tenant com permissão de leitura restrita)
+          fetchLiderancasRest(tenantKey).then((restLeaders) => {
+            if (isSubscribed && restLeaders && restLeaders.length > 0) {
+              setLiderancas(restLeaders);
+            } else if (isSubscribed) {
+              setLiderancas([]);
+            }
+          });
+        } else {
+          setLiderancas(leaders);
+          setCachedCollection('liderancas', leaders, tenantKey);
+        }
         setIsLoaded(true);
-        setCachedCollection('liderancas', leaders, tenantKey);
       },
       (error) => {
         if (!isSubscribed) return;
@@ -122,6 +171,8 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
         const cached = getCachedCollection<Lideranca>('liderancas', undefined, tenantKey);
         if (cached?.data && cached.data.length > 0) {
           setLiderancas(cached.data);
+        } else {
+          fetchLiderancasRest(tenantKey);
         }
         setIsLoaded(true);
       }
@@ -131,18 +182,51 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
       isSubscribed = false;
       unsubscribe();
     };
-  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant]);
+  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant, fetchLiderancasRest]);
 
-  const recarregarLiderancas = useCallback(() => {
-    const cached = getCachedCollection<Lideranca>('liderancas', undefined, tenantKey);
-    if (cached?.data) {
-      setLiderancas(cached.data);
+  const recarregarLiderancas = useCallback(async () => {
+    const restLeaders = await fetchLiderancasRest(tenantKey);
+    if (!restLeaders) {
+      const cached = getCachedCollection<Lideranca>('liderancas', undefined, tenantKey);
+      if (cached?.data) {
+        setLiderancas(cached.data);
+      }
     }
-  }, [tenantKey]);
+  }, [tenantKey, fetchLiderancasRest]);
 
   const totalLiderancasAtivas = useMemo(() => {
     return liderancas.filter((l) => l.status !== 'Inativa').length;
   }, [liderancas]);
+
+  const batchDeleteLiderancas = useCallback(
+    async (ids: string[]) => {
+      const idSet = new Set(ids);
+      setLiderancas((prev) => {
+        const updated = prev.filter((l) => !idSet.has(l.id));
+        setCachedCollection('liderancas', updated, tenantKey);
+        return updated;
+      });
+
+      let deleted = 0;
+      const CHUNK_SIZE = 400;
+      try {
+        const targetDb = activeDb || getActiveDb();
+        for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+          const chunk = ids.slice(i, i + CHUNK_SIZE);
+          const batch = writeBatch(targetDb);
+          chunk.forEach((id) => {
+            batch.delete(doc(targetDb, 'liderancas', id));
+          });
+          await batch.commit();
+          deleted += chunk.length;
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, 'liderancas');
+      }
+      return { deleted: deleted || ids.length };
+    },
+    [tenantKey, activeDb]
+  );
 
   const batchImportLiderancas = useCallback(
     async (
@@ -198,9 +282,10 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
       isLoaded,
       totalLiderancasAtivas,
       recarregarLiderancas,
-      batchImportLiderancas
+      batchImportLiderancas,
+      batchDeleteLiderancas
     }),
-    [liderancas, isLoaded, totalLiderancasAtivas, recarregarLiderancas, batchImportLiderancas]
+    [liderancas, isLoaded, totalLiderancasAtivas, recarregarLiderancas, batchImportLiderancas, batchDeleteLiderancas]
   );
 
   return <LeaderContext.Provider value={value}>{children}</LeaderContext.Provider>;

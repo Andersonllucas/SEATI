@@ -21,6 +21,8 @@ interface LiderancaRowProps {
   pct: number;
   isPrincipal: boolean;
   subsCount: number;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
   onAddSub: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -33,12 +35,25 @@ export const LiderancaRow = React.memo(function LiderancaRow({
   pct,
   isPrincipal,
   subsCount,
+  isSelected,
+  onToggleSelect,
   onAddSub,
   onEdit,
   onDelete
 }: LiderancaRowProps) {
   return (
-    <tr className="hover:bg-surface-container-low transition-colors">
+    <tr className={`hover:bg-surface-container-low transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
+      {/* Seleção em lote */}
+      <td className="py-3.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={!!isSelected}
+          onChange={onToggleSelect}
+          aria-label={`Selecionar ${leader.nome}`}
+          className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-secondary cursor-pointer"
+        />
+      </td>
+
       {/* Identificação */}
       <td className="py-3.5 px-4">
         <div className="space-y-1">
