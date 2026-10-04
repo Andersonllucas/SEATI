@@ -53,7 +53,7 @@ function playVoteChime() {
   } catch {}
 }
 
-export interface SecaoAgrupada {
+interface SecaoAgrupada {
   key: string;
   zona: string;
   secao: string;
@@ -75,7 +75,7 @@ export interface SecaoAgrupada {
   apuradoPor?: string;
 }
 
-export interface LiderancaDesempenho {
+interface LiderancaDesempenho {
   id: string;
   nome: string;
   tipo?: string;

@@ -47,7 +47,7 @@ import {
   CrossMatchResult
 } from '@/lib/locaisCatalog';
 
-export interface SecaoPendente {
+interface SecaoPendente {
   key: string;              // e.g. "1:42"
   zonaOriginal: string;     // e.g. "001"
   secaoOriginal: string;    // e.g. "0042"
