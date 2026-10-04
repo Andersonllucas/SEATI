@@ -63,6 +63,7 @@ export interface ParsedLocalRow {
   tipo: string;
   zona: string;
   secoes: string[];
+  secoesAgregadas?: string;
   bairro: string;
   endereco: string;
   capacidadeAprox: number;
@@ -505,67 +506,147 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
 }
 
 function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
-  return rawJson.map((row, index) => {
+  // Agrupa múltiplas linhas de seções pertencentes ao mesmo colégio/local de votação (Modelo Oficial TSE)
+  const mapLocais = new Map<string, {
+    originalIndex: number;
+    nome: string;
+    tipo: string;
+    zona: string;
+    secoesSet: Set<string>;
+    secoesAgregadasList: string[];
+    bairro: string;
+    endereco: string;
+    capacidadeAprox: number;
+    aptosSum: number;
+    municipio: string;
+    uf: string;
+    errors: string[];
+  }>();
+
+  rawJson.forEach((row, index) => {
     let nome = '';
-    let tipo = 'Escola Estadual';
-    let zona = '001';
+    let tipo = '';
+    let zona = '';
     let secoesRaw = '';
     let secoesAgregadas = '';
-    let bairro = 'Centro';
+    let bairro = '';
     let endereco = '';
-    let capacidadeAprox = 1500;
-    let municipio = 'Teresina';
-    let uf = 'PI';
+    let capacidadeAprox = 0;
+    let aptos = 0;
+    let municipio = '';
+    let uf = '';
 
     for (const [key, value] of Object.entries(row)) {
       const valStr = String(value || '').trim();
+      if (!valStr) continue;
       const normKey = normalizeHeaderKey(key);
 
       if (normKey.includes('agregad')) {
         secoesAgregadas = valStr;
-      } else if (normKey.includes('nome') || normKey.includes('colegio') || normKey.includes('local') || normKey.includes('escola') || normKey.includes('lv')) {
+      } else if (
+        normKey === 'secaoefetiva' ||
+        normKey === 'nrsecao' ||
+        normKey.includes('efetiva') ||
+        (!normKey.includes('agregad') && (normKey.includes('seco') || normKey.includes('secao') || normKey === 'sec'))
+      ) {
+        secoesRaw = valStr;
+      } else if (
+        normKey.includes('lv') ||
+        normKey.includes('local') ||
+        normKey.includes('colegio') ||
+        normKey.includes('escola') ||
+        normKey.includes('estabelecimento') ||
+        normKey.includes('nome')
+      ) {
         nome = valStr;
       } else if (normKey.includes('tipo') || normKey.includes('categoria')) {
         tipo = valStr;
-      } else if (normKey.includes('zona') || normKey === 'ze') {
-        zona = valStr.replace(/\D/g, '').padStart(3, '0') || '001';
-      } else if (normKey.includes('seco') || normKey.includes('secao') || normKey === 'sec') {
-        secoesRaw = valStr;
-      } else if (normKey.includes('bairro')) {
+      } else if (normKey.includes('zona') || normKey === 'ze' || normKey === 'nrzona') {
+        zona = valStr.replace(/\D/g, '').padStart(3, '0');
+      } else if (normKey.includes('bairro') || normKey === 'nmbairro') {
         bairro = valStr;
-      } else if (normKey.includes('end') || normKey.includes('rua') || normKey.includes('logradouro')) {
+      } else if (normKey.includes('end') || normKey.includes('rua') || normKey.includes('logradouro') || normKey === 'dsendereco') {
         endereco = valStr;
-      } else if (normKey.includes('capacidad') || normKey.includes('lotacao') || normKey.includes('eleitores')) {
-        capacidadeAprox = Number(valStr.replace(/\D/g, '')) || 1500;
-      } else if (normKey.includes('municipio') || normKey.includes('cidade')) {
+      } else if (normKey.includes('apto') || normKey.includes('capacidad') || normKey.includes('lotacao') || normKey.includes('eleitores')) {
+        const numVal = Number(valStr.replace(/\D/g, '')) || 0;
+        capacidadeAprox = numVal;
+        aptos = numVal;
+      } else if (normKey.includes('municipio') || normKey.includes('cidade') || normKey === 'nmmunicipio') {
         municipio = valStr;
-      } else if (normKey === 'uf' || normKey.includes('estado')) {
+      } else if (normKey === 'uf' || normKey === 'sguf' || normKey.includes('estado')) {
         uf = valStr.toUpperCase();
       }
     }
 
-    const secoes = secoesRaw
-      .split(/[,;\-\|\n\r]+/)
-      .map((s) => s.trim().replace(/\D/g, '').padStart(4, '0'))
-      .filter((s) => s.length > 0);
+    if (!zona) zona = '001';
+    if (!municipio) municipio = 'Teresina';
+    if (!uf) uf = 'PI';
+    if (!tipo) tipo = 'Colégio Eleitoral';
 
-    const errors: string[] = [];
-    if (!nome) errors.push('Nome do colégio/local é obrigatório');
+    // Parse sections
+    const secoesParsed = secoesRaw
+      ? secoesRaw
+          .split(/[,;\-\|\n\r/]+/)
+          .map((s) => s.trim().replace(/\D/g, '').padStart(4, '0'))
+          .filter((s) => s.length > 0 && s !== '0000')
+      : [];
+
+    const normNome = nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    const groupKey = `${municipio.toLowerCase()}_${zona}_${normNome || `sem_nome_${index}`}`;
+
+    if (mapLocais.has(groupKey)) {
+      const existing = mapLocais.get(groupKey)!;
+      secoesParsed.forEach((s) => existing.secoesSet.add(s));
+      if (secoesAgregadas && !existing.secoesAgregadasList.includes(secoesAgregadas)) {
+        existing.secoesAgregadasList.push(secoesAgregadas);
+      }
+      if (!existing.endereco && endereco) existing.endereco = endereco;
+      if (!existing.bairro && bairro) existing.bairro = bairro;
+      if (aptos > 0) existing.aptosSum += aptos;
+      if (capacidadeAprox > existing.capacidadeAprox) existing.capacidadeAprox = capacidadeAprox;
+    } else {
+      const errors: string[] = [];
+      if (!nome) errors.push('Nome do colégio/local é obrigatório');
+
+      const secoesSet = new Set<string>();
+      secoesParsed.forEach((s) => secoesSet.add(s));
+
+      mapLocais.set(groupKey, {
+        originalIndex: index + 1,
+        nome,
+        tipo,
+        zona,
+        secoesSet,
+        secoesAgregadasList: secoesAgregadas ? [secoesAgregadas] : [],
+        bairro,
+        endereco,
+        capacidadeAprox: capacidadeAprox || 1000,
+        aptosSum: aptos,
+        municipio,
+        uf,
+        errors
+      });
+    }
+  });
+
+  return Array.from(mapLocais.values()).map((item, idx) => {
+    const secoesArr = Array.from(item.secoesSet).sort((a, b) => Number(a) - Number(b));
+    const capacidadeFinal = item.aptosSum > 0 ? item.aptosSum : (item.capacidadeAprox || (secoesArr.length > 0 ? secoesArr.length * 350 : 1000));
 
     return {
-      originalIndex: index + 1,
-      nome,
-      tipo: tipo || 'Escola Estadual',
-      zona: zona || '001',
-      secoes: secoes.length > 0 ? secoes : ['0001'],
-      secoesAgregadas,
-      bairro: bairro || 'Centro',
-      endereco,
-      capacidadeAprox: capacidadeAprox || 1500,
-      municipio: municipio || 'Teresina',
-      uf: uf || 'PI',
-      isValid: errors.length === 0,
-      errors
+      originalIndex: idx + 1,
+      nome: item.nome,
+      tipo: item.tipo,
+      zona: item.zona,
+      secoes: secoesArr.length > 0 ? secoesArr : ['0001'],
+      secoesAgregadas: item.secoesAgregadasList.join('; '),
+      bairro: item.bairro,
+      endereco: item.endereco,
+      capacidadeAprox: capacidadeFinal,
+      municipio: item.municipio,
+      uf: item.uf,
+      isValid: item.errors.length === 0,
+      errors: item.errors
     };
   });
 }

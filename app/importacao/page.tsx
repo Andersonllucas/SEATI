@@ -667,17 +667,20 @@ export default function Importacao() {
 
         const toCreate = localRows.map((r) => ({
           nome: r.nome,
-          tipo: r.tipo,
+          tipo: r.tipo || 'Colégio Eleitoral',
           zona: r.zona,
           secoes: r.secoes,
-          bairro: r.bairro,
-          endereco: r.endereco,
+          secoesAgregadas: r.secoesAgregadas || '',
+          bairro: r.bairro || '',
+          endereco: r.endereco || '',
           capacidadeAprox: r.capacidadeAprox,
-          municipio: r.municipio,
-          uf: r.uf
+          municipio: r.municipio || 'Teresina',
+          uf: r.uf || 'PI'
         }));
 
         await batchSaveLocais(toCreate, []);
+
+        const totalSecoesCount = localRows.reduce((acc, r) => acc + (r.secoes?.length || 0), 0);
 
         // Registrar no Histórico de Importações
         await registrarHistoricoImportacao({
@@ -688,7 +691,7 @@ export default function Importacao() {
         });
 
         setImportSuccessMessage(
-          `${localRows.length} locais de votação foram salvos com sucesso na campanha!`
+          `${localRows.length} colégios eleitorais e ${totalSecoesCount} seções foram salvos com sucesso na campanha!`
         );
       }
 

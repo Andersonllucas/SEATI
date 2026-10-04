@@ -20,8 +20,7 @@ import {
   Download,
   FileText,
   FileSpreadsheet,
-  RefreshCw,
-  CheckSquare
+  RefreshCw
 } from 'lucide-react';
 import { exportLiderancasReal, formatCpf } from '@/lib/importExportUtils';
 import { LiderancaRow } from '@/components/LiderancaRow';
@@ -29,7 +28,6 @@ import {
   collection,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
   serverTimestamp
 } from 'firebase/firestore';

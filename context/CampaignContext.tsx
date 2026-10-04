@@ -108,6 +108,7 @@ export function useCampaignData() {
     updateLocalVotacao: locations.updateLocalVotacao,
     deleteLocalVotacao: locations.deleteLocalVotacao,
     batchDeleteLocais: locations.batchDeleteLocais,
+    clearAllLocais: locations.clearAllLocais,
     seedLocaisDefault: locations.seedLocaisDefault,
     batchSaveLocais: locations.batchSaveLocais
   };

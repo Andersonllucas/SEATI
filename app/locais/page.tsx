@@ -107,6 +107,7 @@ export default function LocaisVotacaoPage() {
     updateLocalVotacao,
     deleteLocalVotacao,
     batchDeleteLocais,
+    clearAllLocais,
     batchSaveLocais,
     batchUpdateEleitores
   } = useCampaignData();
@@ -125,12 +126,13 @@ export default function LocaisVotacaoPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
 
   // Drawer / Form state for manual creation & edit
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nome, setNome] = useState('');
-  const [tipo, setTipo] = useState('Escola Estadual');
+  const [tipo, setTipo] = useState('Colégio Eleitoral');
   const [zona, setZona] = useState('001');
   const [bairro, setBairro] = useState('');
   const [endereco, setEndereco] = useState('');
@@ -248,7 +250,7 @@ export default function LocaisVotacaoPage() {
     isExportMenuOpen
   ]);
 
-  // Associate voters to voting locations based on zone & section match or neighborhood
+  // Associate voters to voting locations based strictly on zone & section match
   const locaisWithStats = useMemo(() => {
     return locais.map((local) => {
       const votersInLocal = eleitores.filter((e) => {
@@ -257,9 +259,6 @@ export default function LocaisVotacaoPage() {
           if (voterSecao && toSecoesArray(local.secoes).some((s) => normalizeNum(s) === normalizeNum(voterSecao))) {
             return true;
           }
-        }
-        if (e.bairro && local.bairro && e.bairro.trim().toLowerCase() === local.bairro.trim().toLowerCase()) {
-          return true;
         }
         return false;
       });
@@ -718,6 +717,38 @@ export default function LocaisVotacaoPage() {
           showToast('Erro ao excluir locais de votação selecionados.', 'error');
         } finally {
           setIsBatchDeleting(false);
+        }
+      }
+    });
+  };
+
+  const handleConfirmClearAllLocais = () => {
+    if (locais.length === 0) {
+      showToast('Não há locais de votação cadastrados para excluir.', 'info');
+      return;
+    }
+
+    solicitarSenhaMestre({
+      title: 'Zerar Todos os Locais e Seções',
+      description: `Atenção: Esta ação excluirá PERMANENTEMENTE todos os ${locais.length} colégios eleitorais e suas seções cadastradas no banco de dados. Isso deixará o sistema totalmente limpo para uma nova importação correta da sua planilha TSE. Digite a Senha Mestre para confirmar.`,
+      onSuccess: async () => {
+        setIsClearingAll(true);
+        try {
+          const { deleted } = await clearAllLocais();
+          await registrarLog({
+            tipo: 'EXCLUSAO',
+            acao: 'Limpeza completa de todos os locais de votação',
+            detalhes: `${deleted} locais removidos do banco`,
+            entidade: 'Local de Votação',
+            entidadeId: 'todos'
+          });
+          showToast(`Banco zerado com sucesso: ${deleted} locais de votação foram excluídos. O sistema está pronto para nova importação!`, 'success');
+          setSelectedIds([]);
+        } catch (err) {
+          console.error('Erro ao limpar locais:', err);
+          showToast('Erro ao zerar locais de votação.', 'error');
+        } finally {
+          setIsClearingAll(false);
         }
       }
     });

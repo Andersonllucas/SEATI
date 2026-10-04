@@ -4,13 +4,13 @@
   "private": true,
   "packageManager": "npm@10.8.2",
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
-    "build": "NODE_OPTIONS='--max-old-space-size=700' next build",
+    "dev": "NODE_OPTIONS='--max-old-space-size=650' next dev -H 0.0.0.0 -p 3000",
+    "build": "NODE_OPTIONS='--max-old-space-size=650' next build",
     "build:worker": "NODE_ENV=production opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare preview",
     "deploy": "NODE_ENV=production opennextjs-cloudflare build && wrangler deploy",
     "start": "next start -H 0.0.0.0 -p 3000",
-    "lint": "eslint .",
+    "lint": "NODE_OPTIONS='--max-old-space-size=512' eslint .",
     "clean": "next clean"
   },
   "dependencies": {

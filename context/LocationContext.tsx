@@ -8,6 +8,7 @@ import {
   orderBy,
   limit,
   addDoc,
+  getDocs,
   updateDoc,
   deleteDoc,
   doc,
@@ -19,6 +20,7 @@ import { useAuth } from './AuthContext';
 import { useTenant } from '@/context/TenantContext';
 import { handleFirestoreError, OperationType, isCircuitBroken } from '@/lib/firestoreErrors';
 import { getCachedCollection, setCachedCollection } from '@/lib/firestoreCache';
+import { safeStorage } from '@/lib/safeStorage';
 
 export interface LocalVotacao {
   id: string;
@@ -145,6 +147,7 @@ interface LocationContextType {
   updateLocalVotacao: (id: string, data: Partial<LocalVotacao>) => Promise<void>;
   deleteLocalVotacao: (id: string) => Promise<void>;
   batchDeleteLocais: (ids: string[]) => Promise<{ deleted: number }>;
+  clearAllLocais: () => Promise<{ deleted: number }>;
   seedLocaisDefault: () => Promise<void>;
   batchSaveLocais: (
     toCreate: Omit<LocalVotacao, 'id' | 'dataCadastro'>[],
@@ -160,17 +163,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   const tenantKey = subdomain || currentTenant?.subdominio || 'central';
 
   const [locais, setLocais] = useState<LocalVotacao[]>(() => {
+    const isCleared = safeStorage.getItem(`locais_cleared_${tenantKey}`) === 'true';
+    if (isCleared) return [];
+
     const cached = getCachedCollection<LocalVotacao>('locais_votacao', undefined, tenantKey);
     if (cached?.data && cached.data.length > 0) {
       return cached.data;
-    }
-    // Fallback inicial com presets apenas para a campanha demonstrativa de Teresina
-    if (tenantKey === 'demo' || tenantKey === 'teresina' || tenantKey === 'preview') {
-      return LOCAIS_PRESET_DEFAULT.map((p, i) => ({
-        id: `preset_${i}`,
-        ...p,
-        dataCadastro: new Date().toISOString()
-      }));
     }
     return [];
   });
@@ -180,15 +178,16 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
   // Quando o tenant mudar, recarrega o cache específico do novo cliente
   useEffect(() => {
+    const isCleared = safeStorage.getItem(`locais_cleared_${tenantKey}`) === 'true';
+    if (isCleared) {
+      setLocais([]);
+      setIsLoaded(true);
+      return;
+    }
+
     const cached = getCachedCollection<LocalVotacao>('locais_votacao', undefined, tenantKey);
     if (cached?.data && cached.data.length > 0) {
       setLocais(cached.data);
-    } else if (tenantKey === 'demo' || tenantKey === 'teresina' || tenantKey === 'preview') {
-      setLocais(LOCAIS_PRESET_DEFAULT.map((p, i) => ({
-        id: `preset_${i}`,
-        ...p,
-        dataCadastro: new Date().toISOString()
-      })));
     } else {
       setLocais([]);
     }
@@ -209,7 +208,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     }
 
     const targetDb = activeDb || getActiveDb();
-    const q = query(collection(targetDb, 'locais_votacao'), orderBy('nome', 'asc'), limit(300));
+    // Consulta expandida (até 5000 locais) para cobrir municípios inteiros sem truncamento
+    const q = query(collection(targetDb, 'locais_votacao'), orderBy('nome', 'asc'), limit(5000));
     let isSubscribed = true;
 
     const unsubscribe = onSnapshot(
@@ -222,19 +222,10 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (list.length > 0) {
+          safeStorage.removeItem(`locais_cleared_${tenantKey}`);
           setLocais(list);
           setCachedCollection('locais_votacao', list, tenantKey);
-        } else if (tenantKey === 'demo' || tenantKey === 'teresina' || tenantKey === 'preview') {
-          // Se for campanha de demonstração e banco vazio, utiliza os presets
-          const presets = LOCAIS_PRESET_DEFAULT.map((p, i) => ({
-            id: `preset_${i}`,
-            ...p,
-            dataCadastro: new Date().toISOString()
-          }));
-          setLocais(presets);
-          setCachedCollection('locais_votacao', presets, tenantKey);
         } else {
-          // Para outros clientes reais com banco próprio vazio, inicia limpo
           setLocais([]);
           setCachedCollection('locais_votacao', [], tenantKey);
         }
@@ -356,7 +347,34 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     return { deleted: deleted || ids.length };
   }, [tenantKey, activeDb]);
 
+  const clearAllLocais = useCallback(async () => {
+    safeStorage.setItem(`locais_cleared_${tenantKey}`, 'true');
+    setLocais([]);
+    setCachedCollection('locais_votacao', [], tenantKey);
+
+    let deleted = 0;
+    try {
+      const targetDb = activeDb || getActiveDb();
+      const snap = await getDocs(collection(targetDb, 'locais_votacao'));
+      const docIds = snap.docs.map((d) => d.id);
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < docIds.length; i += CHUNK_SIZE) {
+        const chunk = docIds.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(targetDb);
+        chunk.forEach((id) => {
+          batch.delete(doc(targetDb, 'locais_votacao', id));
+        });
+        await batch.commit();
+        deleted += chunk.length;
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'locais_votacao');
+    }
+    return { deleted };
+  }, [tenantKey, activeDb]);
+
   const seedLocaisDefault = useCallback(async () => {
+    safeStorage.removeItem(`locais_cleared_${tenantKey}`);
     const presets = LOCAIS_PRESET_DEFAULT.map((p, i) => ({
       id: `seed_${Date.now()}_${i}`,
       ...p,
@@ -383,6 +401,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       toCreate: Omit<LocalVotacao, 'id' | 'dataCadastro'>[],
       toUpdate: { id: string; dados: Partial<LocalVotacao> }[]
     ) => {
+      safeStorage.removeItem(`locais_cleared_${tenantKey}`);
       let created = 0;
       let updated = 0;
       const CHUNK_SIZE = 400;
@@ -447,6 +466,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       updateLocalVotacao,
       deleteLocalVotacao,
       batchDeleteLocais,
+      clearAllLocais,
       seedLocaisDefault,
       batchSaveLocais
     }),
@@ -458,6 +478,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       updateLocalVotacao,
       deleteLocalVotacao,
       batchDeleteLocais,
+      clearAllLocais,
       seedLocaisDefault,
       batchSaveLocais
     ]
