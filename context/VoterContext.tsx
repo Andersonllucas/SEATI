@@ -174,7 +174,7 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
 
   // Carrega e sincroniza eleitores de forma inteligente do Firestore ativo
   useEffect(() => {
-    if (!isAuthReady || !currentUserId || isLoadingTenant) {
+    if (!isAuthReady || isLoadingTenant) {
       return;
     }
 

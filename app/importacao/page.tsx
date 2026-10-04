@@ -1817,8 +1817,8 @@ export default function Importacao() {
 
               {/* Card 3: Locais de Votação */}
               <ExportCardItem
-                title="Mapeamento de Locais & Fiscais"
-                description="Colégios eleitorais, seções agregadas, capacidade aproximada e eleitores mapeados."
+                title="Locais e Seções de Votação (Padrão TSE)"
+                description="Planilha oficial do TSE com Zona Eleitoral, Município, Seção Efetiva, Seções Agregadas, Local de Votação (LV), Endereço e Bairro."
                 icon={MapPin}
                 meta={`${locais.length} Colégios`}
                 color="bg-surface-container text-on-surface"

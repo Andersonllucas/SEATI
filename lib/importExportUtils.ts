@@ -227,46 +227,58 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
     XLSX.utils.book_append_sheet(wb, ws, 'Modelo_Liderancas');
     await exportWorkbook(wb, 'modelo_importacao_liderancas', format);
   } else {
-    // locais
+    // locais - Modelo Oficial TSE (Tribunal Superior Eleitoral)
     const data = [
       {
-        'Nome do Colégio / Local': 'Unidade Escolar Presidente Vargas',
-        'Tipo de Estabelecimento': 'Escola Estadual',
-        'Zona Eleitoral': '001',
-        'Seções (separadas por vírgula)': '0001, 0002, 0003, 0004, 0005',
-        'Bairro': 'Centro',
-        'Endereço Completo': 'Praça da Bandeira, 120',
-        'Capacidade Aproximada': 1800,
-        'Município': 'Teresina',
-        'UF': 'PI'
+        'ZONA ELEITORAL': 1,
+        'MUNICÍPIO': 'TERESINA',
+        'SEÇÃO EFETIVA': 246,
+        'SEÇÕES AGREGADAS': '509/aptos: 121',
+        'LOCAL DE VOTAÇÃO (LV)': 'COLÉGIO SÃO TOMAZ DE AQUINO',
+        'ENDEREÇO': 'RUA COELHO DE RESENDE, 2119',
+        'BAIRRO': 'Marquês'
       },
       {
-        'Nome do Colégio / Local': 'Escola Municipal Paulo VI',
-        'Tipo de Estabelecimento': 'Escola Municipal',
-        'Zona Eleitoral': '001',
-        'Seções (separadas por vírgula)': '0006, 0007, 0008, 0009',
-        'Bairro': 'Vermelha',
-        'Endereço Completo': 'Rua Rui Barbosa, 450',
-        'Capacidade Aproximada': 1400,
-        'Município': 'Teresina',
-        'UF': 'PI'
+        'ZONA ELEITORAL': 1,
+        'MUNICÍPIO': 'TERESINA',
+        'SEÇÃO EFETIVA': 58,
+        'SEÇÕES AGREGADAS': '',
+        'LOCAL DE VOTAÇÃO (LV)': 'CEMEI HELENA MARIA DE RODRIGUES CARVALHO',
+        'ENDEREÇO': 'RUA JOSÉ MARQUES DA ROCHA 2361',
+        'BAIRRO': 'AEROPORTO'
+      },
+      {
+        'ZONA ELEITORAL': 1,
+        'MUNICÍPIO': 'TERESINA',
+        'SEÇÃO EFETIVA': 59,
+        'SEÇÕES AGREGADAS': '',
+        'LOCAL DE VOTAÇÃO (LV)': 'CEMEI HELENA MARIA DE RODRIGUES CARVALHO',
+        'ENDEREÇO': 'RUA JOSÉ MARQUES DA ROCHA 2361',
+        'BAIRRO': 'AEROPORTO'
+      },
+      {
+        'ZONA ELEITORAL': 1,
+        'MUNICÍPIO': 'TERESINA',
+        'SEÇÃO EFETIVA': 60,
+        'SEÇÕES AGREGADAS': '',
+        'LOCAL DE VOTAÇÃO (LV)': 'COLÉGIO SÃO TOMAZ DE AQUINO',
+        'ENDEREÇO': 'RUA COELHO DE RESENDE, 2119',
+        'BAIRRO': 'Marquês'
       }
     ];
 
     const ws = XLSX.utils.json_to_sheet(data);
     ws['!cols'] = [
-      { wch: 35 },
-      { wch: 24 },
-      { wch: 15 },
-      { wch: 35 },
-      { wch: 20 },
-      { wch: 30 },
-      { wch: 22 },
-      { wch: 18 },
-      { wch: 8 }
+      { wch: 16 }, // ZONA ELEITORAL
+      { wch: 18 }, // MUNICÍPIO
+      { wch: 16 }, // SEÇÃO EFETIVA
+      { wch: 22 }, // SEÇÕES AGREGADAS
+      { wch: 45 }, // LOCAL DE VOTAÇÃO (LV)
+      { wch: 45 }, // ENDEREÇO
+      { wch: 25 }  // BAIRRO
     ];
-    XLSX.utils.book_append_sheet(wb, ws, 'Modelo_Locais');
-    await exportWorkbook(wb, 'modelo_importacao_locais', format);
+    XLSX.utils.book_append_sheet(wb, ws, 'TSE_Modelo_Locais');
+    await exportWorkbook(wb, 'modelo_tse_locais_votacao', format);
   }
 }
 
@@ -498,6 +510,7 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
     let tipo = 'Escola Estadual';
     let zona = '001';
     let secoesRaw = '';
+    let secoesAgregadas = '';
     let bairro = 'Centro';
     let endereco = '';
     let capacidadeAprox = 1500;
@@ -508,7 +521,9 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
       const valStr = String(value || '').trim();
       const normKey = normalizeHeaderKey(key);
 
-      if (normKey.includes('nome') || normKey.includes('colegio') || normKey.includes('local') || normKey.includes('escola')) {
+      if (normKey.includes('agregad')) {
+        secoesAgregadas = valStr;
+      } else if (normKey.includes('nome') || normKey.includes('colegio') || normKey.includes('local') || normKey.includes('escola') || normKey.includes('lv')) {
         nome = valStr;
       } else if (normKey.includes('tipo') || normKey.includes('categoria')) {
         tipo = valStr;
@@ -543,6 +558,7 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
       tipo: tipo || 'Escola Estadual',
       zona: zona || '001',
       secoes: secoes.length > 0 ? secoes : ['0001'],
+      secoesAgregadas,
       bairro: bairro || 'Centro',
       endereco,
       capacidadeAprox: capacidadeAprox || 1500,
@@ -898,44 +914,113 @@ export async function exportLiderancasReal(
   await exportWorkbook(wb, 'relatorio_liderancas_metas', format);
 }
 
-// 3.3 Relatório de Locais e Seções de Votação
+// 3.3 Relatório de Locais e Seções de Votação (Padrão Oficial TSE)
 export async function exportLocaisReal(
   locais: LocalVotacao[],
   voters: Eleitor[],
-  format: ExportReportFormat
+  format: ExportReportFormat,
+  mode: 'tse' | 'resumo' = 'tse'
 ) {
-  // Count voters mapped to each section & zone
-  const votersBySection = new Map<string, number>();
-  voters.forEach((v) => {
-    if (v.zona && v.secao) {
-      const key = `${v.zona.padStart(3, '0')}-${v.secao.padStart(4, '0')}`;
-      votersBySection.set(key, (votersBySection.get(key) || 0) + 1);
+  if (mode === 'resumo') {
+    // Relatório consolidado por estabelecimento com contagem de eleitores mapeados
+    const votersBySection = new Map<string, number>();
+    voters.forEach((v) => {
+      if (v.zona && v.secao) {
+        const key = `${v.zona.padStart(3, '0')}-${v.secao.padStart(4, '0')}`;
+        votersBySection.set(key, (votersBySection.get(key) || 0) + 1);
+      }
+    });
+
+    if (format === 'pdf') {
+      const { jsPDF, autoTable } = await getPDFModules();
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const timestamp = new Date().toLocaleString('pt-BR');
+
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text('Relatório Consolidado de Colégios e Locais de Votação', 40, 40);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Gerado em: ${timestamp}  |  Total de Estabelecimentos: ${locais.length}  |  Visão Consolidada`,
+        40,
+        55
+      );
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(40, 63, 802, 63);
+
+      const tableRows = locais.map((local, i) => {
+        const secoes = Array.isArray(local.secoes) ? local.secoes : [];
+        let mappedVotersCount = 0;
+        secoes.forEach((sec) => {
+          const key = `${(local.zona || '001').padStart(3, '0')}-${String(sec).padStart(4, '0')}`;
+          mappedVotersCount += votersBySection.get(key) || 0;
+        });
+
+        return [
+          String(i + 1),
+          local.nome || '',
+          local.tipo || 'Escola',
+          local.zona || '',
+          String(secoes.length),
+          secoes.slice(0, 8).join(', ') + (secoes.length > 8 ? '...' : ''),
+          local.bairro || '',
+          local.endereco || '',
+          String(Number(local.capacidadeAprox) || 0),
+          String(mappedVotersCount)
+        ];
+      });
+
+      autoTable(doc, {
+        startY: 72,
+        head: [
+          [
+            '#',
+            'Estabelecimento / Colégio',
+            'Tipo',
+            'Zona',
+            'Qtd Seções',
+            'Seções',
+            'Bairro',
+            'Endereço',
+            'Capacidade',
+            'Eleitores Mapeados'
+          ]
+        ],
+        body: tableRows,
+        theme: 'grid',
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 3.5,
+          textColor: [30, 41, 59],
+          lineColor: [226, 232, 240],
+          lineWidth: 0.5
+        },
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 8
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252]
+        },
+        margin: { left: 40, right: 40, top: 40, bottom: 40 }
+      });
+
+      const fileTimestamp = new Date().toISOString().slice(0, 10);
+      doc.save(`relatorio_locais_resumido_${fileTimestamp}.pdf`);
+      return;
     }
-  });
 
-  if (format === 'pdf') {
-    const { jsPDF, autoTable } = await getPDFModules();
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-    const timestamp = new Date().toLocaleString('pt-BR');
+    const XLSX = await getXLSX();
+    const wb = XLSX.utils.book_new();
 
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text('Relatório de Locais e Colégios Eleitorais', 40, 40);
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text(
-      `Gerado em: ${timestamp}  |  Total de Estabelecimentos: ${locais.length}  |  Mapeamento de Seções e Colégios`,
-      40,
-      56
-    );
-
-    doc.setDrawColor(226, 232, 240);
-    doc.line(40, 65, 802, 65);
-
-    const tableRows = locais.map((local, i) => {
+    const data = locais.map((local) => {
       const secoes = Array.isArray(local.secoes) ? local.secoes : [];
       let mappedVotersCount = 0;
       secoes.forEach((sec) => {
@@ -943,123 +1028,243 @@ export async function exportLocaisReal(
         mappedVotersCount += votersBySection.get(key) || 0;
       });
 
-      return [
-        String(i + 1),
-        local.nome || '',
-        local.tipo || 'Escola',
-        local.zona || '',
-        String(secoes.length),
-        secoes.slice(0, 8).join(', ') + (secoes.length > 8 ? '...' : ''),
-        local.bairro || '',
-        local.endereco || '',
-        String(Number(local.capacidadeAprox) || 0),
-        String(mappedVotersCount)
-      ];
+      return {
+        'Nome do Estabelecimento / Colégio': local.nome || '',
+        'Tipo de Local': local.tipo || 'Escola',
+        'Zona Eleitoral': local.zona || '',
+        'Qtd de Seções Alocadas': secoes.length,
+        'Seções Eleitorais': secoes.join(', '),
+        'Bairro': local.bairro || '',
+        'Endereço Completo': local.endereco || '',
+        'Capacidade Estimada': Number(local.capacidadeAprox) || 0,
+        'Eleitores Reais Mapeados no Banco': mappedVotersCount,
+        'Município': local.municipio || 'Teresina',
+        'UF': local.uf || 'PI'
+      };
     });
 
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [
+      { wch: 35 },
+      { wch: 22 },
+      { wch: 15 },
+      { wch: 22 },
+      { wch: 35 },
+      { wch: 20 },
+      { wch: 30 },
+      { wch: 20 },
+      { wch: 32 },
+      { wch: 18 },
+      { wch: 8 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Locais_Resumo');
+    await exportWorkbook(wb, 'relatorio_locais_resumido', format);
+    return;
+  }
+
+  // Padrão OFICIAL TSE (Modelo da foto do Tribunal Superior Eleitoral):
+  // Colunas exatas: ZONA ELEITORAL | MUNICÍPIO | SEÇÃO EFETIVA | SEÇÕES AGREGADAS | LOCAL DE VOTAÇÃO (LV) | ENDEREÇO | BAIRRO
+  const extractSecoes = (local: LocalVotacao): string[] => {
+    const list: string[] = [];
+    if (Array.isArray(local.secoes)) {
+      local.secoes.forEach((s) => {
+        const parts = String(s).split(/[,;/]+/);
+        parts.forEach((p) => {
+          const clean = p.trim();
+          if (clean) list.push(clean);
+        });
+      });
+    } else if (typeof local.secoes === 'string' && local.secoes.trim()) {
+      const parts = local.secoes.split(/[,;/]+/);
+      parts.forEach((p) => {
+        const clean = p.trim();
+        if (clean) list.push(clean);
+      });
+    }
+    if (local.secao && !list.includes(String(local.secao).trim())) {
+      list.push(String(local.secao).trim());
+    }
+    return Array.from(new Set(list));
+  };
+
+  const tseRows: {
+    'ZONA ELEITORAL': number | string;
+    'MUNICÍPIO': string;
+    'SEÇÃO EFETIVA': number | string;
+    'SEÇÕES AGREGADAS': string;
+    'LOCAL DE VOTAÇÃO (LV)': string;
+    'ENDEREÇO': string;
+    'BAIRRO': string;
+  }[] = [];
+
+  locais.forEach((local) => {
+    const rawZona = String(local.zona || '1').replace(/\D/g, '');
+    const zonaVal = rawZona ? Number(rawZona) : local.zona || 1;
+    const municipioVal = (local.municipio || 'TERESINA').trim().toUpperCase();
+    const nomeVal = (local.nome || '').trim().toUpperCase();
+    const enderecoVal = (local.endereco || '').trim().toUpperCase();
+    const bairroVal = (local.bairro || '').trim();
+
+    const secoes = extractSecoes(local);
+
+    if (secoes.length === 0) {
+      tseRows.push({
+        'ZONA ELEITORAL': zonaVal,
+        'MUNICÍPIO': municipioVal,
+        'SEÇÃO EFETIVA': '',
+        'SEÇÕES AGREGADAS': '',
+        'LOCAL DE VOTAÇÃO (LV)': nomeVal,
+        'ENDEREÇO': enderecoVal,
+        'BAIRRO': bairroVal
+      });
+      return;
+    }
+
+    secoes.forEach((sec) => {
+      const rawSec = String(sec).replace(/\D/g, '');
+      const secaoVal = rawSec ? Number(rawSec) : sec;
+
+      let agregadasVal = '';
+      if (local.secoesAgregadas) {
+        if (typeof local.secoesAgregadas === 'object' && (local.secoesAgregadas as any)[String(sec)]) {
+          agregadasVal = (local.secoesAgregadas as any)[String(sec)];
+        } else if (typeof local.secoesAgregadas === 'string') {
+          agregadasVal = local.secoesAgregadas;
+        }
+      }
+
+      tseRows.push({
+        'ZONA ELEITORAL': zonaVal,
+        'MUNICÍPIO': municipioVal,
+        'SEÇÃO EFETIVA': secaoVal,
+        'SEÇÕES AGREGADAS': agregadasVal,
+        'LOCAL DE VOTAÇÃO (LV)': nomeVal,
+        'ENDEREÇO': enderecoVal,
+        'BAIRRO': bairroVal
+      });
+    });
+  });
+
+  // Ordenação idêntica ao TSE:
+  // 1. ZONA ELEITORAL (numérica)
+  // 2. SEÇÃO EFETIVA (numérica)
+  // 3. LOCAL DE VOTAÇÃO (LV)
+  tseRows.sort((a, b) => {
+    const zA = typeof a['ZONA ELEITORAL'] === 'number' ? a['ZONA ELEITORAL'] : Number(a['ZONA ELEITORAL']) || 0;
+    const zB = typeof b['ZONA ELEITORAL'] === 'number' ? b['ZONA ELEITORAL'] : Number(b['ZONA ELEITORAL']) || 0;
+    if (zA !== zB) return zA - zB;
+
+    const sA = typeof a['SEÇÃO EFETIVA'] === 'number' ? a['SEÇÃO EFETIVA'] : Number(a['SEÇÃO EFETIVA']) || 0;
+    const sB = typeof b['SEÇÃO EFETIVA'] === 'number' ? b['SEÇÃO EFETIVA'] : Number(b['SEÇÃO EFETIVA']) || 0;
+    if (sA !== sB) return sA - sB;
+
+    return a['LOCAL DE VOTAÇÃO (LV)'].localeCompare(b['LOCAL DE VOTAÇÃO (LV)'], 'pt-BR');
+  });
+
+  if (format === 'pdf') {
+    const { jsPDF, autoTable } = await getPDFModules();
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const timestamp = new Date().toLocaleString('pt-BR');
+
+    doc.setFontSize(15);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('Tabela de Locais e Seções de Votação (Padrão Oficial TSE)', 40, 40);
+
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Gerado em: ${timestamp}  |  Total de Seções Mapeadas: ${tseRows.length}  |  Tribunal Superior Eleitoral (TSE)`,
+      40,
+      55
+    );
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(40, 63, 802, 63);
+
+    const tableRows = tseRows.map((r) => [
+      String(r['ZONA ELEITORAL']),
+      r['MUNICÍPIO'],
+      String(r['SEÇÃO EFETIVA']),
+      r['SEÇÕES AGREGADAS'],
+      r['LOCAL DE VOTAÇÃO (LV)'],
+      r['ENDEREÇO'],
+      r['BAIRRO']
+    ]);
+
     autoTable(doc, {
-      startY: 75,
+      startY: 72,
       head: [
         [
-          '#',
-          'Estabelecimento / Colégio',
-          'Tipo',
-          'Zona',
-          'Qtd Seções',
-          'Seções',
-          'Bairro',
-          'Endereço',
-          'Capacidade',
-          'Eleitores Mapeados'
+          'ZONA ELEITORAL',
+          'MUNICÍPIO',
+          'SEÇÃO EFETIVA',
+          'SEÇÕES AGREGADAS',
+          'LOCAL DE VOTAÇÃO (LV)',
+          'ENDEREÇO',
+          'BAIRRO'
         ]
       ],
       body: tableRows,
       theme: 'grid',
       styles: {
-        fontSize: 8,
-        cellPadding: 4,
+        fontSize: 7.5,
+        cellPadding: 3.5,
         textColor: [30, 41, 59],
-        lineColor: [226, 232, 240],
+        lineColor: [203, 213, 225],
         lineWidth: 0.5
       },
       headStyles: {
-        fillColor: [30, 41, 59],
+        fillColor: [68, 114, 196], // Cor azul suave oficial TSE
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 8.5
+        fontSize: 8,
+        halign: 'left'
       },
       alternateRowStyles: {
         fillColor: [248, 250, 252]
       },
       columnStyles: {
-        0: { cellWidth: 24, halign: 'center' },
-        1: { cellWidth: 160 },
-        2: { cellWidth: 70 },
-        3: { cellWidth: 45, halign: 'center' },
-        4: { cellWidth: 55, halign: 'center' },
-        5: { cellWidth: 90 },
-        6: { cellWidth: 80 },
-        7: { cellWidth: 120 },
-        8: { cellWidth: 55, halign: 'right' },
-        9: { cellWidth: 60, halign: 'right' }
+        0: { cellWidth: 50, halign: 'center' }, // ZONA ELEITORAL
+        1: { cellWidth: 70 },                  // MUNICÍPIO
+        2: { cellWidth: 55, halign: 'center' }, // SEÇÃO EFETIVA
+        3: { cellWidth: 75 },                  // SEÇÕES AGREGADAS
+        4: { cellWidth: 185 },                 // LOCAL DE VOTAÇÃO (LV)
+        5: { cellWidth: 205 },                 // ENDEREÇO
+        6: { cellWidth: 120 }                  // BAIRRO
       },
       didDrawPage: function (data) {
         const str = `Página ${data.pageNumber} de ${doc.getNumberOfPages()}`;
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
         doc.text(str, 802 - doc.getTextWidth(str) - 40, 575);
-        doc.text('Sistema de Gestão Eleitoral & Campanha Política', 40, 575);
+        doc.text('Planilha Oficial TSE - Mapeamento de Locais e Seções', 40, 575);
       },
       margin: { left: 40, right: 40, top: 40, bottom: 40 }
     });
 
     const fileTimestamp = new Date().toISOString().slice(0, 10);
-    doc.save(`relatorio_locais_votacao_${fileTimestamp}.pdf`);
+    doc.save(`tse_locais_e_secoes_votacao_${fileTimestamp}.pdf`);
     return;
   }
 
   const XLSX = await getXLSX();
   const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(tseRows);
 
-  const data = locais.map((local) => {
-    const secoes = Array.isArray(local.secoes) ? local.secoes : [];
-    let mappedVotersCount = 0;
-    secoes.forEach((sec) => {
-      const key = `${(local.zona || '001').padStart(3, '0')}-${String(sec).padStart(4, '0')}`;
-      mappedVotersCount += votersBySection.get(key) || 0;
-    });
-
-    return {
-      'Nome do Estabelecimento / Colégio': local.nome || '',
-      'Tipo de Local': local.tipo || 'Escola',
-      'Zona Eleitoral': local.zona || '',
-      'Qtd de Seções Alocadas': secoes.length,
-      'Seções Eleitorais': secoes.join(', '),
-      'Bairro': local.bairro || '',
-      'Endereço Completo': local.endereco || '',
-      'Capacidade Estimada': Number(local.capacidadeAprox) || 0,
-      'Eleitores Reais Mapeados no Banco': mappedVotersCount,
-      'Município': local.municipio || 'Teresina',
-      'UF': local.uf || 'PI'
-    };
-  });
-
-  const ws = XLSX.utils.json_to_sheet(data);
   ws['!cols'] = [
-    { wch: 35 },
-    { wch: 22 },
-    { wch: 15 },
-    { wch: 22 },
-    { wch: 35 },
-    { wch: 20 },
-    { wch: 30 },
-    { wch: 20 },
-    { wch: 32 },
-    { wch: 18 },
-    { wch: 8 }
+    { wch: 16 }, // ZONA ELEITORAL
+    { wch: 18 }, // MUNICÍPIO
+    { wch: 16 }, // SEÇÃO EFETIVA
+    { wch: 22 }, // SEÇÕES AGREGADAS
+    { wch: 45 }, // LOCAL DE VOTAÇÃO (LV)
+    { wch: 45 }, // ENDEREÇO
+    { wch: 25 }  // BAIRRO
   ];
-  XLSX.utils.book_append_sheet(wb, ws, 'Locais_Votacao');
-  await exportWorkbook(wb, 'relatorio_locais_votacao', format);
+
+  XLSX.utils.book_append_sheet(wb, ws, 'TSE_Locais_Secoes');
+  await exportWorkbook(wb, 'tse_locais_e_secoes_votacao', format);
 }
 
 // 3.4 Relatório de Conflitos e Duplicidades de CPF

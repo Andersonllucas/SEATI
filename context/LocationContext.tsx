@@ -26,6 +26,7 @@ export interface LocalVotacao {
   zona: string;
   secao?: string;
   secoes?: string | string[];
+  secoesAgregadas?: string | Record<string, string>;
   tipo?: string;
   bairro: string;
   endereco: string;

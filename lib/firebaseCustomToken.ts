@@ -35,29 +35,34 @@ export function getServiceAccountCredentials(): ServiceAccountConfig | null {
     // Suporte a valor codificado em Base64 (comum em Cloudflare/Vercel secrets)
     if (!cleanJson.startsWith('{') && cleanJson.length > 50) {
       try {
-        cleanJson = Buffer.from(cleanJson, 'base64').toString('utf8');
+        const decoded = Buffer.from(cleanJson, 'base64').toString('utf8');
+        if (decoded.trim().startsWith('{')) {
+          cleanJson = decoded.trim();
+        }
       } catch {}
     }
 
-    try {
-      const parsed = JSON.parse(cleanJson);
-      // Se a chave estiver revogada no Google Cloud, desconsidera
-      if (parsed.private_key_id && REVOKED_KEY_IDS.has(parsed.private_key_id)) {
-        return null;
+    if (cleanJson.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(cleanJson);
+        // Se a chave estiver revogada no Google Cloud, desconsidera
+        if (parsed.private_key_id && REVOKED_KEY_IDS.has(parsed.private_key_id)) {
+          return null;
+        }
+        if (parsed.private_key && parsed.private_key.includes(REVOKED_KEY_SNIPPET)) {
+          return null;
+        }
+        if (parsed.client_email && parsed.private_key) {
+          return {
+            clientEmail: parsed.client_email,
+            privateKey: parsed.private_key,
+            projectId: parsed.project_id,
+            privateKeyId: parsed.private_key_id
+          };
+        }
+      } catch {
+        // Fallback silencioso para variáveis individuais
       }
-      if (parsed.private_key && parsed.private_key.includes(REVOKED_KEY_SNIPPET)) {
-        return null;
-      }
-      if (parsed.client_email && parsed.private_key) {
-        return {
-          clientEmail: parsed.client_email,
-          privateKey: parsed.private_key,
-          projectId: parsed.project_id,
-          privateKeyId: parsed.private_key_id
-        };
-      }
-    } catch (e) {
-      console.error('Falha ao decodificar FIREBASE_SERVICE_ACCOUNT_KEY como JSON:', e);
     }
   }
 

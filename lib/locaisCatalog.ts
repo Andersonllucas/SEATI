@@ -653,7 +653,8 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
   // Detect column indexes
   const idxNome = rawHeaders.findIndex((h) => h.includes('NOME') || h.includes('LOCAL') || h.includes('ESTABELECIMENTO'));
   const idxZona = rawHeaders.findIndex((h) => h.includes('ZONA') || h === 'NR_ZONA');
-  const idxSecao = rawHeaders.findIndex((h) => h.includes('SECAO') || h.includes('SEC') || h === 'NR_SECAO');
+  const idxAgregadas = rawHeaders.findIndex((h) => h.includes('AGREGAD'));
+  const idxSecao = rawHeaders.findIndex((h, idx) => idx !== idxAgregadas && (h.includes('SECAO') || h.includes('SEC') || h === 'NR_SECAO'));
   const idxBairro = rawHeaders.findIndex((h) => h.includes('BAIRRO') || h === 'NM_BAIRRO');
   const idxEndereco = rawHeaders.findIndex((h) => h.includes('ENDERECO') || h.includes('LOGRADOURO') || h === 'DS_ENDERECO');
   const idxTipo = rawHeaders.findIndex((h) => h.includes('TIPO') || h === 'DS_TIPO_LOCAL');
@@ -696,6 +697,8 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
         .filter((s) => s.length > 0);
     }
 
+    const agregadas = idxAgregadas !== -1 && parts[idxAgregadas] ? parts[idxAgregadas].trim() : '';
+
     const key = `${zona}-${normalize(nome)}`;
     if (aggregatedMap.has(key)) {
       const existing = aggregatedMap.get(key)!;
@@ -703,6 +706,7 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
       aggregatedMap.set(key, {
         ...existing,
         secoes: combinedSecoes,
+        secoesAgregadas: existing.secoesAgregadas || agregadas || undefined,
         capacidadeAprox: Math.max(existing.capacidadeAprox || 0, capacidadeAprox || 0)
       });
     } else {
@@ -714,6 +718,7 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
         endereco,
         capacidadeAprox,
         secoes: secoesList,
+        secoesAgregadas: agregadas || undefined,
         municipio,
         uf
       });

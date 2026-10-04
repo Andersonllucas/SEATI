@@ -1300,37 +1300,72 @@ export default function LocaisVotacaoPage() {
               <span>Exportar</span>
             </button>
             {isExportMenuOpen && (
-              <div className="absolute right-0 mt-1 w-48 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg py-1 z-30">
-                <button
-                  type="button"
-                  onClick={() => {
-                    exportLocaisReal(locais, eleitores, 'pdf');
-                    setIsExportMenuOpen(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
-                >
-                  <FileText className="w-4 h-4 text-error" /> Documento PDF (.pdf)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    exportLocaisReal(locais, eleitores, 'xlsx');
-                    setIsExportMenuOpen(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Excel (.xlsx)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    exportLocaisReal(locais, eleitores, 'csv');
-                    setIsExportMenuOpen(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-secondary" /> CSV (.csv)
-                </button>
+              <div className="absolute right-0 mt-1 w-64 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg py-1.5 z-30 divide-y divide-outline-variant/30">
+                <div className="px-3 py-1 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                  Planilha Oficial TSE (Com Seções)
+                </div>
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
+                      exportLocaisReal(targets, eleitores, 'xlsx', 'tse');
+                      setIsExportMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Excel Padrão TSE (.xlsx)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
+                      exportLocaisReal(targets, eleitores, 'csv', 'tse');
+                      setIsExportMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-secondary" /> CSV Padrão TSE (.csv)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
+                      exportLocaisReal(targets, eleitores, 'pdf', 'tse');
+                      setIsExportMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-error" /> PDF Padrão TSE (.pdf)
+                  </button>
+                </div>
+                <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                  Visão Consolidada por Local
+                </div>
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
+                      exportLocaisReal(targets, eleitores, 'xlsx', 'resumo');
+                      setIsExportMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600/70" /> Resumo por Estabelecimento (.xlsx)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
+                      exportLocaisReal(targets, eleitores, 'pdf', 'resumo');
+                      setIsExportMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-error/70" /> Resumo por Estabelecimento (.pdf)
+                  </button>
+                </div>
               </div>
             )}
           </div>

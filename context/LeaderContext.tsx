@@ -118,7 +118,7 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
   }, [tenantKey, tenantVersion, fetchLiderancasRest]);
 
   useEffect(() => {
-    if (!isAuthReady || !currentUserId || isLoadingTenant) {
+    if (!isAuthReady || isLoadingTenant) {
       return;
     }
 

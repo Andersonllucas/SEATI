@@ -168,7 +168,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const impSub = typeof window !== 'undefined' ? localStorage.getItem('adti_impersonating_tenant') : null;
       const masterUserStr = typeof window !== 'undefined' ? (sessionStorage.getItem('adti_admin_master_user') || localStorage.getItem('adti_admin_master_user')) : null;
 
-      if (impSub && (impSub === tenantKey || impSub === subdomain) && masterUserStr) {
+      const isSubdomainMatch = !!(
+        impSub &&
+        (impSub === tenantKey ||
+          impSub === subdomain ||
+          currentTenant?.subdominio === impSub ||
+          currentTenant?.firebaseConfig?.projectId === impSub ||
+          (subdomain && impSub.replace(/-/g, '') === subdomain.replace(/-/g, '')))
+      );
+
+      if (isSubdomainMatch && masterUserStr) {
         try {
           const masterParsed = JSON.parse(masterUserStr);
           const masterSupportUser: AppUser = {

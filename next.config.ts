@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ['*.run.app', '*.google.com', 'localhost:*'],
   experimental: {
     optimizePackageImports: ['lucide-react'],
+    workerThreads: false,
   },
   eslint: {
     ignoreDuringBuilds: true,
