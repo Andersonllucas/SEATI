@@ -221,8 +221,13 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
           list.push({ id: d.id, ...d.data() } as LocalVotacao);
         });
 
+        const isCurrentlyCleared = safeStorage.getItem(`locais_cleared_${tenantKey}`) === 'true';
+        if (isCurrentlyCleared && list.length > 0) {
+          // Limpeza total ativa: ignora documentos remanescentes até nova importação deliberada
+          return;
+        }
+
         if (list.length > 0) {
-          safeStorage.removeItem(`locais_cleared_${tenantKey}`);
           setLocais(list);
           setCachedCollection('locais_votacao', list, tenantKey);
         } else {

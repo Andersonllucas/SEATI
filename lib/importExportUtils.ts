@@ -506,7 +506,7 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
 }
 
 function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
-  // Agrupa múltiplas linhas de seções pertencentes ao mesmo colégio/local de votação (Modelo Oficial TSE)
+  // Agrupa múltiplas linhas de seções pertencentes ao mesmo colégio/local de votação (Padrão TSE / TRE)
   const mapLocais = new Map<string, {
     originalIndex: number;
     nome: string;
@@ -525,6 +525,7 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
 
   rawJson.forEach((row, index) => {
     let nome = '';
+    let codigoLocal = '';
     let tipo = '';
     let zona = '';
     let secoesRaw = '';
@@ -541,40 +542,108 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
       if (!valStr) continue;
       const normKey = normalizeHeaderKey(key);
 
+      // 1. SEÇÕES AGREGADAS
       if (normKey.includes('agregad')) {
         secoesAgregadas = valStr;
-      } else if (
-        normKey === 'secaoefetiva' ||
+      }
+      // 2. SEÇÃO EFETIVA / PRINCIPAL (não confundir com agregada)
+      else if (
+        normKey === 'secao' ||
         normKey === 'nrsecao' ||
-        normKey.includes('efetiva') ||
-        (!normKey.includes('agregad') && (normKey.includes('seco') || normKey.includes('secao') || normKey === 'sec'))
+        normKey === 'secaoefetiva' ||
+        normKey === 'sec' ||
+        normKey === 'secoes' ||
+        (normKey.includes('secao') && !normKey.includes('agregad')) ||
+        (normKey.includes('seco') && !normKey.includes('agregad'))
       ) {
         secoesRaw = valStr;
-      } else if (
-        normKey.includes('lv') ||
-        normKey.includes('local') ||
-        normKey.includes('colegio') ||
-        normKey.includes('escola') ||
-        normKey.includes('estabelecimento') ||
-        normKey.includes('nome')
+      }
+      // 3. MUNICÍPIO / CIDADE (avaliar antes de colunas que tenham "nome")
+      else if (
+        normKey === 'municipio' ||
+        normKey === 'cidade' ||
+        normKey === 'nmmunicipio' ||
+        normKey.includes('municipio') ||
+        normKey.includes('cidade')
       ) {
-        nome = valStr;
-      } else if (normKey.includes('tipo') || normKey.includes('categoria')) {
-        tipo = valStr;
-      } else if (normKey.includes('zona') || normKey === 'ze' || normKey === 'nrzona') {
-        zona = valStr.replace(/\D/g, '').padStart(3, '0');
-      } else if (normKey.includes('bairro') || normKey === 'nmbairro') {
+        municipio = valStr;
+      }
+      // 4. BAIRRO (avaliar antes de colunas que tenham "nome")
+      else if (normKey === 'bairro' || normKey === 'nmbairro' || normKey.includes('bairro')) {
         bairro = valStr;
-      } else if (normKey.includes('end') || normKey.includes('rua') || normKey.includes('logradouro') || normKey === 'dsendereco') {
+      }
+      // 5. ZONA ELEITORAL
+      else if (
+        normKey === 'zona' ||
+        normKey === 'ze' ||
+        normKey === 'nrzona' ||
+        normKey === 'zonaeleitoral' ||
+        (normKey.includes('zona') && !normKey.includes('sub'))
+      ) {
+        zona = valStr.replace(/\D/g, '').padStart(3, '0');
+      }
+      // 6. CÓDIGO / NÚMERO DO LOCAL (ex: CD_LOCAL_VOTACAO, NR_LOCAL_VOTACAO, NUM_LOCAL)
+      else if (
+        normKey === 'cdlocalvotacao' ||
+        normKey === 'nrlocalvotacao' ||
+        normKey === 'codlocal' ||
+        normKey === 'nrlocal' ||
+        normKey === 'numlocal'
+      ) {
+        codigoLocal = valStr;
+      }
+      // 7. NOME DO LOCAL DE VOTAÇÃO / ESCOLA / COLÉGIO
+      else if (
+        normKey === 'localdevotacao' ||
+        normKey === 'localdevotacaolv' ||
+        normKey === 'nmlocalvotacao' ||
+        normKey === 'nmlocal' ||
+        normKey === 'nomelocal' ||
+        normKey === 'nomedolocal' ||
+        normKey === 'colegio' ||
+        normKey === 'escola' ||
+        normKey === 'estabelecimento' ||
+        (normKey.includes('local') && !normKey.includes('tipo') && !normKey.includes('codigo')) ||
+        (normKey.includes('escola') && !normKey.includes('tipo')) ||
+        (normKey.includes('colegio') && !normKey.includes('tipo')) ||
+        (normKey.includes('estabelecimento') && !normKey.includes('tipo'))
+      ) {
+        // Se já tivermos um nome textual e o novo valor for puramente numérico, preserva o textual
+        if (!nome || (!/^\d+$/.test(valStr) && /^\d+$/.test(nome))) {
+          nome = valStr;
+        }
+      }
+      // 8. TIPO DE LOCAL (opcional)
+      else if (normKey.includes('tipo') || normKey.includes('categoria')) {
+        tipo = valStr;
+      }
+      // 9. ENDEREÇO / LOGRADOURO
+      else if (
+        normKey.includes('end') ||
+        normKey.includes('rua') ||
+        normKey.includes('logradouro') ||
+        normKey === 'dsendereco'
+      ) {
         endereco = valStr;
-      } else if (normKey.includes('apto') || normKey.includes('capacidad') || normKey.includes('lotacao') || normKey.includes('eleitores')) {
+      }
+      // 10. ELEITORES APTOS / CAPACIDADE
+      else if (
+        normKey.includes('apto') ||
+        normKey.includes('capacidad') ||
+        normKey.includes('lotacao') ||
+        normKey.includes('eleitores')
+      ) {
         const numVal = Number(valStr.replace(/\D/g, '')) || 0;
         capacidadeAprox = numVal;
         aptos = numVal;
-      } else if (normKey.includes('municipio') || normKey.includes('cidade') || normKey === 'nmmunicipio') {
-        municipio = valStr;
-      } else if (normKey === 'uf' || normKey === 'sguf' || normKey.includes('estado')) {
+      }
+      // 11. ESTADO (UF)
+      else if (normKey === 'uf' || normKey === 'sguf' || normKey.includes('estado')) {
         uf = valStr.toUpperCase();
+      }
+      // Fallback genérico para coluna chamada apenas de "nome" (se não for município nem bairro)
+      else if (normKey === 'nome' && !nome) {
+        nome = valStr;
       }
     }
 
@@ -583,7 +652,7 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
     if (!uf) uf = 'PI';
     if (!tipo) tipo = 'Colégio Eleitoral';
 
-    // Parse sections
+    // Parse seções efetivas
     const secoesParsed = secoesRaw
       ? secoesRaw
           .split(/[,;\-\|\n\r/]+/)
@@ -591,12 +660,30 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
           .filter((s) => s.length > 0 && s !== '0000')
       : [];
 
-    const normNome = nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-    const groupKey = `${municipio.toLowerCase()}_${zona}_${normNome || `sem_nome_${index}`}`;
+    // Parse seções agregadas para que seus eleitores também encontrem este local
+    const secoesAgregadasParsed = secoesAgregadas
+      ? secoesAgregadas
+          .split(/[,;\-\|\n\r/]+/)
+          .map((s) => s.trim().replace(/\D/g, '').padStart(4, '0'))
+          .filter((s) => s.length > 0 && s !== '0000')
+      : [];
+
+    // Chave de agrupamento estável por município, zona e nome padronizado (ou código do colégio)
+    const normNome = (nome || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const groupKey = `${municipio.toLowerCase()}_z${zona}_${codigoLocal ? `cod_${codigoLocal}` : normNome || `local_${index}`}`;
 
     if (mapLocais.has(groupKey)) {
       const existing = mapLocais.get(groupKey)!;
       secoesParsed.forEach((s) => existing.secoesSet.add(s));
+      secoesAgregadasParsed.forEach((s) => existing.secoesSet.add(s));
+
       if (secoesAgregadas && !existing.secoesAgregadasList.includes(secoesAgregadas)) {
         existing.secoesAgregadasList.push(secoesAgregadas);
       }
@@ -604,21 +691,26 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
       if (!existing.bairro && bairro) existing.bairro = bairro;
       if (aptos > 0) existing.aptosSum += aptos;
       if (capacidadeAprox > existing.capacidadeAprox) existing.capacidadeAprox = capacidadeAprox;
+      // Se o existente tinha nome puramente numérico e agora temos o nome real da escola, atualiza
+      if (/^\d+$/.test(existing.nome) && nome && !/^\d+$/.test(nome)) {
+        existing.nome = nome;
+      }
     } else {
       const errors: string[] = [];
-      if (!nome) errors.push('Nome do colégio/local é obrigatório');
+      if (!nome && !codigoLocal) errors.push('Nome do colégio/local é obrigatório');
 
       const secoesSet = new Set<string>();
       secoesParsed.forEach((s) => secoesSet.add(s));
+      secoesAgregadasParsed.forEach((s) => secoesSet.add(s));
 
       mapLocais.set(groupKey, {
         originalIndex: index + 1,
-        nome,
+        nome: nome || (codigoLocal ? `Colégio Eleitoral ${codigoLocal}` : `Local de Votação ${index + 1}`),
         tipo,
         zona,
         secoesSet,
         secoesAgregadasList: secoesAgregadas ? [secoesAgregadas] : [],
-        bairro,
+        bairro: bairro || 'Centro',
         endereco,
         capacidadeAprox: capacidadeAprox || 1000,
         aptosSum: aptos,
@@ -631,7 +723,10 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
 
   return Array.from(mapLocais.values()).map((item, idx) => {
     const secoesArr = Array.from(item.secoesSet).sort((a, b) => Number(a) - Number(b));
-    const capacidadeFinal = item.aptosSum > 0 ? item.aptosSum : (item.capacidadeAprox || (secoesArr.length > 0 ? secoesArr.length * 350 : 1000));
+    const capacidadeFinal =
+      item.aptosSum > 0
+        ? item.aptosSum
+        : item.capacidadeAprox || (secoesArr.length > 0 ? secoesArr.length * 350 : 1000);
 
     return {
       originalIndex: idx + 1,

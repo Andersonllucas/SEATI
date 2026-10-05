@@ -97,11 +97,13 @@ export default function Importacao() {
     cleanTitulo,
     batchImportEleitores,
     batchImportLiderancas,
-    batchSaveLocais
+    batchSaveLocais,
+    clearAllLocais
   } = useCampaignData();
 
   // Selected Target for Template & Import
   const [importTarget, setImportTarget] = useState<ImportTarget>('eleitores');
+  const [limparLocaisAntes, setLimparLocaisAntes] = useState(true);
 
   // File Upload State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -661,6 +663,11 @@ export default function Importacao() {
         const localRows = (parsedData.rows as ParsedLocalRow[]).filter((r) => r.isValid);
         if (localRows.length === 0) {
           throw new Error('Nenhum local de votação válido encontrado para importação.');
+        }
+
+        // Se a opção de zerar estiver marcada, limpa os locais anteriores para evitar duplicidade ou resquícios
+        if (limparLocaisAntes && locais.length > 0) {
+          await clearAllLocais();
         }
 
         setImportProgress({ done: 0, total: localRows.length });
@@ -1387,6 +1394,27 @@ export default function Importacao() {
                   </div>
                 )}
 
+                {/* Opção para zerar locais anteriores */}
+                {importTarget === 'locais' && locais.length > 0 && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="cb-limpar-locais"
+                        checked={limparLocaisAntes}
+                        onChange={(e) => setLimparLocaisAntes(e.target.checked)}
+                        className="w-4 h-4 rounded text-primary focus:ring-primary/20 cursor-pointer accent-primary"
+                      />
+                      <label htmlFor="cb-limpar-locais" className="font-semibold text-on-surface cursor-pointer">
+                        Substituir e zerar os {locais.length} locais existentes antes de gravar os novos da planilha
+                      </label>
+                    </div>
+                    <span className="text-[11px] text-on-surface-variant hidden sm:inline">
+                      (Recomendado para corrigir importações anteriores)
+                    </span>
+                  </div>
+                )}
+
                 {/* Preview Table of parsed rows (first 5 rows) */}
                 <div className="border border-outline-variant/60 rounded-lg overflow-hidden bg-surface-container-lowest">
                   <div className="p-2.5 bg-surface-container-low/30 border-b border-outline-variant/40 flex items-center justify-between text-xs font-semibold text-on-surface-variant">
@@ -1419,7 +1447,7 @@ export default function Importacao() {
                           )}
                           {importTarget === 'locais' && (
                             <>
-                              <th className="px-3 py-2">Tipo</th>
+                              <th className="px-3 py-2">Bairro</th>
                               <th className="px-3 py-2">Cidade/UF</th>
                               <th className="px-3 py-2">Zona</th>
                               <th className="px-3 py-2">Seções</th>
@@ -1536,7 +1564,7 @@ export default function Importacao() {
                               )}
                               {importTarget === 'locais' && (
                                 <>
-                                  <td className="px-3 py-2 text-on-surface-variant">{row.tipo}</td>
+                                  <td className="px-3 py-2 text-on-surface-variant">{row.bairro || '-'}</td>
                                   <td className="px-3 py-2 text-on-surface-variant">
                                     {row.municipio || 'Teresina'} - {row.uf || 'PI'}
                                   </td>

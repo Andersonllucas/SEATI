@@ -73,8 +73,8 @@ export const LocalCard = React.memo(function LocalCard({
                 {local.nome}
               </h3>
               <p className="text-[11px] text-on-surface-variant truncate">
-                {local.tipo || 'Colégio Eleitoral'}
-                {local.municipio ? ` • ${local.municipio}-${local.uf || 'PI'}` : ''}
+                {local.bairro ? `${local.bairro} • ` : ''}
+                {local.municipio || 'Teresina'}-{local.uf || 'PI'}
               </p>
             </div>
           </div>

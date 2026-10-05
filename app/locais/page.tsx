@@ -76,17 +76,6 @@ const normalizeNum = (val?: string | number): string => {
   return str.toLowerCase();
 };
 
-const TIPOS_ESTABELECIMENTO = [
-  'Escola Estadual',
-  'Escola Municipal',
-  'Colégio Particular',
-  'Faculdade / Universidade',
-  'CIEP / Centro Integrado',
-  'Creche / Núcleo Infantil',
-  'Centro Comunitário',
-  'Outro'
-];
-
 const formatSecoesText = (secoes?: string | string[]): string => {
   if (!secoes) return '-';
   if (Array.isArray(secoes)) return secoes.join(', ');
@@ -119,7 +108,6 @@ export default function LocaisVotacaoPage() {
   // Search, filter & sort state
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedZona, setSelectedZona] = useState('todas');
-  const [selectedTipo, setSelectedTipo] = useState('todos');
   const [sortBy, setSortBy] = useState<'nome' | 'eleitores' | 'secoes' | 'capacidade'>('eleitores');
 
   // Batch Selection & Batch Delete State
@@ -461,23 +449,56 @@ export default function LocaisVotacaoPage() {
 
   // Filter and Sort
   const filteredLocais = useMemo(() => {
+    const rawQuery = (searchTerm || '').trim();
+    const cleanQuery = rawQuery
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    const queryDigits = rawQuery.replace(/\D/g, '');
+
     return locaisWithStats
       .filter((local) => {
-        const query = (searchTerm || '').toLowerCase().trim();
-        const nomeStr = (local.nome || '').toLowerCase();
-        const bairroStr = (local.bairro || '').toLowerCase();
-        const endStr = (local.endereco || '').toLowerCase();
-        const matchSearch =
-          !query ||
-          nomeStr.includes(query) ||
-          bairroStr.includes(query) ||
-          endStr.includes(query) ||
-          (Array.isArray(local.secoes) && local.secoes.some((s) => String(s).toLowerCase().includes(query)));
+        if (cleanQuery) {
+          const nomeNorm = (local.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const bairroNorm = (local.bairro || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const endNorm = (local.endereco || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const munNorm = (local.municipio || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const zonaNorm = (local.zona || '').toLowerCase();
+          const zonaDigits = (local.zona || '').replace(/\D/g, '');
+          const secoesArr = toSecoesArray(local.secoes);
+          const agregadasStr = String(local.secoesAgregadas || '').toLowerCase();
 
-        const matchZona = selectedZona === 'todas' || local.zona === selectedZona;
-        const matchTipo = selectedTipo === 'todos' || local.tipo === selectedTipo;
+          const matchText =
+            nomeNorm.includes(cleanQuery) ||
+            bairroNorm.includes(cleanQuery) ||
+            endNorm.includes(cleanQuery) ||
+            munNorm.includes(cleanQuery) ||
+            zonaNorm.includes(cleanQuery) ||
+            agregadasStr.includes(cleanQuery);
 
-        return matchSearch && matchZona && matchTipo;
+          const matchSecao = secoesArr.some((s) => {
+            const sDigits = s.replace(/\D/g, '');
+            return (
+              s.toLowerCase().includes(cleanQuery) ||
+              (queryDigits.length > 0 && (sDigits.includes(queryDigits) || Number(sDigits) === Number(queryDigits)))
+            );
+          });
+
+          const matchZonaExact =
+            queryDigits.length > 0 &&
+            (zonaDigits === queryDigits || Number(zonaDigits) === Number(queryDigits));
+
+          if (!matchText && !matchSecao && !matchZonaExact) {
+            return false;
+          }
+        }
+
+        const matchZona =
+          selectedZona === 'todas' ||
+          local.zona === selectedZona ||
+          (local.zona && normalizeNum(local.zona) === normalizeNum(selectedZona));
+
+        return matchZona;
       })
       .sort((a, b) => {
         if (sortBy === 'eleitores') return (b.eleitoresIdentificados || 0) - (a.eleitoresIdentificados || 0);
@@ -489,7 +510,7 @@ export default function LocaisVotacaoPage() {
         if (sortBy === 'capacidade') return (Number(b.capacidadeAprox) || 0) - (Number(a.capacidadeAprox) || 0);
         return (a.nome || '').localeCompare(b.nome || '');
       });
-  }, [locaisWithStats, searchTerm, selectedZona, selectedTipo, sortBy]);
+  }, [locaisWithStats, searchTerm, selectedZona, sortBy]);
 
   // Overall Statistics
   const totalLocaisCount = locais.length;
@@ -1320,6 +1341,20 @@ export default function LocaisVotacaoPage() {
             <span>Importar CSV</span>
           </button>
 
+          {/* Botão Zerar Todos os Locais */}
+          {locais.length > 0 && (
+            <button
+              type="button"
+              onClick={handleConfirmClearAllLocais}
+              disabled={isClearingAll}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-error/10 hover:bg-error/20 text-error border border-error/30 rounded-lg shadow-2xs transition-colors cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-50"
+              title="Excluir todos os locais e seções para permitir uma importação limpa"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-error" />
+              <span>{isClearingAll ? 'Zerando...' : 'Zerar Banco de Locais'}</span>
+            </button>
+          )}
+
           {/* Export Dropdown */}
           <div className="relative inline-block shrink-0">
             <button
@@ -1767,23 +1802,6 @@ export default function LocaisVotacaoPage() {
               {zonasDisponiveis.map((z) => (
                 <option key={z} value={z}>
                   Zona {z}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Tipo Filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-semibold text-on-surface-variant">Tipo:</span>
-            <select
-              value={selectedTipo}
-              onChange={(e) => setSelectedTipo(e.target.value)}
-              className="h-9 px-2.5 bg-surface-container-low border border-outline-variant/60 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary text-xs"
-            >
-              <option value="todos">Todos os Tipos</option>
-              {TIPOS_ESTABELECIMENTO.map((t) => (
-                <option key={t} value={t}>
-                  {t}
                 </option>
               ))}
             </select>
@@ -2674,32 +2692,15 @@ export default function LocaisVotacaoPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-on-surface mb-1">Tipo de Local</label>
-                    <select
-                      value={tipo}
-                      onChange={(e) => setTipo(e.target.value)}
-                      className="w-full h-9 px-2 bg-surface-container-low border border-outline-variant/70 rounded-lg text-on-surface focus:outline-none focus:border-secondary"
-                    >
-                      {TIPOS_ESTABELECIMENTO.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-on-surface mb-1">Zona Eleitoral</label>
-                    <input
-                      type="text"
-                      value={zona}
-                      onChange={(e) => setZona(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      placeholder="Ex: 001"
-                      className="w-full h-9 px-3 bg-surface-container-low border border-outline-variant/70 rounded-lg text-on-surface focus:outline-none focus:border-secondary font-mono"
-                    />
-                  </div>
+                <div>
+                  <label className="block font-bold text-on-surface mb-1">Zona Eleitoral</label>
+                  <input
+                    type="text"
+                    value={zona}
+                    onChange={(e) => setZona(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Ex: 001"
+                    className="w-full h-9 px-3 bg-surface-container-low border border-outline-variant/70 rounded-lg text-on-surface focus:outline-none focus:border-secondary font-mono"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
