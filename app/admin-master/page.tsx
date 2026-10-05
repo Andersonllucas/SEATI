@@ -89,19 +89,19 @@ const DEFAULT_FORM_CONFIG: TenantFirebaseConfig = {
   messagingSenderId: ''
 };
 
-const AUTHORIZED_MASTER_EMAIL = (
-  process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ||
-  process.env.MASTER_ADMIN_EMAIL ||
-  'LucasFernandes819@gmail.com'
-).trim().toLowerCase();
+const AUTHORIZED_MASTER_EMAILS = [
+  'lucasfernandes819@gmail.com',
+  'anderson@campanha.com',
+  (process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL || '').trim().toLowerCase(),
+  (process.env.MASTER_ADMIN_EMAIL || '').trim().toLowerCase()
+].filter(Boolean);
 
 function isAuthorizedMasterUser(user?: { email?: string | null; perfil?: string | null } | null): boolean {
-  if (!user || user.perfil !== 'Administrador') return false;
+  if (!user) return false;
+  // Qualquer usuário autenticado no banco central com perfil Administrador é autorizado
+  if (user.perfil === 'Administrador') return true;
   const email = (user.email || '').trim().toLowerCase();
-  if (AUTHORIZED_MASTER_EMAIL) {
-    return email === AUTHORIZED_MASTER_EMAIL;
-  }
-  return true;
+  return AUTHORIZED_MASTER_EMAILS.includes(email);
 }
 
 export default function AdminMasterPage() {
