@@ -505,6 +505,120 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
   });
 }
 
+export interface ParsedSecaoAgregadaItem {
+  secao: string;
+  aptos: number;
+  raw: string;
+}
+
+export interface ParsedSecoesAgregadasResult {
+  secoes: string[];
+  aptosTotal: number;
+  detalhes: ParsedSecaoAgregadaItem[];
+}
+
+/**
+ * Interpreta e sanitiza strings da coluna "SEÇÕES AGREGADAS" no padrão oficial TSE/TRE.
+ * Exemplo real TSE: "509/aptos: 121" ou "509/aptos: 121, 510/aptos: 85"
+ * 
+ * Regra crítica do TSE:
+ *  - O número antes da barra (ex: 509) corresponde ao NÚMERO DA SEÇÃO AGREGADA.
+ *  - O número após "aptos:" (ex: 121) é a QUANTIDADE DE ELEITORES APTOS pertencentes àquela seção.
+ * 
+ * Este parser garante que a quantidade de eleitores aptos (121) JAMAIS seja identificada ou cadastrada
+ * como um número de seção, preservando exclusivamente 0509 como a seção real e somando 121 aos eleitores aptos.
+ */
+export function parseSecoesAgregadas(raw: string | undefined | null): ParsedSecoesAgregadasResult {
+  if (!raw || typeof raw !== 'string') {
+    return { secoes: [], aptosTotal: 0, detalhes: [] };
+  }
+
+  const text = raw.trim();
+  if (!text) {
+    return { secoes: [], aptosTotal: 0, detalhes: [] };
+  }
+
+  const secoesSet = new Set<string>();
+  let aptosTotal = 0;
+  const detalhes: ParsedSecaoAgregadaItem[] = [];
+
+  // 1. Regex para capturar pares explícitos de "seção" e "aptos: X" / "(aptos: X)" / "/aptos: X" / "- 121 aptos"
+  const regexComAptos = /(\d+)\s*(?:[/(\[-]\s*(?:aptos?[:\s]*(\d+)|(\d+)\s*aptos?)\s*[)\]]?)/gi;
+  let match: RegExpExecArray | null;
+  let resto = text;
+
+  while ((match = regexComAptos.exec(text)) !== null) {
+    const rawSecao = match[1].replace(/\D/g, '');
+    const numSecao = rawSecao ? rawSecao.padStart(4, '0') : '';
+    const numAptos = Number(match[2] || match[3] || 0);
+
+    if (numSecao && numSecao !== '0000') {
+      secoesSet.add(numSecao);
+      aptosTotal += numAptos;
+      detalhes.push({ secao: numSecao, aptos: numAptos, raw: match[0] });
+    }
+    resto = resto.replace(match[0], ' ');
+  }
+
+  // 2. No texto residual (caso haja seções puramente numéricas sem o rótulo "aptos", ex: "509/aptos: 121, 512")
+  // Ignora qualquer fragmento que contenha variações de "apto"
+  const tokens = resto
+    .split(/[,;\-\|\n\r/]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !/aptos?/i.test(s));
+
+  for (const token of tokens) {
+    const digits = token.replace(/\D/g, '');
+    if (digits) {
+      const s = digits.padStart(4, '0');
+      if (s !== '0000' && !secoesSet.has(s)) {
+        secoesSet.add(s);
+        detalhes.push({ secao: s, aptos: 0, raw: token });
+      }
+    }
+  }
+
+  return {
+    secoes: Array.from(secoesSet).sort((a, b) => Number(a) - Number(b)),
+    aptosTotal,
+    detalhes
+  };
+}
+
+/**
+ * Sanitiza o array de seções de um local, removendo eventuais números que correspondiam
+ * apenas à contagem de aptos (ex: remove '0121' originado de '509/aptos: 121').
+ */
+export function sanitizeSecoesFromAptosNumbers(secoes: string[], secoesAgregadasRaw?: string): string[] {
+  if (!secoesAgregadasRaw || typeof secoesAgregadasRaw !== 'string' || !Array.isArray(secoes)) {
+    return secoes;
+  }
+
+  const { secoes: realAgregadas, detalhes } = parseSecoesAgregadas(secoesAgregadasRaw);
+  const realAgregadasSet = new Set(realAgregadas);
+  const aptosValues = new Set<string>();
+
+  detalhes.forEach((d) => {
+    if (d.aptos > 0) {
+      aptosValues.add(String(d.aptos));
+      aptosValues.add(String(d.aptos).padStart(4, '0'));
+    }
+  });
+
+  if (aptosValues.size === 0) return secoes;
+
+  return secoes.filter((s) => {
+    const sNorm = String(s).padStart(4, '0');
+    // Se for a seção agregada real (ex: 0509), SEMPRE preserva
+    if (realAgregadasSet.has(sNorm)) return true;
+    // Se for apenas o número de aptos e não uma seção legítima, remove
+    if (aptosValues.has(sNorm) || aptosValues.has(String(s))) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
   // Agrupa múltiplas linhas de seções pertencentes ao mesmo colégio/local de votação (Padrão TSE / TRE)
   const mapLocais = new Map<string, {
@@ -653,20 +767,17 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
     if (!tipo) tipo = 'Colégio Eleitoral';
 
     // Parse seções efetivas
-    const secoesParsed = secoesRaw
-      ? secoesRaw
-          .split(/[,;\-\|\n\r/]+/)
-          .map((s) => s.trim().replace(/\D/g, '').padStart(4, '0'))
-          .filter((s) => s.length > 0 && s !== '0000')
-      : [];
+    const secoesEfetivasInfo = parseSecoesAgregadas(secoesRaw);
+    const secoesParsed = secoesEfetivasInfo.secoes;
+    if (secoesEfetivasInfo.aptosTotal > 0 && aptos === 0) {
+      aptos = secoesEfetivasInfo.aptosTotal;
+    }
 
-    // Parse seções agregadas para que seus eleitores também encontrem este local
-    const secoesAgregadasParsed = secoesAgregadas
-      ? secoesAgregadas
-          .split(/[,;\-\|\n\r/]+/)
-          .map((s) => s.trim().replace(/\D/g, '').padStart(4, '0'))
-          .filter((s) => s.length > 0 && s !== '0000')
-      : [];
+    // Parse seções agregadas: extrai estritamente o número da seção (ex: 509) e a quantidade de eleitores aptos (ex: 121),
+    // garantindo que a quantidade de aptos NUNCA seja cadastrada erroneamente como uma seção eleitoral.
+    const agregadasInfo = parseSecoesAgregadas(secoesAgregadas);
+    const secoesAgregadasParsed = agregadasInfo.secoes;
+    const agregadasAptos = agregadasInfo.aptosTotal;
 
     // Chave de agrupamento estável por município, zona e nome padronizado (ou código do colégio)
     const normNome = (nome || '')
@@ -690,6 +801,7 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
       if (!existing.endereco && endereco) existing.endereco = endereco;
       if (!existing.bairro && bairro) existing.bairro = bairro;
       if (aptos > 0) existing.aptosSum += aptos;
+      if (agregadasAptos > 0) existing.aptosSum += agregadasAptos;
       if (capacidadeAprox > existing.capacidadeAprox) existing.capacidadeAprox = capacidadeAprox;
       // Se o existente tinha nome puramente numérico e agora temos o nome real da escola, atualiza
       if (/^\d+$/.test(existing.nome) && nome && !/^\d+$/.test(nome)) {
@@ -713,7 +825,7 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
         bairro: bairro || 'Centro',
         endereco,
         capacidadeAprox: capacidadeAprox || 1000,
-        aptosSum: aptos,
+        aptosSum: aptos + agregadasAptos,
         municipio,
         uf,
         errors
@@ -723,17 +835,19 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
 
   return Array.from(mapLocais.values()).map((item, idx) => {
     const secoesArr = Array.from(item.secoesSet).sort((a, b) => Number(a) - Number(b));
+    // Sanitização de segurança final para garantir que nenhum número de aptos tenha vazado
+    const secoesSanitizadas = sanitizeSecoesFromAptosNumbers(secoesArr, item.secoesAgregadasList.join('; '));
     const capacidadeFinal =
       item.aptosSum > 0
         ? item.aptosSum
-        : item.capacidadeAprox || (secoesArr.length > 0 ? secoesArr.length * 350 : 1000);
+        : item.capacidadeAprox || (secoesSanitizadas.length > 0 ? secoesSanitizadas.length * 350 : 1000);
 
     return {
       originalIndex: idx + 1,
       nome: item.nome,
       tipo: item.tipo,
       zona: item.zona,
-      secoes: secoesArr.length > 0 ? secoesArr : ['0001'],
+      secoes: secoesSanitizadas.length > 0 ? secoesSanitizadas : ['0001'],
       secoesAgregadas: item.secoesAgregadasList.join('; '),
       bairro: item.bairro,
       endereco: item.endereco,

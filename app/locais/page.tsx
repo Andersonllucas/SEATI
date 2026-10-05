@@ -36,9 +36,10 @@ import {
   Eye
 } from 'lucide-react';
 import { useCampaignData, LocalVotacao } from '@/context/CampaignContext';
+import { matchLocalFilter } from '@/context/LocationContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
-import { exportLocaisReal } from '@/lib/importExportUtils';
+import { exportLocaisReal, parseSecoesAgregadas, sanitizeSecoesFromAptosNumbers } from '@/lib/importExportUtils';
 import { recordCentralAuditLog } from '@/lib/firebase';
 import {
   CIDADES_DISPONIVEIS,
@@ -94,9 +95,14 @@ export default function LocaisVotacaoPage() {
   const {
     locais,
     totalLocaisCount,
+    totalSecoesCount,
+    totalCapacidadeCount,
+    registeredPairsList,
     isLoadingLocais,
     recarregarLocais,
     fetchLocaisPage,
+    fetchAllLocaisDedicated,
+    fetchAllMatchingIds,
     eleitores,
     addLocalVotacao,
     updateLocalVotacao,
@@ -125,6 +131,7 @@ export default function LocaisVotacaoPage() {
   const [hasNextPage, setHasNextPage] = useState(false);
   const [isSearchingFirestore, setIsSearchingFirestore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
 
   // Responsive Virtualizer columns
   const [columns, setColumns] = useState(3);
@@ -328,13 +335,26 @@ export default function LocaisVotacaoPage() {
     });
   }, [locais, eleitoresByZonaSecao]);
 
-  // Conjunto normalizado de todas as combinações (Zona, Seção) já cadastradas nos locais
+  // Conjunto normalizado de todas as combinações (Zona, Seção) já cadastradas nos locais (base completa)
   const registeredPairs = useMemo(() => {
     const set = new Set<string>();
+    // 1. Adiciona todas as seções registradas obtidas do resumo agregado da base completa
+    if (registeredPairsList && registeredPairsList.length > 0) {
+      registeredPairsList.forEach((pair) => {
+        const [z, s] = pair.split(':');
+        const normZ = normalizeNum(z);
+        const normS = normalizeNum(s);
+        if (normZ && normS) {
+          set.add(`${normZ}:${normS}`);
+        }
+      });
+    }
+    // 2. Adiciona seções de quaisquer locais atualmente na memória
     locais.forEach((l) => {
       const normZ = normalizeNum(l.zona);
       if (!normZ) return;
       const sArr = toSecoesArray(l.secoes);
+      if (l.secao) sArr.push(l.secao);
       sArr.forEach((s) => {
         const normS = normalizeNum(s);
         if (normS) {
@@ -343,7 +363,7 @@ export default function LocaisVotacaoPage() {
       });
     });
     return set;
-  }, [locais]);
+  }, [locais, registeredPairsList]);
 
   // =========================================================================
   // ITEM 4: OTIMIZAÇÃO DAS SEÇÕES PENDENTES DE MAPEAMENTO
@@ -439,6 +459,16 @@ export default function LocaisVotacaoPage() {
     },
     [fetchLocaisPage, pageSize]
   );
+
+  // Debounce automático da busca ao digitar (cobre a base inteira sob demanda)
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (searchTerm.trim() !== appliedSearch.trim()) {
+        handleExecuteSearch(searchTerm.trim(), selectedZona);
+      }
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [searchTerm, selectedZona, appliedSearch, handleExecuteSearch]);
 
   const handleNextPage = async () => {
     if (!currentLastDoc || !hasNextPage || isSearchingFirestore) return;
@@ -582,59 +612,11 @@ export default function LocaisVotacaoPage() {
     window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank', 'noopener,noreferrer');
   };
 
-  // Filter and Sort
+  // Filter and Sort usando a função padronizada matchLocalFilter
   const filteredLocais = useMemo(() => {
-    const rawQuery = (searchTerm || '').trim();
-    const cleanQuery = rawQuery
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
-    const queryDigits = rawQuery.replace(/\D/g, '');
-
+    const activeSearch = appliedSearch || searchTerm;
     return locaisWithStats
-      .filter((local) => {
-        if (cleanQuery) {
-          const nomeNorm = (local.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const bairroNorm = (local.bairro || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const endNorm = (local.endereco || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const munNorm = (local.municipio || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const zonaNorm = (local.zona || '').toLowerCase();
-          const zonaDigits = (local.zona || '').replace(/\D/g, '');
-          const secoesArr = toSecoesArray(local.secoes);
-          const agregadasStr = String(local.secoesAgregadas || '').toLowerCase();
-
-          const matchText =
-            nomeNorm.includes(cleanQuery) ||
-            bairroNorm.includes(cleanQuery) ||
-            endNorm.includes(cleanQuery) ||
-            munNorm.includes(cleanQuery) ||
-            zonaNorm.includes(cleanQuery) ||
-            agregadasStr.includes(cleanQuery);
-
-          const matchSecao = secoesArr.some((s) => {
-            const sDigits = s.replace(/\D/g, '');
-            return (
-              s.toLowerCase().includes(cleanQuery) ||
-              (queryDigits.length > 0 && (sDigits.includes(queryDigits) || Number(sDigits) === Number(queryDigits)))
-            );
-          });
-
-          const matchZonaExact =
-            queryDigits.length > 0 &&
-            (zonaDigits === queryDigits || Number(zonaDigits) === Number(queryDigits));
-
-          if (!matchText && !matchSecao && !matchZonaExact) {
-            return false;
-          }
-        }
-
-        const matchZona =
-          selectedZona === 'todas' ||
-          local.zona === selectedZona ||
-          (local.zona && normalizeNum(local.zona) === normalizeNum(selectedZona));
-
-        return matchZona;
-      })
+      .filter((local) => matchLocalFilter(local, activeSearch, selectedZona))
       .sort((a, b) => {
         if (sortBy === 'eleitores') return (b.eleitoresIdentificados || 0) - (a.eleitoresIdentificados || 0);
         if (sortBy === 'secoes') {
@@ -645,34 +627,45 @@ export default function LocaisVotacaoPage() {
         if (sortBy === 'capacidade') return (Number(b.capacidadeAprox) || 0) - (Number(a.capacidadeAprox) || 0);
         return (a.nome || '').localeCompare(b.nome || '');
       });
-  }, [locaisWithStats, searchTerm, selectedZona, sortBy]);
+  }, [locaisWithStats, searchTerm, appliedSearch, selectedZona, sortBy]);
 
-  // Overall Statistics
+  // Overall Statistics com contagens agregadas da base inteira
   const totalLocaisExibidos = filteredLocais.length;
   const totalLocaisGeral = totalLocaisCount > 0 ? totalLocaisCount : locais.length;
-  const totalCapacidade = useMemo(
-    () => locais.reduce((acc, l) => acc + (Number(l.capacidadeAprox) || 0), 0),
-    [locais]
-  );
+
   const totalSecoesUnicas = useMemo(() => {
     const set = new Set<string>();
     locais.forEach((l) => {
-      if (Array.isArray(l.secoes)) {
-        l.secoes.forEach((s) => set.add(`${l.zona || '001'}-${String(s).trim()}`));
-      }
+      const sArr = toSecoesArray(l.secoes);
+      if (l.secao) sArr.push(l.secao);
+      sArr.forEach((s) => {
+        const normZ = normalizeNum(l.zona) || '1';
+        const normS = normalizeNum(s);
+        if (normS) set.add(`${normZ}-${normS}`);
+      });
     });
     return set.size;
   }, [locais]);
+  const totalSecoesGeral = totalSecoesCount > 0 ? totalSecoesCount : totalSecoesUnicas;
 
+  const totalCapacidadeLocal = useMemo(
+    () => locais.reduce((acc, l) => acc + (Number(l.capacidadeAprox) || 0), 0),
+    [locais]
+  );
+  const totalCapacidadeGeral = totalCapacidadeCount > 0 ? totalCapacidadeCount : totalCapacidadeLocal;
+
+  // Eleitores da base mapeados em colégios cadastrados (considera a base inteira via registeredPairs)
   const totalEleitoresMapeados = useMemo(() => {
-    const ids = new Set<string>();
-    locaisWithStats.forEach((l) => {
-      if (Array.isArray(l.votersList)) {
-        l.votersList.forEach((v) => ids.add(v.id));
+    let count = 0;
+    eleitores.forEach((e) => {
+      const normZ = normalizeNum(e.zona);
+      const normS = normalizeNum(e.secao);
+      if (normZ && normS && registeredPairs.has(`${normZ}:${normS}`)) {
+        count++;
       }
     });
-    return ids.size;
-  }, [locaisWithStats]);
+    return count;
+  }, [eleitores, registeredPairs]);
 
   const taxaCobertura = eleitores.length > 0 ? Math.round((totalEleitoresMapeados / eleitores.length) * 100) : 0;
 
@@ -731,7 +724,12 @@ export default function LocaisVotacaoPage() {
     setMunicipio(local.municipio || activeCity);
     setUf(local.uf || activeUf);
     setCapacidadeAprox(local.capacidadeAprox || 1000);
-    setSecoes(Array.isArray(local.secoes) ? [...local.secoes] : []);
+    const initialSecoes = Array.isArray(local.secoes) ? [...local.secoes] : [];
+    const cleanSecoes = sanitizeSecoesFromAptosNumbers(
+      initialSecoes,
+      typeof local.secoesAgregadas === 'string' ? local.secoesAgregadas : undefined
+    );
+    setSecoes(cleanSecoes);
     setNewSecaoInput('');
     setIsDrawerOpen(true);
   };
@@ -741,12 +739,15 @@ export default function LocaisVotacaoPage() {
     const raw = newSecaoInput.trim();
     if (!raw) return;
 
-    const parts = raw
-      .split(/[,;\s]+/)
-      .map((s) => s.replace(/\D/g, '').padStart(4, '0'))
-      .filter((s) => s.length > 0);
+    const { secoes: parts } = parseSecoesAgregadas(raw);
+    const fallbackParts = parts.length > 0
+      ? parts
+      : raw
+          .split(/[,;\s]+/)
+          .map((s) => s.replace(/\D/g, '').padStart(4, '0'))
+          .filter((s) => s.length > 0 && s !== '0000');
 
-    const merged = Array.from(new Set([...secoes, ...parts]));
+    const merged = Array.from(new Set([...secoes, ...fallbackParts]));
     setSecoes(merged);
     setNewSecaoInput('');
   };
@@ -839,21 +840,43 @@ export default function LocaisVotacaoPage() {
     });
   };
 
-  // Batch Selection Handlers
+  // Batch Selection Handlers (Opera sobre TODOS os registros da base que batem com o filtro/busca ativo)
   const handleToggleSelect = (id: string) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
   };
 
-  const handleToggleSelectAll = () => {
-    if (filteredLocais.length === 0) return;
-    const allFilteredIds = filteredLocais.map((l) => l.id);
-    const allSelected = allFilteredIds.every((id) => selectedIds.includes(id));
-    if (allSelected) {
-      setSelectedIds((prev) => prev.filter((id) => !allFilteredIds.includes(id)));
-    } else {
-      setSelectedIds((prev) => Array.from(new Set([...prev, ...allFilteredIds])));
+  const handleToggleSelectAll = async () => {
+    setIsSelectingAll(true);
+    try {
+      // Consulta dedicada na base inteira para obter todos os IDs que batem com o filtro ativo
+      const matchingIds = await fetchAllMatchingIds({
+        searchTerm: appliedSearch || searchTerm,
+        selectedZona
+      });
+
+      if (matchingIds.length === 0) {
+        showToast('Nenhum local correspondente para selecionar.', 'info');
+        return;
+      }
+
+      const allSelected = matchingIds.every((id) => selectedIds.includes(id));
+      if (allSelected) {
+        setSelectedIds((prev) => prev.filter((id) => !matchingIds.includes(id)));
+        showToast('Seleção limpa.');
+      } else {
+        setSelectedIds((prev) => Array.from(new Set([...prev, ...matchingIds])));
+        showToast(
+          `${matchingIds.length.toLocaleString('pt-BR')} local(is) selecionado(s) na base inteira.`,
+          'success'
+        );
+      }
+    } catch (err) {
+      console.error('Erro ao selecionar todos os locais:', err);
+      showToast('Falha ao selecionar todos os locais.', 'error');
+    } finally {
+      setIsSelectingAll(false);
     }
   };
 
@@ -861,11 +884,26 @@ export default function LocaisVotacaoPage() {
     setSelectedIds([]);
   };
 
-  const isAllFilteredSelected =
-    filteredLocais.length > 0 && filteredLocais.every((l) => selectedIds.includes(l.id));
+  const isAllFilteredSelected = useMemo(() => {
+    if (selectedIds.length === 0) return false;
+    const isFiltered = Boolean((appliedSearch || searchTerm).trim()) || (selectedZona && selectedZona !== 'todas');
+    if (isFiltered) {
+      return (
+        filteredLocais.length > 0 &&
+        filteredLocais.every((l) => selectedIds.includes(l.id)) &&
+        selectedIds.length >= filteredLocais.length
+      );
+    }
+    return (
+      filteredLocais.length > 0 &&
+      filteredLocais.every((l) => selectedIds.includes(l.id)) &&
+      selectedIds.length >= totalLocaisGeral
+    );
+  }, [selectedIds, filteredLocais, appliedSearch, searchTerm, selectedZona, totalLocaisGeral]);
 
   const isSomeFilteredSelected =
-    filteredLocais.some((l) => selectedIds.includes(l.id)) && !isAllFilteredSelected;
+    (filteredLocais.some((l) => selectedIds.includes(l.id)) || selectedIds.length > 0) &&
+    !isAllFilteredSelected;
 
   const handleConfirmBatchDelete = async () => {
     if (selectedIds.length === 0) return;
@@ -874,7 +912,7 @@ export default function LocaisVotacaoPage() {
 
     solicitarSenhaMestre({
       title: 'Excluir Vários Locais de Votação',
-      description: `Para confirmar a exclusão permanente de ${count} local(is) de votação selecionado(s), informe a Senha Mestre do sistema.`,
+      description: `Para confirmar a exclusão permanente de ${count.toLocaleString('pt-BR')} local(is) de votação selecionado(s), informe a Senha Mestre do sistema.`,
       onSuccess: async () => {
         setIsBatchDeleting(true);
         try {
@@ -886,7 +924,7 @@ export default function LocaisVotacaoPage() {
             entidade: 'Local de Votação',
             entidadeId: 'lote'
           });
-          showToast(`${deleted} local(is) de votação excluído(s) com sucesso.`);
+          showToast(`${deleted.toLocaleString('pt-BR')} local(is) de votação excluído(s) com sucesso.`);
           setSelectedIds([]);
         } catch (err) {
           console.error('Erro ao excluir locais selecionados:', err);
@@ -896,6 +934,25 @@ export default function LocaisVotacaoPage() {
         }
       }
     });
+  };
+
+  // Exportação com suporte à base completa quando houver seleção em massa
+  const handleExportWithFormat = async (format: 'xlsx' | 'csv' | 'pdf', mode: 'tse' | 'resumo') => {
+    setIsExportMenuOpen(false);
+    try {
+      let targets: LocalVotacao[];
+      if (selectedIds.length > 0) {
+        const all = await fetchAllLocaisDedicated();
+        const idSet = new Set(selectedIds);
+        targets = all.filter((l) => idSet.has(l.id));
+      } else {
+        targets = filteredLocais.length > 0 ? filteredLocais : locais;
+      }
+      exportLocaisReal(targets, eleitores, format, mode);
+    } catch (err) {
+      console.error('Erro ao exportar locais:', err);
+      showToast('Falha ao exportar locais de votação.', 'error');
+    }
   };
 
   const handleConfirmClearAllLocais = () => {
@@ -1540,33 +1597,21 @@ export default function LocaisVotacaoPage() {
                 <div className="py-1">
                   <button
                     type="button"
-                    onClick={() => {
-                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
-                      exportLocaisReal(targets, eleitores, 'xlsx', 'tse');
-                      setIsExportMenuOpen(false);
-                    }}
+                    onClick={() => handleExportWithFormat('xlsx', 'tse')}
                     className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
                   >
                     <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Excel Padrão TSE (.xlsx)
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
-                      exportLocaisReal(targets, eleitores, 'csv', 'tse');
-                      setIsExportMenuOpen(false);
-                    }}
+                    onClick={() => handleExportWithFormat('csv', 'tse')}
                     className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
                   >
                     <Download className="w-4 h-4 text-secondary" /> CSV Padrão TSE (.csv)
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
-                      exportLocaisReal(targets, eleitores, 'pdf', 'tse');
-                      setIsExportMenuOpen(false);
-                    }}
+                    onClick={() => handleExportWithFormat('pdf', 'tse')}
                     className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
                   >
                     <FileText className="w-4 h-4 text-error" /> PDF Padrão TSE (.pdf)
@@ -1578,22 +1623,14 @@ export default function LocaisVotacaoPage() {
                 <div className="py-1">
                   <button
                     type="button"
-                    onClick={() => {
-                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
-                      exportLocaisReal(targets, eleitores, 'xlsx', 'resumo');
-                      setIsExportMenuOpen(false);
-                    }}
+                    onClick={() => handleExportWithFormat('xlsx', 'resumo')}
                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600/70" /> Resumo por Estabelecimento (.xlsx)
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      const targets = selectedIds.length > 0 ? locais.filter((l) => selectedIds.includes(l.id)) : (filteredLocais.length > 0 ? filteredLocais : locais);
-                      exportLocaisReal(targets, eleitores, 'pdf', 'resumo');
-                      setIsExportMenuOpen(false);
-                    }}
+                    onClick={() => handleExportWithFormat('pdf', 'resumo')}
                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
                   >
                     <FileText className="w-3.5 h-3.5 text-error/70" /> Resumo por Estabelecimento (.pdf)
@@ -1651,7 +1688,9 @@ export default function LocaisVotacaoPage() {
             <p className="text-[11px] font-bold uppercase text-on-surface-variant">Seções Cadastradas</p>
             <Layers className="w-4 h-4 text-secondary" />
           </div>
-          <p className="text-2xl font-black text-secondary font-mono mt-1">{totalSecoesUnicas}</p>
+          <p className="text-2xl font-black text-secondary font-mono mt-1">
+            {totalSecoesGeral.toLocaleString('pt-BR')}
+          </p>
           <p className="text-[11px] text-on-surface-variant mt-0.5">Seções ativas distribuídas</p>
         </div>
 
@@ -1718,7 +1757,7 @@ export default function LocaisVotacaoPage() {
             <BarChart3 className="w-4 h-4 text-secondary" />
           </div>
           <p className="text-2xl font-black text-on-surface font-mono mt-1">
-            {totalCapacidade.toLocaleString('pt-BR')}
+            {totalCapacidadeGeral.toLocaleString('pt-BR')}
           </p>
           <p className="text-[11px] text-on-surface-variant mt-0.5">Eleitores aptos na circunscrição</p>
         </div>
@@ -1960,7 +1999,7 @@ export default function LocaisVotacaoPage() {
             <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar por colégio, bairro, zona ou seção (Enter para buscar)..."
+              placeholder="Buscar por colégio, bairro, zona ou seção (cobre toda a base de locais)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full h-9 pl-9 pr-8 text-xs bg-surface-container-low border border-outline-variant/60 rounded-lg focus:outline-none focus:border-secondary transition-colors"
@@ -2095,11 +2134,25 @@ export default function LocaisVotacaoPage() {
                 className="w-4 h-4 rounded text-primary focus:ring-primary/20 border-outline-variant cursor-pointer accent-primary"
               />
               <span>
-                {isAllFilteredSelected
-                  ? `Todos os ${filteredLocais.length} locais da listagem selecionados`
-                  : selectedIds.length > 0
-                  ? `${selectedIds.length} de ${filteredLocais.length} local(is) selecionado(s)`
-                  : `Selecionar todos (${filteredLocais.length})`}
+                {isSelectingAll ? (
+                  <span className="inline-flex items-center gap-1.5 text-primary font-bold">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Selecionando base inteira...</span>
+                  </span>
+                ) : isAllFilteredSelected ? (
+                  <span className="font-bold text-primary">
+                    {`Todos os ${selectedIds.length.toLocaleString('pt-BR')} locais selecionados (base completa)`}
+                  </span>
+                ) : selectedIds.length > 0 ? (
+                  <span>
+                    <strong className="text-primary">{selectedIds.length.toLocaleString('pt-BR')}</strong> selecionado(s)
+                    {totalLocaisGeral > 0 && ` (de aprox. ${totalLocaisGeral.toLocaleString('pt-BR')} no banco)`}
+                  </span>
+                ) : (
+                  <span>
+                    Selecionar todos ({totalLocaisGeral > 0 ? totalLocaisGeral.toLocaleString('pt-BR') : filteredLocais.length})
+                  </span>
+                )}
               </span>
             </label>
 
@@ -2127,7 +2180,7 @@ export default function LocaisVotacaoPage() {
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-error text-on-error hover:bg-error/90 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{isBatchDeleting ? 'Excluindo...' : `Excluir Selecionados (${selectedIds.length})`}</span>
+                <span>{isBatchDeleting ? 'Excluindo...' : `Excluir Selecionados (${selectedIds.length.toLocaleString('pt-BR')})`}</span>
               </button>
             </div>
           )}

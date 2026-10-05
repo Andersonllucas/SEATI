@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   collection,
   query,
@@ -8,6 +8,8 @@ import {
   limit,
   addDoc,
   getDocs,
+  getDoc,
+  setDoc,
   getCountFromServer,
   startAfter,
   where,
@@ -24,6 +26,7 @@ import { useTenant } from '@/context/TenantContext';
 import { handleFirestoreError, OperationType, isCircuitBroken } from '@/lib/firestoreErrors';
 import { getCachedCollection, setCachedCollection } from '@/lib/firestoreCache';
 import { safeStorage } from '@/lib/safeStorage';
+import { sanitizeSecoesFromAptosNumbers } from '@/lib/importExportUtils';
 
 export interface LocalVotacao {
   id: string;
@@ -58,6 +61,97 @@ export interface FetchLocaisResult {
   firstDoc: QueryDocumentSnapshot | null;
   hasMore: boolean;
   totalCount?: number;
+}
+
+export interface LocaisResumoStats {
+  totalLocais: number;
+  totalSecoes: number;
+  totalCapacidade: number;
+  registeredPairs?: string[];
+  registeredPairsSample?: string[];
+  atualizadoEm?: string;
+}
+
+export function matchLocalFilter(
+  local: LocalVotacao,
+  searchTerm: string,
+  selectedZona: string = 'todas'
+): boolean {
+  // 1. Filtro de zona eleitoral
+  if (selectedZona && selectedZona !== 'todas') {
+    const filterZonaDigits = selectedZona.replace(/\D/g, '');
+    const localZonaDigits = (local.zona || '').replace(/\D/g, '');
+    const matchZona =
+      local.zona === selectedZona ||
+      (filterZonaDigits.length > 0 && localZonaDigits === filterZonaDigits);
+    if (!matchZona) return false;
+  }
+
+  const rawQuery = (searchTerm || '').trim();
+  if (!rawQuery) return true;
+
+  const cleanQuery = rawQuery
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const nomeNorm = (local.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const bairroNorm = (local.bairro || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const endNorm = (local.endereco || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const munNorm = (local.municipio || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const zonaNorm = (local.zona || '').toLowerCase();
+  const zonaDigits = (local.zona || '').replace(/\D/g, '');
+  const agregadasStr = String(local.secoesAgregadas || '').toLowerCase();
+
+  // Coleta todas as seções (secao única ou array/string de secoes)
+  const secoesList: string[] = [];
+  if (local.secao) secoesList.push(String(local.secao).trim());
+  if (Array.isArray(local.secoes)) {
+    local.secoes.forEach((s) => {
+      const trimmed = String(s).trim();
+      if (trimmed) secoesList.push(trimmed);
+    });
+  } else if (local.secoes) {
+    String(local.secoes)
+      .split(',')
+      .forEach((s) => {
+        const trimmed = s.trim();
+        if (trimmed) secoesList.push(trimmed);
+      });
+  }
+
+  // Tokeniza os termos para permitir buscas multi-palavras (ex: "escola centro", "são josé", "070")
+  const tokens = cleanQuery.split(/\s+/).filter(Boolean);
+
+  return tokens.every((token) => {
+    const tokenDigits = token.replace(/\D/g, '');
+
+    const textMatch =
+      nomeNorm.includes(token) ||
+      bairroNorm.includes(token) ||
+      endNorm.includes(token) ||
+      munNorm.includes(token) ||
+      zonaNorm.includes(token) ||
+      agregadasStr.includes(token);
+
+    const secaoMatch = secoesList.some((s) => {
+      const sDigits = s.replace(/\D/g, '');
+      const sNorm = s.toLowerCase();
+      if (sNorm.includes(token)) return true;
+      if (tokenDigits.length > 0) {
+        if (sDigits === tokenDigits) return true;
+        if (Number(sDigits) === Number(tokenDigits)) return true;
+        if (sDigits.includes(tokenDigits)) return true;
+      }
+      return false;
+    });
+
+    const zonaMatch =
+      tokenDigits.length > 0 &&
+      (zonaDigits === tokenDigits || Number(zonaDigits) === Number(tokenDigits));
+
+    return textMatch || secaoMatch || zonaMatch;
+  });
 }
 
 export const LOCAIS_PRESET_DEFAULT: Omit<LocalVotacao, 'id' | 'dataCadastro'>[] = [
@@ -160,11 +254,17 @@ function sanitizeFirestoreData<T extends Record<string, any>>(obj: T): T {
 interface LocationContextType {
   locais: LocalVotacao[];
   totalLocaisCount: number;
+  totalSecoesCount: number;
+  totalCapacidadeCount: number;
+  registeredPairsList: string[];
   isLoaded: boolean;
   isLoadingLocais: boolean;
   recarregarLocais: () => Promise<void>;
   fetchLocaisPage: (params?: FetchLocaisParams) => Promise<FetchLocaisResult>;
   fetchLocaisCount: () => Promise<number>;
+  fetchResumoStats: () => Promise<LocaisResumoStats>;
+  fetchAllLocaisDedicated: (forceRefresh?: boolean) => Promise<LocalVotacao[]>;
+  fetchAllMatchingIds: (params: { searchTerm?: string; selectedZona?: string }) => Promise<string[]>;
   addLocalVotacao: (data: Omit<LocalVotacao, 'id' | 'dataCadastro'>) => Promise<string>;
   updateLocalVotacao: (id: string, data: Partial<LocalVotacao>) => Promise<void>;
   deleteLocalVotacao: (id: string) => Promise<void>;
@@ -198,10 +298,96 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const saved = safeStorage.getItem(`locais_count_${tenantKey}`);
     return saved ? parseInt(saved, 10) || 0 : 0;
   });
+  const [totalSecoesCount, setTotalSecoesCount] = useState<number>(() => {
+    const saved = safeStorage.getItem(`locais_secoes_count_${tenantKey}`);
+    return saved ? parseInt(saved, 10) || 0 : 0;
+  });
+  const [totalCapacidadeCount, setTotalCapacidadeCount] = useState<number>(() => {
+    const saved = safeStorage.getItem(`locais_capacidade_count_${tenantKey}`);
+    return saved ? parseInt(saved, 10) || 0 : 0;
+  });
+  const [registeredPairsList, setRegisteredPairsList] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(true);
   const [isLoadingLocais, setIsLoadingLocais] = useState(false);
 
+  // Cache em memória dos locais completos para buscas dedicadas pontuais sem travamento
+  const dedicatedCacheRef = useRef<{ data: LocalVotacao[]; timestamp: number } | null>(null);
+
   const currentUserId = currentUser?.id;
+
+  // Consulta dedicada da base completa (para busca pontual e seleção de todos)
+  const fetchAllLocaisDedicated = useCallback(
+    async (forceRefresh = false): Promise<LocalVotacao[]> => {
+      const now = Date.now();
+      if (!forceRefresh && dedicatedCacheRef.current && now - dedicatedCacheRef.current.timestamp < 120000) {
+        return dedicatedCacheRef.current.data;
+      }
+      const targetDb = activeDb || getActiveDb();
+      const snap = await getDocs(collection(targetDb, 'locais_votacao'));
+      const list: LocalVotacao[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        const rawSecoes = Array.isArray(data.secoes)
+          ? data.secoes
+          : (data.secao ? [data.secao] : (typeof data.secoes === 'string' ? data.secoes.split(',').map((s: string) => s.trim()) : []));
+        const cleanSecoes = sanitizeSecoesFromAptosNumbers(
+          rawSecoes,
+          typeof data.secoesAgregadas === 'string' ? data.secoesAgregadas : undefined
+        );
+        list.push({ id: d.id, ...data, secoes: cleanSecoes } as LocalVotacao);
+      });
+      dedicatedCacheRef.current = { data: list, timestamp: now };
+      return list;
+    },
+    [activeDb]
+  );
+
+  // Retorna todos os IDs correspondentes ao filtro ativo consultando a base inteira (para Selecionar Todos)
+  const fetchAllMatchingIds = useCallback(
+    async (params: { searchTerm?: string; selectedZona?: string }): Promise<string[]> => {
+      const all = await fetchAllLocaisDedicated();
+      const matched = all.filter((l) =>
+        matchLocalFilter(l, params.searchTerm || '', params.selectedZona || 'todas')
+      );
+      return matched.map((l) => l.id);
+    },
+    [fetchAllLocaisDedicated]
+  );
+
+  // Consulta resumo estatístico agregado global (locais, seções totais, capacidade total)
+  const fetchResumoStats = useCallback(async (): Promise<LocaisResumoStats> => {
+    try {
+      const targetDb = activeDb || getActiveDb();
+      const docSnap = await getDoc(doc(targetDb, 'configuracoes', 'locais_resumo'));
+      if (docSnap.exists()) {
+        const d = docSnap.data() as LocaisResumoStats;
+        if (d.totalLocais > 0) {
+          setTotalLocaisCount(d.totalLocais);
+          setTotalSecoesCount(d.totalSecoes || 0);
+          setTotalCapacidadeCount(d.totalCapacidade || 0);
+          const pairs = d.registeredPairs || d.registeredPairsSample || [];
+          setRegisteredPairsList(pairs);
+          safeStorage.setItem(`locais_count_${tenantKey}`, String(d.totalLocais));
+          safeStorage.setItem(`locais_secoes_count_${tenantKey}`, String(d.totalSecoes || 0));
+          safeStorage.setItem(`locais_capacidade_count_${tenantKey}`, String(d.totalCapacidade || 0));
+          return d;
+        }
+      }
+
+      // Se não houver documento de resumo, busca a contagem agregada rápida de locais via getCountFromServer
+      const snap = await getCountFromServer(collection(targetDb, 'locais_votacao'));
+      const count = snap.data().count;
+      setTotalLocaisCount(count);
+      return { totalLocais: count, totalSecoes: 0, totalCapacidade: 0 };
+    } catch (err) {
+      console.warn('[LocationContext] Erro ao buscar resumo de locais:', err);
+      return {
+        totalLocais: totalLocaisCount,
+        totalSecoes: totalSecoesCount,
+        totalCapacidade: totalCapacidadeCount
+      };
+    }
+  }, [activeDb, tenantKey, totalLocaisCount, totalSecoesCount, totalCapacidadeCount]);
 
   // Consulta contagem total agregada de locais via getCountFromServer (1 leitura rápida)
   const fetchLocaisCount = useCallback(async (): Promise<number> => {
@@ -218,7 +404,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeDb, tenantKey, totalLocaisCount]);
 
-  // Busca sob demanda no Firestore: traz resultados relevantes ou página atual sem baixar tudo
+  // Busca sob demanda: traz resultados relevantes cobrindo a base inteira quando busca, ou paginação leve quando navega
   const fetchLocaisPage = useCallback(
     async (params?: FetchLocaisParams): Promise<FetchLocaisResult> => {
       const pageSize = params?.pageSize || 100;
@@ -231,95 +417,30 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         const targetDb = activeDb || getActiveDb();
         const colRef = collection(targetDb, 'locais_votacao');
 
-        // 1. Se tem termo de busca: realiza query direta no Firestore
-        if (searchTerm) {
-          const cleanDigits = searchTerm.replace(/\D/g, '');
-          const resultsMap = new Map<string, LocalVotacao>();
-          let lastDocResult: QueryDocumentSnapshot | null = null;
-          let firstDocResult: QueryDocumentSnapshot | null = null;
+        // 1. SE TEM TERMO DE BUSCA OU FILTRO DE ZONA: Busca dedicada cobrindo a base inteira
+        if (searchTerm || (selectedZona && selectedZona !== 'todas')) {
+          const allLocais = await fetchAllLocaisDedicated();
+          const matched = allLocais.filter((local) =>
+            matchLocalFilter(local, searchTerm, selectedZona)
+          );
+          matched.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 
-          // (a) Busca por zona e/ou seção caso haja dígitos
-          if (cleanDigits.length > 0) {
-            const paddedSecao = cleanDigits.padStart(4, '0');
-            const paddedZona = cleanDigits.padStart(3, '0');
-
-            // Query por seção via array-contains
-            const qSecao = query(colRef, where('secoes', 'array-contains', paddedSecao), limit(pageSize));
-            const snapSecao = await getDocs(qSecao);
-            snapSecao.forEach((d) => {
-              resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
-              if (!firstDocResult) firstDocResult = d;
-              lastDocResult = d;
-            });
-
-            // Também tenta sem padding caso não tenha encontrado
-            if (snapSecao.empty && cleanDigits !== paddedSecao) {
-              const qSecaoRaw = query(colRef, where('secoes', 'array-contains', cleanDigits), limit(pageSize));
-              const snapSecaoRaw = await getDocs(qSecaoRaw);
-              snapSecaoRaw.forEach((d) => {
-                resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
-                if (!firstDocResult) firstDocResult = d;
-                lastDocResult = d;
-              });
-            }
-
-            // Query por zona
-            const qZona = query(colRef, where('zona', '==', paddedZona), limit(pageSize));
-            const snapZona = await getDocs(qZona);
-            snapZona.forEach((d) => {
-              resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
-              if (!firstDocResult) firstDocResult = d;
-              lastDocResult = d;
-            });
-          }
-
-          // (b) Busca por prefixo no nome
-          const titleCase = searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1).toLowerCase();
-          const upperCase = searchTerm.toUpperCase();
-          const variations = Array.from(new Set([searchTerm, titleCase, upperCase]));
-
-          for (const term of variations) {
-            const qName = query(
-              colRef,
-              where('nome', '>=', term),
-              where('nome', '<=', term + '\uf8ff'),
-              limit(pageSize)
-            );
-            const snapName = await getDocs(qName);
-            snapName.forEach((d) => {
-              resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
-              if (!firstDocResult) firstDocResult = d;
-              lastDocResult = d;
-            });
-            if (resultsMap.size >= pageSize) break;
-          }
-
-          let list = Array.from(resultsMap.values());
-          if (selectedZona !== 'todas') {
-            const normZ = cleanDigits || selectedZona.replace(/\D/g, '');
-            list = list.filter((l) => (l.zona || '').replace(/\D/g, '') === normZ || l.zona === selectedZona);
-          }
-
-          setLocais(list);
+          setLocais(matched);
           return {
-            locais: list,
-            lastDoc: lastDocResult,
-            firstDoc: firstDocResult,
+            locais: matched,
+            lastDoc: null,
+            firstDoc: null,
             hasMore: false,
-            totalCount: list.length
+            totalCount: matched.length
           };
         }
 
-        // 2. Sem termo de busca: paginação padrão ordenada por nome
+        // 2. Sem termo de busca: paginação padrão leve ordenada por nome
         let q;
-        if (selectedZona !== 'todas') {
-          q = query(colRef, where('zona', '==', selectedZona), limit(pageSize + 1));
+        if (startAfterDoc) {
+          q = query(colRef, orderBy('nome', 'asc'), startAfter(startAfterDoc), limit(pageSize + 1));
         } else {
-          if (startAfterDoc) {
-            q = query(colRef, orderBy('nome', 'asc'), startAfter(startAfterDoc), limit(pageSize + 1));
-          } else {
-            q = query(colRef, orderBy('nome', 'asc'), limit(pageSize + 1));
-          }
+          q = query(colRef, orderBy('nome', 'asc'), limit(pageSize + 1));
         }
 
         const snap = await getDocs(q);
@@ -327,10 +448,21 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         const hasMore = docs.length > pageSize;
         const returnDocs = hasMore ? docs.slice(0, pageSize) : docs;
 
-        const list: LocalVotacao[] = returnDocs.map((d) => ({
-          id: d.id,
-          ...d.data()
-        } as LocalVotacao));
+        const list: LocalVotacao[] = returnDocs.map((d) => {
+          const data = d.data();
+          const rawSecoes = Array.isArray(data.secoes)
+            ? data.secoes
+            : (data.secao ? [data.secao] : (typeof data.secoes === 'string' ? data.secoes.split(',').map((s: string) => s.trim()) : []));
+          const cleanSecoes = sanitizeSecoesFromAptosNumbers(
+            rawSecoes,
+            typeof data.secoesAgregadas === 'string' ? data.secoesAgregadas : undefined
+          );
+          return {
+            id: d.id,
+            ...data,
+            secoes: cleanSecoes
+          } as LocalVotacao;
+        });
 
         setLocais(list);
         setCachedCollection('locais_votacao', list, tenantKey);
@@ -353,19 +485,20 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         setIsLoadingLocais(false);
       }
     },
-    [activeDb, tenantKey]
+    [activeDb, tenantKey, fetchAllLocaisDedicated]
   );
 
   // Recarregar locais explicitamente sob demanda
   const recarregarLocais = useCallback(async () => {
     setIsLoadingLocais(true);
+    dedicatedCacheRef.current = null;
     try {
-      await fetchLocaisCount();
+      await fetchResumoStats();
       await fetchLocaisPage({ pageSize: 100 });
     } finally {
       setIsLoadingLocais(false);
     }
-  }, [fetchLocaisCount, fetchLocaisPage]);
+  }, [fetchResumoStats, fetchLocaisPage]);
 
   // Carregamento inicial leve sob demanda (sem onSnapshot de 5000 documentos)
   useEffect(() => {
@@ -377,6 +510,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     if (isCleared) {
       setLocais([]);
       setTotalLocaisCount(0);
+      setTotalSecoesCount(0);
+      setTotalCapacidadeCount(0);
       setIsLoaded(true);
       return;
     }
@@ -394,9 +529,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const loadInitialData = async () => {
       setIsLoadingLocais(true);
       try {
-        const count = await fetchLocaisCount();
+        await fetchResumoStats();
         if (!isCurrent) return;
-        setTotalLocaisCount(count);
 
         const res = await fetchLocaisPage({ pageSize: 100 });
         if (!isCurrent) return;
@@ -418,7 +552,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant, fetchLocaisCount, fetchLocaisPage]);
+  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant, fetchResumoStats, fetchLocaisPage]);
 
   const addLocalVotacao = useCallback(async (data: Omit<LocalVotacao, 'id' | 'dataCadastro'>) => {
     const cleanData = sanitizeFirestoreData(data);
@@ -519,12 +653,21 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     safeStorage.setItem(`locais_cleared_${tenantKey}`, 'true');
     setLocais([]);
     setTotalLocaisCount(0);
+    setTotalSecoesCount(0);
+    setTotalCapacidadeCount(0);
+    setRegisteredPairsList([]);
+    dedicatedCacheRef.current = null;
     safeStorage.setItem(`locais_count_${tenantKey}`, '0');
+    safeStorage.setItem(`locais_secoes_count_${tenantKey}`, '0');
+    safeStorage.setItem(`locais_capacidade_count_${tenantKey}`, '0');
     setCachedCollection('locais_votacao', [], tenantKey);
 
     let deleted = 0;
     try {
       const targetDb = activeDb || getActiveDb();
+      try {
+        await deleteDoc(doc(targetDb, 'configuracoes', 'locais_resumo'));
+      } catch {}
       const snap = await getDocs(collection(targetDb, 'locais_votacao'));
       const docIds = snap.docs.map((d) => d.id);
       const CHUNK_SIZE = 400;
@@ -603,7 +746,14 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
           const batch = writeBatch(targetDb);
           chunk.forEach((item) => {
             const docRef = doc(targetDb, 'locais_votacao', item.id);
-            batch.update(docRef, sanitizeFirestoreData(item.dados));
+            const dadosSanitizados = { ...item.dados };
+            if (dadosSanitizados.secoes) {
+              dadosSanitizados.secoes = sanitizeSecoesFromAptosNumbers(
+                Array.isArray(dadosSanitizados.secoes) ? dadosSanitizados.secoes : [dadosSanitizados.secoes],
+                typeof dadosSanitizados.secoesAgregadas === 'string' ? dadosSanitizados.secoesAgregadas : undefined
+              );
+            }
+            batch.update(docRef, sanitizeFirestoreData(dadosSanitizados));
           });
           await batch.commit();
           updated += chunk.length;
@@ -614,32 +764,44 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
           const batch = writeBatch(targetDb);
           chunk.forEach((item) => {
             const docRef = doc(collection(targetDb, 'locais_votacao'));
+            const cleanSecoes = sanitizeSecoesFromAptosNumbers(
+              Array.isArray(item.secoes) ? item.secoes : (item.secoes ? [item.secoes] : []),
+              typeof item.secoesAgregadas === 'string' ? item.secoesAgregadas : undefined
+            );
             batch.set(docRef, {
-              ...sanitizeFirestoreData(item),
+              ...sanitizeFirestoreData({ ...item, secoes: cleanSecoes }),
               dataCadastro: serverTimestamp()
             });
           });
           await batch.commit();
           created += chunk.length;
         }
+        dedicatedCacheRef.current = null;
+        fetchResumoStats().catch(() => {});
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, 'locais_votacao');
       }
 
       return { created: created || toCreate.length, updated: updated || toUpdate.length };
     },
-    [tenantKey, activeDb]
+    [tenantKey, activeDb, fetchResumoStats]
   );
 
   const value = useMemo(
     () => ({
       locais,
       totalLocaisCount,
+      totalSecoesCount,
+      totalCapacidadeCount,
+      registeredPairsList,
       isLoaded,
       isLoadingLocais,
       recarregarLocais,
       fetchLocaisPage,
       fetchLocaisCount,
+      fetchResumoStats,
+      fetchAllLocaisDedicated,
+      fetchAllMatchingIds,
       addLocalVotacao,
       updateLocalVotacao,
       deleteLocalVotacao,
@@ -651,11 +813,17 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     [
       locais,
       totalLocaisCount,
+      totalSecoesCount,
+      totalCapacidadeCount,
+      registeredPairsList,
       isLoaded,
       isLoadingLocais,
       recarregarLocais,
       fetchLocaisPage,
       fetchLocaisCount,
+      fetchResumoStats,
+      fetchAllLocaisDedicated,
+      fetchAllMatchingIds,
       addLocalVotacao,
       updateLocalVotacao,
       deleteLocalVotacao,

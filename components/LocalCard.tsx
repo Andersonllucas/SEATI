@@ -132,6 +132,17 @@ export const LocalCard = React.memo(function LocalCard({
               <span className="text-[11px] text-on-surface-variant italic">Nenhuma seção vinculada</span>
             )}
           </div>
+          {Boolean(local.secoesAgregadas) && (
+            <div
+              className="mt-1.5 flex items-center gap-1.5 text-[10px] text-amber-900 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-md font-mono"
+              title={`Seções agregadas oficiais: ${local.secoesAgregadas}`}
+            >
+              <GitMerge className="w-3 h-3 text-amber-700 dark:text-amber-400 shrink-0" />
+              <span className="truncate">
+                Agregada(s): <strong>{String(local.secoesAgregadas)}</strong>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

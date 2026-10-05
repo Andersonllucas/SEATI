@@ -1,4 +1,5 @@
 import { LocalVotacao } from '@/context/CampaignContext';
+import { parseSecoesAgregadas } from '@/lib/importExportUtils';
 
 export interface LocalConflictItem {
   id: string;
@@ -691,13 +692,18 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
     // Parse section(s)
     let secoesList: string[] = [];
     if (idxSecao !== -1 && parts[idxSecao]) {
-      secoesList = parts[idxSecao]
-        .split(/[,/;\s]+/)
-        .map((s) => s.replace(/\D/g, '').padStart(4, '0'))
-        .filter((s) => s.length > 0);
+      const parsedSec = parseSecoesAgregadas(parts[idxSecao]);
+      secoesList = parsedSec.secoes;
     }
 
     const agregadas = idxAgregadas !== -1 && parts[idxAgregadas] ? parts[idxAgregadas].trim() : '';
+    const agregadasParsed = parseSecoesAgregadas(agregadas);
+    // Inclui apenas as seções agregadas reais (ex: 509) e NUNCA o número de eleitores aptos (ex: 121)
+    agregadasParsed.secoes.forEach((s) => {
+      if (!secoesList.includes(s)) secoesList.push(s);
+    });
+
+    const capacidadeComAptos = capacidadeAprox + (agregadasParsed.aptosTotal || 0);
 
     const key = `${zona}-${normalize(nome)}`;
     if (aggregatedMap.has(key)) {
@@ -707,7 +713,7 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
         ...existing,
         secoes: combinedSecoes,
         secoesAgregadas: existing.secoesAgregadas || agregadas || undefined,
-        capacidadeAprox: Math.max(existing.capacidadeAprox || 0, capacidadeAprox || 0)
+        capacidadeAprox: Math.max(existing.capacidadeAprox || 0, capacidadeComAptos || 0)
       });
     } else {
       aggregatedMap.set(key, {
@@ -716,7 +722,7 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
         zona,
         bairro,
         endereco,
-        capacidadeAprox,
+        capacidadeAprox: capacidadeComAptos,
         secoes: secoesList,
         secoesAgregadas: agregadas || undefined,
         municipio,
