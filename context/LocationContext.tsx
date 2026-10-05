@@ -3,17 +3,20 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import {
   collection,
-  onSnapshot,
   query,
   orderBy,
   limit,
   addDoc,
   getDocs,
+  getCountFromServer,
+  startAfter,
+  where,
   updateDoc,
   deleteDoc,
   doc,
   writeBatch,
-  serverTimestamp
+  serverTimestamp,
+  QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { getActiveDb } from '@/lib/firebase';
 import { useAuth } from './AuthContext';
@@ -40,6 +43,21 @@ export interface LocalVotacao {
   latitude?: number;
   longitude?: number;
   dataCadastro?: any;
+}
+
+export interface FetchLocaisParams {
+  pageSize?: number;
+  startAfterDoc?: QueryDocumentSnapshot | null;
+  searchTerm?: string;
+  selectedZona?: string;
+}
+
+export interface FetchLocaisResult {
+  locais: LocalVotacao[];
+  lastDoc: QueryDocumentSnapshot | null;
+  firstDoc: QueryDocumentSnapshot | null;
+  hasMore: boolean;
+  totalCount?: number;
 }
 
 export const LOCAIS_PRESET_DEFAULT: Omit<LocalVotacao, 'id' | 'dataCadastro'>[] = [
@@ -141,8 +159,12 @@ function sanitizeFirestoreData<T extends Record<string, any>>(obj: T): T {
 
 interface LocationContextType {
   locais: LocalVotacao[];
+  totalLocaisCount: number;
   isLoaded: boolean;
-  recarregarLocais: () => void;
+  isLoadingLocais: boolean;
+  recarregarLocais: () => Promise<void>;
+  fetchLocaisPage: (params?: FetchLocaisParams) => Promise<FetchLocaisResult>;
+  fetchLocaisCount: () => Promise<number>;
   addLocalVotacao: (data: Omit<LocalVotacao, 'id' | 'dataCadastro'>) => Promise<string>;
   updateLocalVotacao: (id: string, data: Partial<LocalVotacao>) => Promise<void>;
   deleteLocalVotacao: (id: string) => Promise<void>;
@@ -172,30 +194,190 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     }
     return [];
   });
+  const [totalLocaisCount, setTotalLocaisCount] = useState<number>(() => {
+    const saved = safeStorage.getItem(`locais_count_${tenantKey}`);
+    return saved ? parseInt(saved, 10) || 0 : 0;
+  });
   const [isLoaded, setIsLoaded] = useState(true);
+  const [isLoadingLocais, setIsLoadingLocais] = useState(false);
 
   const currentUserId = currentUser?.id;
 
-  // Quando o tenant mudar, recarrega o cache específico do novo cliente
+  // Consulta contagem total agregada de locais via getCountFromServer (1 leitura rápida)
+  const fetchLocaisCount = useCallback(async (): Promise<number> => {
+    try {
+      const targetDb = activeDb || getActiveDb();
+      const snap = await getCountFromServer(collection(targetDb, 'locais_votacao'));
+      const count = snap.data().count;
+      setTotalLocaisCount(count);
+      safeStorage.setItem(`locais_count_${tenantKey}`, String(count));
+      return count;
+    } catch (err) {
+      console.warn('[LocationContext] Erro ao contar locais:', err);
+      return totalLocaisCount;
+    }
+  }, [activeDb, tenantKey, totalLocaisCount]);
+
+  // Busca sob demanda no Firestore: traz resultados relevantes ou página atual sem baixar tudo
+  const fetchLocaisPage = useCallback(
+    async (params?: FetchLocaisParams): Promise<FetchLocaisResult> => {
+      const pageSize = params?.pageSize || 100;
+      const startAfterDoc = params?.startAfterDoc || null;
+      const searchTerm = (params?.searchTerm || '').trim();
+      const selectedZona = params?.selectedZona || 'todas';
+
+      setIsLoadingLocais(true);
+      try {
+        const targetDb = activeDb || getActiveDb();
+        const colRef = collection(targetDb, 'locais_votacao');
+
+        // 1. Se tem termo de busca: realiza query direta no Firestore
+        if (searchTerm) {
+          const cleanDigits = searchTerm.replace(/\D/g, '');
+          const resultsMap = new Map<string, LocalVotacao>();
+          let lastDocResult: QueryDocumentSnapshot | null = null;
+          let firstDocResult: QueryDocumentSnapshot | null = null;
+
+          // (a) Busca por zona e/ou seção caso haja dígitos
+          if (cleanDigits.length > 0) {
+            const paddedSecao = cleanDigits.padStart(4, '0');
+            const paddedZona = cleanDigits.padStart(3, '0');
+
+            // Query por seção via array-contains
+            const qSecao = query(colRef, where('secoes', 'array-contains', paddedSecao), limit(pageSize));
+            const snapSecao = await getDocs(qSecao);
+            snapSecao.forEach((d) => {
+              resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
+              if (!firstDocResult) firstDocResult = d;
+              lastDocResult = d;
+            });
+
+            // Também tenta sem padding caso não tenha encontrado
+            if (snapSecao.empty && cleanDigits !== paddedSecao) {
+              const qSecaoRaw = query(colRef, where('secoes', 'array-contains', cleanDigits), limit(pageSize));
+              const snapSecaoRaw = await getDocs(qSecaoRaw);
+              snapSecaoRaw.forEach((d) => {
+                resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
+                if (!firstDocResult) firstDocResult = d;
+                lastDocResult = d;
+              });
+            }
+
+            // Query por zona
+            const qZona = query(colRef, where('zona', '==', paddedZona), limit(pageSize));
+            const snapZona = await getDocs(qZona);
+            snapZona.forEach((d) => {
+              resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
+              if (!firstDocResult) firstDocResult = d;
+              lastDocResult = d;
+            });
+          }
+
+          // (b) Busca por prefixo no nome
+          const titleCase = searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1).toLowerCase();
+          const upperCase = searchTerm.toUpperCase();
+          const variations = Array.from(new Set([searchTerm, titleCase, upperCase]));
+
+          for (const term of variations) {
+            const qName = query(
+              colRef,
+              where('nome', '>=', term),
+              where('nome', '<=', term + '\uf8ff'),
+              limit(pageSize)
+            );
+            const snapName = await getDocs(qName);
+            snapName.forEach((d) => {
+              resultsMap.set(d.id, { id: d.id, ...d.data() } as LocalVotacao);
+              if (!firstDocResult) firstDocResult = d;
+              lastDocResult = d;
+            });
+            if (resultsMap.size >= pageSize) break;
+          }
+
+          let list = Array.from(resultsMap.values());
+          if (selectedZona !== 'todas') {
+            const normZ = cleanDigits || selectedZona.replace(/\D/g, '');
+            list = list.filter((l) => (l.zona || '').replace(/\D/g, '') === normZ || l.zona === selectedZona);
+          }
+
+          setLocais(list);
+          return {
+            locais: list,
+            lastDoc: lastDocResult,
+            firstDoc: firstDocResult,
+            hasMore: false,
+            totalCount: list.length
+          };
+        }
+
+        // 2. Sem termo de busca: paginação padrão ordenada por nome
+        let q;
+        if (selectedZona !== 'todas') {
+          q = query(colRef, where('zona', '==', selectedZona), limit(pageSize + 1));
+        } else {
+          if (startAfterDoc) {
+            q = query(colRef, orderBy('nome', 'asc'), startAfter(startAfterDoc), limit(pageSize + 1));
+          } else {
+            q = query(colRef, orderBy('nome', 'asc'), limit(pageSize + 1));
+          }
+        }
+
+        const snap = await getDocs(q);
+        const docs = snap.docs;
+        const hasMore = docs.length > pageSize;
+        const returnDocs = hasMore ? docs.slice(0, pageSize) : docs;
+
+        const list: LocalVotacao[] = returnDocs.map((d) => ({
+          id: d.id,
+          ...d.data()
+        } as LocalVotacao));
+
+        setLocais(list);
+        setCachedCollection('locais_votacao', list, tenantKey);
+
+        return {
+          locais: list,
+          lastDoc: returnDocs[returnDocs.length - 1] || null,
+          firstDoc: returnDocs[0] || null,
+          hasMore
+        };
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, 'locais_votacao', tenantKey);
+        return {
+          locais: [],
+          lastDoc: null,
+          firstDoc: null,
+          hasMore: false
+        };
+      } finally {
+        setIsLoadingLocais(false);
+      }
+    },
+    [activeDb, tenantKey]
+  );
+
+  // Recarregar locais explicitamente sob demanda
+  const recarregarLocais = useCallback(async () => {
+    setIsLoadingLocais(true);
+    try {
+      await fetchLocaisCount();
+      await fetchLocaisPage({ pageSize: 100 });
+    } finally {
+      setIsLoadingLocais(false);
+    }
+  }, [fetchLocaisCount, fetchLocaisPage]);
+
+  // Carregamento inicial leve sob demanda (sem onSnapshot de 5000 documentos)
   useEffect(() => {
-    const isCleared = safeStorage.getItem(`locais_cleared_${tenantKey}`) === 'true';
-    if (isCleared) {
-      setLocais([]);
-      setIsLoaded(true);
+    if (!isAuthReady || !currentUserId || isLoadingTenant) {
       return;
     }
 
-    const cached = getCachedCollection<LocalVotacao>('locais_votacao', undefined, tenantKey);
-    if (cached?.data && cached.data.length > 0) {
-      setLocais(cached.data);
-    } else {
+    const isCleared = safeStorage.getItem(`locais_cleared_${tenantKey}`) === 'true';
+    if (isCleared) {
       setLocais([]);
-    }
-    setIsLoaded(true);
-  }, [tenantKey, tenantVersion]);
-
-  useEffect(() => {
-    if (!isAuthReady || !currentUserId || isLoadingTenant) {
+      setTotalLocaisCount(0);
+      setIsLoaded(true);
       return;
     }
 
@@ -204,61 +386,39 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       if (cached?.data && cached.data.length > 0) {
         setLocais(cached.data);
       }
+      setIsLoaded(true);
       return;
     }
 
-    const targetDb = activeDb || getActiveDb();
-    // Consulta expandida (até 5000 locais) para cobrir municípios inteiros sem truncamento
-    const q = query(collection(targetDb, 'locais_votacao'), orderBy('nome', 'asc'), limit(5000));
-    let isSubscribed = true;
+    let isCurrent = true;
+    const loadInitialData = async () => {
+      setIsLoadingLocais(true);
+      try {
+        const count = await fetchLocaisCount();
+        if (!isCurrent) return;
+        setTotalLocaisCount(count);
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        if (!isSubscribed) return;
-        const list: LocalVotacao[] = [];
-        snapshot.forEach((d) => {
-          list.push({ id: d.id, ...d.data() } as LocalVotacao);
-        });
-
-        const isCurrentlyCleared = safeStorage.getItem(`locais_cleared_${tenantKey}`) === 'true';
-        if (isCurrentlyCleared && list.length > 0) {
-          // Limpeza total ativa: ignora documentos remanescentes até nova importação deliberada
-          return;
+        const res = await fetchLocaisPage({ pageSize: 100 });
+        if (!isCurrent) return;
+        if (res.locais.length > 0) {
+          setLocais(res.locais);
         }
-
-        if (list.length > 0) {
-          setLocais(list);
-          setCachedCollection('locais_votacao', list, tenantKey);
-        } else {
-          setLocais([]);
-          setCachedCollection('locais_votacao', [], tenantKey);
+      } catch (err) {
+        console.warn('[LocationContext] Aviso no carregamento inicial sob demanda:', err);
+      } finally {
+        if (isCurrent) {
+          setIsLoadingLocais(false);
+          setIsLoaded(true);
         }
-        setIsLoaded(true);
-      },
-      (error) => {
-        if (!isSubscribed) return;
-        handleFirestoreError(error, OperationType.LIST, 'locais_votacao', tenantKey);
-        const cached = getCachedCollection<LocalVotacao>('locais_votacao', undefined, tenantKey);
-        if (cached?.data && cached.data.length > 0) {
-          setLocais(cached.data);
-        }
-        setIsLoaded(true);
       }
-    );
+    };
+
+    loadInitialData();
 
     return () => {
-      isSubscribed = false;
-      unsubscribe();
+      isCurrent = false;
     };
-  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant]);
-
-  const recarregarLocais = useCallback(() => {
-    const cached = getCachedCollection<LocalVotacao>('locais_votacao', undefined, tenantKey);
-    if (cached?.data) {
-      setLocais(cached.data);
-    }
-  }, [tenantKey]);
+  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant, fetchLocaisCount, fetchLocaisPage]);
 
   const addLocalVotacao = useCallback(async (data: Omit<LocalVotacao, 'id' | 'dataCadastro'>) => {
     const cleanData = sanitizeFirestoreData(data);
@@ -286,6 +446,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         setCachedCollection('locais_votacao', updated, tenantKey);
         return updated;
       });
+      setTotalLocaisCount((p) => p + 1);
       return docRef.id;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'locais_votacao');
@@ -315,6 +476,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       setCachedCollection('locais_votacao', updated, tenantKey);
       return updated;
     });
+    setTotalLocaisCount((p) => Math.max(0, p - 1));
 
     try {
       const targetDb = activeDb || getActiveDb();
@@ -332,6 +494,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       setCachedCollection('locais_votacao', updated, tenantKey);
       return updated;
     });
+    setTotalLocaisCount((p) => Math.max(0, p - ids.length));
 
     let deleted = 0;
     const CHUNK_SIZE = 400;
@@ -355,6 +518,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   const clearAllLocais = useCallback(async () => {
     safeStorage.setItem(`locais_cleared_${tenantKey}`, 'true');
     setLocais([]);
+    setTotalLocaisCount(0);
+    safeStorage.setItem(`locais_count_${tenantKey}`, '0');
     setCachedCollection('locais_votacao', [], tenantKey);
 
     let deleted = 0;
@@ -386,6 +551,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       dataCadastro: new Date().toISOString()
     }));
     setLocais(presets);
+    setTotalLocaisCount(presets.length);
     setCachedCollection('locais_votacao', presets, tenantKey);
 
     try {
@@ -426,6 +592,9 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         setCachedCollection('locais_votacao', combined, tenantKey);
         return combined;
       });
+      if (toCreate.length > 0) {
+        setTotalLocaisCount((p) => p + toCreate.length);
+      }
 
       try {
         const targetDb = activeDb || getActiveDb();
@@ -465,8 +634,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       locais,
+      totalLocaisCount,
       isLoaded,
+      isLoadingLocais,
       recarregarLocais,
+      fetchLocaisPage,
+      fetchLocaisCount,
       addLocalVotacao,
       updateLocalVotacao,
       deleteLocalVotacao,
@@ -477,8 +650,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       locais,
+      totalLocaisCount,
       isLoaded,
+      isLoadingLocais,
       recarregarLocais,
+      fetchLocaisPage,
+      fetchLocaisCount,
       addLocalVotacao,
       updateLocalVotacao,
       deleteLocalVotacao,

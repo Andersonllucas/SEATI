@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { LocalCard } from '@/components/LocalCard';
 import {
   MapPin,
@@ -9,6 +10,7 @@ import {
   Users,
   CheckCircle2,
   ChevronRight,
+  ChevronLeft,
   BarChart3,
   Plus,
   Trash2,
@@ -91,6 +93,10 @@ const toSecoesArray = (secoes?: string | string[]): string[] => {
 export default function LocaisVotacaoPage() {
   const {
     locais,
+    totalLocaisCount,
+    isLoadingLocais,
+    recarregarLocais,
+    fetchLocaisPage,
     eleitores,
     addLocalVotacao,
     updateLocalVotacao,
@@ -107,8 +113,35 @@ export default function LocaisVotacaoPage() {
 
   // Search, filter & sort state
   const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [selectedZona, setSelectedZona] = useState('todas');
   const [sortBy, setSortBy] = useState<'nome' | 'eleitores' | 'secoes' | 'capacidade'>('eleitores');
+
+  // Pagination & On-Demand Firestore Search State
+  const [pageSize] = useState(60);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [cursorHistory, setCursorHistory] = useState<any[]>([]);
+  const [currentLastDoc, setCurrentLastDoc] = useState<any>(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [isSearchingFirestore, setIsSearchingFirestore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Responsive Virtualizer columns
+  const [columns, setColumns] = useState(3);
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const updateColumns = () => {
+      if (!parentRef.current) return;
+      const width = parentRef.current.clientWidth;
+      if (width < 720) setColumns(1);
+      else if (width < 1080) setColumns(2);
+      else setColumns(3);
+    };
+    updateColumns();
+    window.addEventListener('resize', updateColumns);
+    return () => window.removeEventListener('resize', updateColumns);
+  }, []);
 
   // Batch Selection & Batch Delete State
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -238,18 +271,54 @@ export default function LocaisVotacaoPage() {
     isExportMenuOpen
   ]);
 
-  // Associate voters to voting locations based strictly on zone & section match
+  // =========================================================================
+  // ITEM 1: ÍNDICE INVERTIDO DE ELEITORES POR ZONA E SEÇÃO
+  // Construído UMA VEZ no useMemo (depende unicamente de eleitores) O(eleitores)
+  // =========================================================================
+  const eleitoresByZonaSecao = useMemo(() => {
+    const map = new Map<string, typeof eleitores>();
+    for (let i = 0; i < eleitores.length; i++) {
+      const e = eleitores[i];
+      const z = normalizeNum(e.zona);
+      const s = normalizeNum(e.secao);
+      if (!z || !s) continue;
+      const key = `${z}:${s}`;
+      let list = map.get(key);
+      if (!list) {
+        list = [];
+        map.set(key, list);
+      }
+      list.push(e);
+    }
+    return map;
+  }, [eleitores]);
+
+  // Consulta O(1) por seção no Map pré-calculado em vez de varrer eleitores a cada local
+  // Complexidade reduzida de O(locais × eleitores) para O(locais + eleitores)
   const locaisWithStats = useMemo(() => {
     return locais.map((local) => {
-      const votersInLocal = eleitores.filter((e) => {
-        if (e.zona && local.zona && normalizeNum(e.zona) === normalizeNum(local.zona)) {
-          const voterSecao = (e.secao || '').trim();
-          if (voterSecao && toSecoesArray(local.secoes).some((s) => normalizeNum(s) === normalizeNum(voterSecao))) {
-            return true;
+      const normZ = normalizeNum(local.zona);
+      const secoesArr = toSecoesArray(local.secoes);
+      const votersInLocal: typeof eleitores = [];
+      const seenVoterIds = new Set<string>();
+
+      if (normZ) {
+        for (let sIdx = 0; sIdx < secoesArr.length; sIdx++) {
+          const normS = normalizeNum(secoesArr[sIdx]);
+          if (!normS) continue;
+          const key = `${normZ}:${normS}`;
+          const votersInSecao = eleitoresByZonaSecao.get(key);
+          if (votersInSecao) {
+            for (let vIdx = 0; vIdx < votersInSecao.length; vIdx++) {
+              const v = votersInSecao[vIdx];
+              if (!seenVoterIds.has(v.id)) {
+                seenVoterIds.add(v.id);
+                votersInLocal.push(v);
+              }
+            }
           }
         }
-        return false;
-      });
+      }
 
       return {
         ...local,
@@ -257,9 +326,9 @@ export default function LocaisVotacaoPage() {
         votersList: votersInLocal
       };
     });
-  }, [locais, eleitores]);
+  }, [locais, eleitoresByZonaSecao]);
 
-  // Conjunto normalizado de todas as combinações (Zona, Seção) já cadastradas nos locais de votação
+  // Conjunto normalizado de todas as combinações (Zona, Seção) já cadastradas nos locais
   const registeredPairs = useMemo(() => {
     const set = new Set<string>();
     locais.forEach((l) => {
@@ -276,85 +345,64 @@ export default function LocaisVotacaoPage() {
     return set;
   }, [locais]);
 
-  // Identificação e agrupamento de todas as Zonas e Seções dos eleitores que ainda NÃO possuem local cadastrado
+  // =========================================================================
+  // ITEM 4: OTIMIZAÇÃO DAS SEÇÕES PENDENTES DE MAPEAMENTO
+  // Itera diretamente no Map eleitoresByZonaSecao em vez de varreduras aninhadas
+  // =========================================================================
   const secoesPendentes = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        zonaRaw: string;
-        secaoRaw: string;
-        eleitores: Array<{ id: string; nome: string; bairro: string; lideranca?: string; telefone?: string }>;
-        bairrosMap: Map<string, number>;
-        liderancasMap: Map<string, number>;
-      }
-    >();
+    const list: SecaoPendente[] = [];
 
-    eleitores.forEach((e) => {
-      const rawZ = (e.zona || '').trim();
-      const rawS = (e.secao || '').trim();
-      if (!rawZ || !rawS) return;
+    for (const [key, voterList] of eleitoresByZonaSecao.entries()) {
+      if (registeredPairs.has(key)) continue;
 
-      const normZ = normalizeNum(rawZ);
-      const normS = normalizeNum(rawS);
-      if (!normZ || !normS) return;
+      const [normZ, normS] = key.split(':');
+      const firstVoter = voterList[0];
+      const zonaRaw = firstVoter?.zona || normZ;
+      const secaoRaw = firstVoter?.secao || normS;
+      const zonaFormatada = normZ.padStart(3, '0');
+      const secaoFormatada = normS.padStart(4, '0');
 
-      const key = `${normZ}:${normS}`;
-      if (!registeredPairs.has(key)) {
-        if (!groups.has(key)) {
-          groups.set(key, {
-            zonaRaw: rawZ,
-            secaoRaw: rawS,
-            eleitores: [],
-            bairrosMap: new Map<string, number>(),
-            liderancasMap: new Map<string, number>()
-          });
+      const bairrosMap = new Map<string, number>();
+      const liderancasMap = new Map<string, number>();
+
+      const mappedVoters = voterList.map((e) => {
+        if (e.bairro && e.bairro.trim()) {
+          const b = e.bairro.trim();
+          bairrosMap.set(b, (bairrosMap.get(b) || 0) + 1);
         }
-        const g = groups.get(key)!;
-        g.eleitores.push({
+        if (e.lideranca && e.lideranca.trim()) {
+          const l = e.lideranca.trim();
+          liderancasMap.set(l, (liderancasMap.get(l) || 0) + 1);
+        }
+        return {
           id: e.id,
           nome: e.nome,
           bairro: e.bairro || '',
           lideranca: e.lideranca || '',
           telefone: e.telefone || ''
-        });
+        };
+      });
 
-        if (e.bairro && e.bairro.trim()) {
-          const b = e.bairro.trim();
-          g.bairrosMap.set(b, (g.bairrosMap.get(b) || 0) + 1);
-        }
-        if (e.lideranca && e.lideranca.trim()) {
-          const l = e.lideranca.trim();
-          g.liderancasMap.set(l, (g.liderancasMap.get(l) || 0) + 1);
-        }
-      }
-    });
-
-    const list: SecaoPendente[] = [];
-    groups.forEach((g, key) => {
-      const [normZ, normS] = key.split(':');
-      const zonaFormatada = normZ.padStart(3, '0');
-      const secaoFormatada = normS.padStart(4, '0');
-
-      const topBairros = Array.from(g.bairrosMap.entries())
+      const topBairros = Array.from(bairrosMap.entries())
         .sort((a, b) => b[1] - a[1])
         .map((entry) => entry[0]);
 
-      const topLiderancas = Array.from(g.liderancasMap.entries())
+      const topLiderancas = Array.from(liderancasMap.entries())
         .sort((a, b) => b[1] - a[1])
         .map((entry) => entry[0]);
 
       list.push({
         key,
-        zonaOriginal: g.zonaRaw,
-        secaoOriginal: g.secaoRaw,
+        zonaOriginal: zonaRaw,
+        secaoOriginal: secaoRaw,
         zonaFormatada,
         secaoFormatada,
-        totalEleitores: g.eleitores.length,
-        eleitores: g.eleitores,
+        totalEleitores: mappedVoters.length,
+        eleitores: mappedVoters,
         bairrosFrequentes: topBairros,
         liderancasFrequentes: topLiderancas
       });
-    });
+    }
 
     return list.sort((a, b) => {
       if (b.totalEleitores !== a.totalEleitores) {
@@ -365,7 +413,94 @@ export default function LocaisVotacaoPage() {
       }
       return a.secaoFormatada.localeCompare(b.secaoFormatada);
     });
-  }, [eleitores, registeredPairs]);
+  }, [eleitoresByZonaSecao, registeredPairs]);
+
+  // Handlers para busca sob demanda e paginação real no Firestore
+  const handleExecuteSearch = useCallback(
+    async (queryText: string, zona: string) => {
+      setIsSearchingFirestore(true);
+      try {
+        setPageNumber(1);
+        setCursorHistory([]);
+        const res = await fetchLocaisPage({
+          searchTerm: queryText,
+          selectedZona: zona,
+          pageSize
+        });
+        setCurrentLastDoc(res.lastDoc);
+        setHasNextPage(res.hasMore);
+        setAppliedSearch(queryText);
+      } catch (err) {
+        console.error('Erro na consulta do Firestore:', err);
+        showToast('Erro ao consultar locais no Firestore.', 'error');
+      } finally {
+        setIsSearchingFirestore(false);
+      }
+    },
+    [fetchLocaisPage, pageSize]
+  );
+
+  const handleNextPage = async () => {
+    if (!currentLastDoc || !hasNextPage || isSearchingFirestore) return;
+    setIsSearchingFirestore(true);
+    try {
+      const res = await fetchLocaisPage({
+        pageSize,
+        startAfterDoc: currentLastDoc,
+        searchTerm: appliedSearch,
+        selectedZona
+      });
+      setCursorHistory((prev) => [...prev, currentLastDoc]);
+      setCurrentLastDoc(res.lastDoc);
+      setHasNextPage(res.hasMore);
+      setPageNumber((p) => p + 1);
+    } catch (err) {
+      console.error('Erro ao avançar página:', err);
+      showToast('Erro ao carregar próxima página.', 'error');
+    } finally {
+      setIsSearchingFirestore(false);
+    }
+  };
+
+  const handlePrevPage = async () => {
+    if (pageNumber <= 1 || isSearchingFirestore) return;
+    setIsSearchingFirestore(true);
+    try {
+      const prevCursor = pageNumber > 2 ? cursorHistory[pageNumber - 3] : null;
+      const res = await fetchLocaisPage({
+        pageSize,
+        startAfterDoc: prevCursor,
+        searchTerm: appliedSearch,
+        selectedZona
+      });
+      setCursorHistory((prev) => prev.slice(0, prev.length - 1));
+      setCurrentLastDoc(res.lastDoc);
+      setHasNextPage(true);
+      setPageNumber((p) => Math.max(1, p - 1));
+    } catch (err) {
+      console.error('Erro ao voltar página:', err);
+      showToast('Erro ao carregar página anterior.', 'error');
+    } finally {
+      setIsSearchingFirestore(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await recarregarLocais();
+      setPageNumber(1);
+      setCursorHistory([]);
+      setAppliedSearch('');
+      setSearchTerm('');
+      showToast('Locais de votação atualizados com sucesso!', 'success');
+    } catch (err) {
+      console.error('Erro ao atualizar locais:', err);
+      showToast('Falha ao atualizar dados do servidor.', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const totalEleitoresPendentes = useMemo(() => {
     return secoesPendentes.reduce((acc, s) => acc + s.totalEleitores, 0);
@@ -513,7 +648,8 @@ export default function LocaisVotacaoPage() {
   }, [locaisWithStats, searchTerm, selectedZona, sortBy]);
 
   // Overall Statistics
-  const totalLocaisCount = locais.length;
+  const totalLocaisExibidos = filteredLocais.length;
+  const totalLocaisGeral = totalLocaisCount > 0 ? totalLocaisCount : locais.length;
   const totalCapacidade = useMemo(
     () => locais.reduce((acc, l) => acc + (Number(l.capacidadeAprox) || 0), 0),
     [locais]
@@ -540,14 +676,33 @@ export default function LocaisVotacaoPage() {
 
   const taxaCobertura = eleitores.length > 0 ? Math.round((totalEleitoresMapeados / eleitores.length) * 100) : 0;
 
-  // Available unique zones across registered locais
+  // Zonas eleitorais disponíveis para filtragem rápida
   const zonasDisponiveis = useMemo(() => {
     const set = new Set<string>();
     locais.forEach((l) => {
-      if (l.zona) set.add(l.zona);
+      if (l.zona) {
+        const normZ = normalizeNum(l.zona).padStart(3, '0');
+        if (normZ && normZ !== '000') set.add(normZ);
+      }
     });
+    eleitores.forEach((e) => {
+      if (e.zona) {
+        const normZ = normalizeNum(e.zona).padStart(3, '0');
+        if (normZ && normZ !== '000') set.add(normZ);
+      }
+    });
+    ['001', '002', '063', '097', '098'].forEach((z) => set.add(z));
     return Array.from(set).sort();
-  }, [locais]);
+  }, [locais, eleitores]);
+
+  // Virtualizador de Linhas do Grid
+  const rowCount = Math.ceil(filteredLocais.length / columns);
+  const rowVirtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 240,
+    overscan: 2
+  });
 
   // Open Create Drawer
   const handleOpenCreate = () => {
@@ -1296,6 +1451,18 @@ export default function LocaisVotacaoPage() {
             </button>
           )}
 
+          {/* Botão Atualizar sob demanda */}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing || isLoadingLocais}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-surface hover:bg-surface-container text-on-surface border border-outline-variant rounded-lg transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-50"
+            title="Atualizar dados de locais do servidor Firestore (leitura sob demanda)"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-primary ${isRefreshing || isLoadingLocais ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing || isLoadingLocais ? 'Atualizando...' : 'Atualizar'}</span>
+          </button>
+
           {/* Manual Create */}
           <button
             onClick={handleOpenCreate}
@@ -1471,8 +1638,12 @@ export default function LocaisVotacaoPage() {
             <p className="text-[11px] font-bold uppercase text-on-surface-variant">Colégios Mapeados</p>
             <Building2 className="w-4 h-4 text-primary" />
           </div>
-          <p className="text-2xl font-black text-primary font-mono mt-1">{totalLocaisCount}</p>
-          <p className="text-[11px] text-on-surface-variant mt-0.5">Sincronizados com o Firestore</p>
+          <p className="text-2xl font-black text-primary font-mono mt-1">
+            {totalLocaisGeral.toLocaleString('pt-BR')}
+          </p>
+          <p className="text-[11px] text-on-surface-variant mt-0.5">
+            Total no banco ({totalLocaisExibidos} visíveis)
+          </p>
         </div>
 
         <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/60 shadow-xs">
@@ -1776,18 +1947,53 @@ export default function LocaisVotacaoPage() {
         )}
       </div>
 
-      {/* Filters, Search & Sort Bar */}
+      {/* Filters, Search & Sort Bar (Consulta Direta no Firestore e Paginação) */}
       <div className="bg-surface-container-lowest p-3.5 rounded-xl border border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-        <div className="relative flex-1 min-w-[260px]">
-          <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Buscar por colégio, bairro, endereço ou número de seção..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full h-9 pl-9 pr-4 text-xs bg-surface-container-low border border-outline-variant/60 rounded-lg focus:outline-none focus:border-secondary transition-colors"
-          />
-        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleExecuteSearch(searchTerm, selectedZona);
+          }}
+          className="relative flex-1 min-w-[280px] flex items-center gap-2"
+        >
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar por colégio, bairro, zona ou seção (Enter para buscar)..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full h-9 pl-9 pr-8 text-xs bg-surface-container-low border border-outline-variant/60 rounded-lg focus:outline-none focus:border-secondary transition-colors"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  handleExecuteSearch('', selectedZona);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface p-0.5 cursor-pointer"
+                title="Limpar busca"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={isSearchingFirestore}
+            className="h-9 px-3.5 bg-primary text-on-primary font-bold text-xs rounded-lg hover:bg-secondary transition-colors shrink-0 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+          >
+            {isSearchingFirestore ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Buscando...</span>
+              </>
+            ) : (
+              <span>Buscar</span>
+            )}
+          </button>
+        </form>
 
         <div className="flex flex-wrap items-center gap-2.5 text-xs">
           {/* Zona Filter */}
@@ -1795,7 +2001,11 @@ export default function LocaisVotacaoPage() {
             <span className="font-semibold text-on-surface-variant">Zona:</span>
             <select
               value={selectedZona}
-              onChange={(e) => setSelectedZona(e.target.value)}
+              onChange={(e) => {
+                const z = e.target.value;
+                setSelectedZona(z);
+                handleExecuteSearch(searchTerm, z);
+              }}
               className="h-9 px-2.5 bg-surface-container-low border border-outline-variant/60 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary text-xs"
             >
               <option value="todas">Todas as Zonas</option>
@@ -1924,21 +2134,103 @@ export default function LocaisVotacaoPage() {
         </div>
       )}
 
-      {/* Grid of Voting Locations */}
+      {/* Grid Virtualizado de Locais de Votação (Apenas linhas visíveis montadas no DOM) */}
       {filteredLocais.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredLocais.map((local) => (
-            <LocalCard
-              key={local.id}
-              local={local}
-              isSelected={selectedIds.includes(local.id)}
-              onToggleSelect={() => handleToggleSelect(local.id)}
-              onViewVoters={() => setViewVotersLocal(local)}
-              onEdit={() => handleOpenEdit(local)}
-              onDelete={() => setDeleteDialog(local)}
-              onAgregarSecao={(sec, loc) => handleOpenAgregarModal(sec, loc.zona, loc.id)}
-            />
-          ))}
+        <div
+          ref={parentRef}
+          className="max-h-[760px] overflow-y-auto pr-1 rounded-xl scrollbar-thin scrollbar-thumb-outline-variant"
+        >
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative'
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const startIndex = virtualRow.index * columns;
+              const rowItems = filteredLocais.slice(startIndex, startIndex + columns);
+
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`
+                  }}
+                  className={`grid gap-4 py-2 ${
+                    columns === 1 ? 'grid-cols-1' : columns === 2 ? 'grid-cols-2' : 'grid-cols-3'
+                  }`}
+                >
+                  {rowItems.map((local) => (
+                    <LocalCard
+                      key={local.id}
+                      local={local}
+                      isSelected={selectedIds.includes(local.id)}
+                      onToggleSelect={() => handleToggleSelect(local.id)}
+                      onViewVoters={() => setViewVotersLocal(local)}
+                      onEdit={() => handleOpenEdit(local)}
+                      onDelete={() => setDeleteDialog(local)}
+                      onAgregarSecao={(sec, loc) => handleOpenAgregarModal(sec, loc.zona, loc.id)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Barra de Paginação Real com Cursores do Firestore */}
+      {filteredLocais.length > 0 && (
+        <div className="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 shadow-xs text-xs mt-2">
+          <div className="flex items-center gap-2 text-on-surface-variant font-medium">
+            <span>
+              Página <strong className="text-on-surface">{pageNumber}</strong>
+            </span>
+            <span>•</span>
+            <span>
+              Exibindo <strong>{filteredLocais.length}</strong> locais
+              {totalLocaisGeral > 0 && ` (de aprox. ${totalLocaisGeral.toLocaleString('pt-BR')} no banco)`}
+            </span>
+            {isSearchingFirestore && (
+              <span className="inline-flex items-center gap-1.5 text-primary ml-2 font-bold animate-pulse">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Carregando dados do Firestore...</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrevPage}
+              disabled={pageNumber <= 1 || isSearchingFirestore}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline-variant font-bold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Anterior</span>
+            </button>
+
+            <span className="px-2.5 py-1 bg-surface-container rounded-md font-mono font-bold text-on-surface">
+              {pageNumber}
+            </span>
+
+            <button
+              type="button"
+              onClick={handleNextPage}
+              disabled={!hasNextPage || isSearchingFirestore}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline-variant font-bold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span>Próxima</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
