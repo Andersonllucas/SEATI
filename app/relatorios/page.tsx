@@ -20,7 +20,8 @@ import {
   Minimize2,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  School
 } from 'lucide-react';
 import { useCampaignData, Lideranca, formatTituloUtil } from '@/context/CampaignContext';
 import { useTenant } from '@/context/TenantContext';
@@ -197,6 +198,23 @@ export default function RelatoriosPage() {
     return map;
   }, [locais]);
 
+  // Conjunto de Zonas e Seções oficiais cadastradas em locais de votação
+  const registeredPairs = useMemo(() => {
+    const set = new Set<string>();
+    locais.forEach((loc) => {
+      const zNorm = (loc.zona || '').replace(/\D/g, '').replace(/^0+/, '');
+      toSecArray(loc.secoes).forEach((sec) => {
+        const sNorm = String(sec).replace(/\D/g, '').replace(/^0+/, '');
+        if (zNorm && sNorm) set.add(`${zNorm}:${sNorm}`);
+      });
+      if (loc.secao) {
+        const sNorm = String(loc.secao).replace(/\D/g, '').replace(/^0+/, '');
+        if (zNorm && sNorm) set.add(`${zNorm}:${sNorm}`);
+      }
+    });
+    return set;
+  }, [locais]);
+
   // APLICAÇÃO DOS FILTROS NA BASE DE ELEITORES
   const filteredEleitores = useMemo(() => {
     return eleitores.filter((e) => {
@@ -270,7 +288,7 @@ export default function RelatoriosPage() {
         }
       }
 
-      // Filtro Pendência de Informação Cadastral (Título, CPF, etc.)
+      // Filtro Pendência de Informação Cadastral (Título, CPF, Local de Votação, etc.)
       if (selectedPendencia !== 'todas') {
         const hasNoCpf = !e.cpf || !e.cpf.trim() || e.cpf.replace(/\D/g, '').length < 11;
         const hasNoTitulo = !e.tituloEleitor || !e.tituloEleitor.trim() || e.tituloEleitor.replace(/\D/g, '').length < 5;
@@ -278,15 +296,20 @@ export default function RelatoriosPage() {
         const hasNoZonaSecao = !e.zona || !e.zona.trim() || !e.secao || !e.secao.trim();
         const hasNoBairro = !e.bairro || !e.bairro.trim();
         const hasNoLideranca = !e.liderancaId && (!e.lideranca || e.lideranca.trim() === '' || e.lideranca === 'Sem Liderança' || e.lideranca === 'Sem Liderança Definida');
+        const normZ = (e.zona || '').replace(/\D/g, '').replace(/^0+/, '');
+        const normS = (e.secao || '').replace(/\D/g, '').replace(/^0+/, '');
+        const hasNoLocal = !normZ || !normS || !registeredPairs.has(`${normZ}:${normS}`);
 
         if (selectedPendencia === 'qualquer') {
-          if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao) return false;
+          if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao && !hasNoLocal) return false;
         } else if (selectedPendencia === 'sem_titulo') {
           if (!hasNoTitulo) return false;
         } else if (selectedPendencia === 'sem_cpf') {
           if (!hasNoCpf) return false;
         } else if (selectedPendencia === 'sem_zona') {
           if (!hasNoZonaSecao) return false;
+        } else if (selectedPendencia === 'sem_local') {
+          if (!hasNoLocal) return false;
         } else if (selectedPendencia === 'sem_telefone') {
           if (!hasNoTelefone) return false;
         } else if (selectedPendencia === 'sem_lideranca') {
@@ -294,7 +317,7 @@ export default function RelatoriosPage() {
         } else if (selectedPendencia === 'sem_bairro') {
           if (!hasNoBairro) return false;
         } else if (selectedPendencia === 'completos') {
-          if (hasNoCpf || hasNoTitulo || hasNoTelefone || hasNoZonaSecao) return false;
+          if (hasNoCpf || hasNoTitulo || hasNoTelefone || hasNoZonaSecao || hasNoLocal) return false;
         }
       }
 
@@ -328,7 +351,8 @@ export default function RelatoriosPage() {
     leaderByIdMap,
     conflictingVoterIds,
     conflictingCpfVoterIds,
-    conflictingTituloVoterIds
+    conflictingTituloVoterIds,
+    registeredPairs
   ]);
 
   // Lista ordenada por nome ou zona/seção dependendo do modo
@@ -387,6 +411,7 @@ export default function RelatoriosPage() {
         sem_titulo: 'Pendência: Sem Título',
         sem_cpf: 'Pendência: Sem CPF',
         sem_zona: 'Pendência: Sem Zona/Seção',
+        sem_local: 'Pendência: Sem Local de Votação Cadastrado',
         sem_telefone: 'Pendência: Sem Telefone',
         sem_lideranca: 'Pendência: Sem Liderança',
         sem_bairro: 'Pendência: Sem Bairro',
@@ -815,6 +840,7 @@ export default function RelatoriosPage() {
             <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
             <option value="sem_cpf">📄 Sem CPF (Pendente)</option>
             <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+            <option value="sem_local">🏫 Sem Local de Votação Cadastrado</option>
             <option value="sem_telefone">📱 Sem Telefone / Contato</option>
             <option value="sem_lideranca">👥 Sem Liderança Vinculada</option>
             <option value="sem_bairro">📍 Sem Bairro</option>
@@ -1082,6 +1108,7 @@ export default function RelatoriosPage() {
                   <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
                   <option value="sem_cpf">📄 Sem CPF</option>
                   <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+                  <option value="sem_local">🏫 Sem Local de Votação Cadastrado</option>
                   <option value="sem_telefone">📱 Sem Telefone / Contato</option>
                   <option value="sem_lideranca">👥 Sem Liderança</option>
                   <option value="sem_bairro">📍 Sem Bairro</option>
@@ -1103,6 +1130,7 @@ export default function RelatoriosPage() {
                   selectedPendencia === 'sem_titulo' ? 'Título de Eleitor não preenchido' :
                   selectedPendencia === 'sem_cpf' ? 'CPF não preenchido' :
                   selectedPendencia === 'sem_zona' ? 'Zona ou Seção não preenchida' :
+                  selectedPendencia === 'sem_local' ? 'Local de Votação não cadastrado no sistema' :
                   selectedPendencia === 'sem_telefone' ? 'Telefone/WhatsApp não preenchido' :
                   selectedPendencia === 'sem_lideranca' ? 'Liderança não vinculada' :
                   selectedPendencia === 'sem_bairro' ? 'Bairro não preenchido' :

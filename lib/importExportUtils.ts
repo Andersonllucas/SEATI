@@ -29,10 +29,13 @@ export interface ParsedVoterRow {
   tituloEleitor?: string;
   zona: string;
   secao: string;
+  endereco?: string;
   bairro: string;
   cidade?: string;
   estado?: string;
   lideranca: string;
+  subLideranca?: string;
+  liderancaPendentePai?: boolean;
   status: string;
   isValid: boolean;
   errors: string[];
@@ -138,10 +141,12 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Numero do titulo': '012345670890',
         'Zona Eleitoral': '001',
         'Seção Eleitoral': '0012',
-        'Bairro': 'Centro',
+        'Endereço': 'Rua Coelho de Resende, 120',
+        'Bairro': 'São Cristóvão',
         'Cidade': 'Teresina',
         'Estado': 'PI',
-        'Liderança Responsável': 'Vereador João'
+        'Liderança Responsável': 'Vereador João',
+        'Sub-liderança': 'Marcos Coordenador'
       },
       {
         'Nome Completo': 'Pedro Henrique Lima',
@@ -150,10 +155,12 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Numero do titulo': '987654320891',
         'Zona Eleitoral': '001',
         'Seção Eleitoral': '0015',
+        'Endereço': 'Av. Frei Serafim, 2300',
         'Bairro': 'Ilhotas',
         'Cidade': 'Teresina',
         'Estado': 'PI',
-        'Liderança Responsável': 'Prof. Marcos'
+        'Liderança Responsável': 'Prof. Marcos',
+        'Sub-liderança': ''
       },
       {
         'Nome Completo': 'Ana Cláudia Ferreira',
@@ -162,10 +169,12 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
         'Numero do titulo': '456789120892',
         'Zona Eleitoral': '002',
         'Seção Eleitoral': '0045',
+        'Endereço': '',
         'Bairro': 'Mocambinho',
         'Cidade': 'Teresina',
         'Estado': 'PI',
-        'Liderança Responsável': 'Vereador João'
+        'Liderança Responsável': 'Vereador João',
+        'Sub-liderança': 'Carla Líder de Quadra'
       }
     ];
 
@@ -173,14 +182,16 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
     ws['!cols'] = [
       { wch: 30 }, // Nome Completo
       { wch: 18 }, // CPF
-      { wch: 22 }, // Telefone / WhatsApp
-      { wch: 20 }, // Numero do titulo
-      { wch: 16 }, // Zona Eleitoral
-      { wch: 16 }, // Seção Eleitoral
+      { wch: 22 }, // Telefone
+      { wch: 20 }, // Titulo
+      { wch: 15 }, // Zona
+      { wch: 15 }, // Secao
+      { wch: 28 }, // Endereço
       { wch: 20 }, // Bairro
       { wch: 20 }, // Cidade
       { wch: 10 }, // Estado
-      { wch: 26 }  // Liderança Responsável
+      { wch: 26 }, // Lideranca
+      { wch: 26 }  // Sub-lideranca
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Modelo_Eleitores');
     await exportWorkbook(wb, 'modelo_importacao_eleitores', format);
@@ -356,10 +367,12 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
     let tituloEleitor = '';
     let zona = '';
     let secao = '';
+    let endereco = '';
     let bairro = '';
     let cidade = '';
     let estado = '';
     let lideranca = '';
+    let subLideranca = '';
     const status = 'Pendente';
 
     for (const [key, value] of Object.entries(row)) {
@@ -386,12 +399,26 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
         zona = valStr.replace(/\D/g, '').padStart(3, '0') || valStr;
       } else if (normKey.includes('seca') || normKey.includes('secao') || normKey === 'sec') {
         secao = valStr.replace(/\D/g, '').padStart(4, '0') || valStr;
+      } else if (
+        normKey.includes('end') ||
+        normKey.includes('rua') ||
+        normKey.includes('logradouro') ||
+        normKey === 'dsendereco'
+      ) {
+        endereco = valStr;
       } else if (normKey.includes('bairro') || normKey.includes('comunidade')) {
         bairro = valStr;
       } else if (normKey.includes('cidad') || normKey.includes('municip') || normKey === 'mun') {
         cidade = valStr;
       } else if (normKey.includes('estado') || normKey === 'uf' || normKey === 'sguf' || normKey === 'siglauf') {
         estado = valStr.toUpperCase();
+      } else if (
+        normKey.includes('sublider') ||
+        normKey.includes('sub_lider') ||
+        normKey.includes('sublideranca') ||
+        normKey.includes('sub-lider')
+      ) {
+        subLideranca = valStr;
       } else if (normKey.includes('lider') || normKey.includes('responsavel') || normKey.includes('coordenador')) {
         lideranca = valStr;
       }
@@ -409,6 +436,11 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
       warnings.push('CPF com formato fora do padrão (11 dígitos)');
     }
 
+    const liderancaPendentePai = Boolean(!lideranca && subLideranca);
+    if (liderancaPendentePai) {
+      warnings.push(`Sub-liderança "${subLideranca}" informada sem Liderança Pai vinculada`);
+    }
+
     return {
       originalIndex: index + 1,
       nome,
@@ -418,10 +450,13 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
       tituloEleitor,
       zona: zona || '001',
       secao: secao || '',
-      bairro: bairro || 'Centro',
-      cidade: cidade || 'Teresina',
-      estado: estado || 'PI',
-      lideranca: lideranca || 'Geral',
+      endereco: endereco ? endereco.trim() : '',
+      bairro: bairro ? bairro.trim() : '',
+      cidade: cidade ? cidade.trim() : '',
+      estado: estado ? estado.trim() : '',
+      lideranca: lideranca || '',
+      subLideranca: subLideranca || '',
+      liderancaPendentePai,
       status,
       isValid: errors.length === 0,
       errors,
@@ -437,8 +472,8 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
     let liderancaPaiNome = '';
     let telefone = '';
     let email = '';
-    let regiao = 'Centro';
-    let bairro = 'Centro';
+    let regiao = '';
+    let bairro = '';
     let cidade = '';
     let estado = '';
     let metaVotos = 100;
@@ -492,8 +527,8 @@ function parseLeaderRows(rawJson: Record<string, any>[]): ParsedLeaderRow[] {
       liderancaPaiNome: liderancaPaiNome || undefined,
       telefone,
       email,
-      regiao: regiao || 'Centro',
-      bairro: bairro || 'Centro',
+      regiao: regiao || '',
+      bairro: bairro || '',
       cidade: cidade || 'Teresina',
       estado: estado || 'PI',
       metaVotos: metaVotos > 0 ? metaVotos : 100,
@@ -822,7 +857,7 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
         zona,
         secoesSet,
         secoesAgregadasList: secoesAgregadas ? [secoesAgregadas] : [],
-        bairro: bairro || 'Centro',
+        bairro: bairro || '',
         endereco,
         capacidadeAprox: capacidadeAprox || 1000,
         aptosSum: aptos + agregadasAptos,
@@ -1696,4 +1731,60 @@ export async function exportConflitosReal(
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'Conflitos_CPF');
   await exportWorkbook(wb, 'relatorio_conflitos_cpf', format);
+}
+
+export interface DadosHistoricoImportacao {
+  nomeArquivo: string;
+  tipo: 'eleitores' | 'liderancas' | 'locais';
+  totalImportados: number;
+  totalDescartados?: number;
+  semLiderancaCount?: number;
+  comLiderancaCount?: number;
+  tamanhoArquivo?: string;
+  status?: string;
+}
+
+export async function registrarHistoricoImportacaoReal(dados: DadosHistoricoImportacao) {
+  const dataHoraStr = new Date().toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const novoItem = {
+    id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    nomeArquivo: dados.nomeArquivo,
+    dataHora: dataHoraStr,
+    timestamp: new Date().toISOString(),
+    tipo: dados.tipo,
+    totalImportados: dados.totalImportados,
+    totalDescartados: dados.totalDescartados || 0,
+    semLiderancaCount: dados.semLiderancaCount || 0,
+    comLiderancaCount: dados.comLiderancaCount || 0,
+    tamanhoArquivo: dados.tamanhoArquivo || 'Planilha',
+    status: dados.status || 'Concluído'
+  };
+
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('historico_importacoes_cache');
+      const existing = raw ? JSON.parse(raw) : [];
+      localStorage.setItem('historico_importacoes_cache', JSON.stringify([novoItem, ...existing].slice(0, 100)));
+    }
+  } catch {}
+
+  try {
+    const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
+    const { getActiveDb } = await import('@/lib/firebase');
+    await addDoc(collection(getActiveDb(), 'historico_importacoes'), {
+      ...novoItem,
+      criadoEm: serverTimestamp()
+    });
+  } catch (err) {
+    console.warn('Erro ao salvar no Firestore historico_importacoes:', err);
+  }
+
+  return novoItem;
 }

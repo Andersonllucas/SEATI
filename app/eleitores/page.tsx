@@ -274,6 +274,21 @@ export default function Eleitores() {
   );
   const totalEleitoresEmConflito = conflictingVoterIds.size;
 
+  // Conjunto normalizado de todas as combinações (Zona:Seção) já cadastradas nos locais
+  const registeredPairs = useMemo(() => {
+    const set = new Set<string>();
+    (locais || []).forEach((l) => {
+      const normZ = (l.zona || '').replace(/\D/g, '').replace(/^0+/, '') || '1';
+      const sArr = Array.isArray(l.secoes) ? l.secoes : (l.secoes ? String(l.secoes).split(',') : []);
+      if (l.secao) sArr.push(l.secao);
+      sArr.forEach((s) => {
+        const normS = String(s).replace(/\D/g, '').replace(/^0+/, '');
+        if (normS) set.add(`${normZ}:${normS}`);
+      });
+    });
+    return set;
+  }, [locais]);
+
   // Live conflict warnings during voter registration
   const liveCpfConflict = useMemo(() => {
     const clean = cleanCpf(cpf);
@@ -689,6 +704,9 @@ export default function Eleitores() {
         const hasNoTelefone = !eleitor.telefone || !eleitor.telefone.trim() || eleitor.telefone.replace(/\D/g, '').length < 8;
         const hasNoZonaSecao = !eleitor.zona || !eleitor.zona.trim() || !eleitor.secao || !eleitor.secao.trim();
         const hasNoBairro = !eleitor.bairro || !eleitor.bairro.trim();
+        const normZ = (eleitor.zona || '').replace(/\D/g, '').replace(/^0+/, '');
+        const normS = (eleitor.secao || '').replace(/\D/g, '').replace(/^0+/, '');
+        const hasNoLocal = !normZ || !normS || !registeredPairs.has(`${normZ}:${normS}`);
         const hasNoLideranca =
           !eleitor.liderancaId ||
           !eleitor.lideranca ||
@@ -700,7 +718,7 @@ export default function Eleitores() {
           eleitor.lideranca.trim().toLowerCase() === 'nao informada';
 
         if (pendenciaFilter === 'qualquer') {
-          if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao) return false;
+          if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao && !hasNoLocal) return false;
         } else if (pendenciaFilter === 'sem_titulo') {
           if (!hasNoTitulo) return false;
         } else if (pendenciaFilter === 'sem_cpf') {
@@ -709,12 +727,14 @@ export default function Eleitores() {
           if (!hasNoTelefone) return false;
         } else if (pendenciaFilter === 'sem_zona') {
           if (!hasNoZonaSecao) return false;
+        } else if (pendenciaFilter === 'sem_local') {
+          if (!hasNoLocal) return false;
         } else if (pendenciaFilter === 'sem_bairro') {
           if (!hasNoBairro) return false;
         } else if (pendenciaFilter === 'sem_lideranca') {
           if (!hasNoLideranca) return false;
         } else if (pendenciaFilter === 'completos') {
-          if (hasNoCpf || hasNoTitulo || hasNoTelefone || hasNoZonaSecao) return false;
+          if (hasNoCpf || hasNoTitulo || hasNoTelefone || hasNoZonaSecao || hasNoLocal) return false;
         }
       }
 
@@ -726,6 +746,7 @@ export default function Eleitores() {
     selectedLiderancaFilter,
     statusFilter,
     pendenciaFilter,
+    registeredPairs,
     filterOnlyConflicts,
     conflictingVoterIds
   ]);
@@ -1172,6 +1193,7 @@ export default function Eleitores() {
               <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
               <option value="sem_cpf">📄 Sem CPF (Pendente)</option>
               <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+              <option value="sem_local">🏫 Sem Local de Votação Cadastrado</option>
               <option value="sem_telefone">📱 Sem Telefone / WhatsApp</option>
               <option value="sem_lideranca">👥 Sem Liderança Vinculada</option>
               <option value="sem_bairro">📍 Sem Bairro</option>
@@ -1264,6 +1286,7 @@ export default function Eleitores() {
                   pendenciaFilter === 'sem_titulo' ? 'Título de Eleitor não preenchido' :
                   pendenciaFilter === 'sem_cpf' ? 'CPF não preenchido' :
                   pendenciaFilter === 'sem_zona' ? 'Zona ou Seção não preenchida' :
+                  pendenciaFilter === 'sem_local' ? 'Local de Votação não cadastrado no sistema' :
                   pendenciaFilter === 'sem_telefone' ? 'Telefone/WhatsApp não preenchido' :
                   pendenciaFilter === 'sem_lideranca' ? 'Liderança não vinculada' :
                   pendenciaFilter === 'sem_bairro' ? 'Bairro não preenchido' :
@@ -1271,15 +1294,41 @@ export default function Eleitores() {
                 }.
               </span>
             </div>
-            <button
-              onClick={() => {
-                setPendenciaFilter('todas');
-                setCurrentPage(1);
-              }}
-              className="text-xs font-bold text-amber-800 hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" /> Limpar Pendência
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  exportVotersReal(filteredEleitores, conflictingVoterIds, 'xlsx');
+                  setActionFeedback(`Relatório de ${filteredEleitores.length} eleitor(es) com pendência exportado em Excel (.xlsx)!`);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] shadow-xs cursor-pointer"
+                title="Gerar e baixar relatório desta listagem em Excel"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Exportar Relatório Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  exportVotersReal(filteredEleitores, conflictingVoterIds, 'pdf');
+                  setActionFeedback(`Relatório de ${filteredEleitores.length} eleitor(es) com pendência exportado em PDF!`);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-rose-700 hover:bg-rose-800 text-white font-bold text-[11px] shadow-xs cursor-pointer"
+                title="Gerar e baixar relatório desta listagem em PDF"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>PDF</span>
+              </button>
+              <button
+                onClick={() => {
+                  setPendenciaFilter('todas');
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-bold text-amber-800 hover:underline flex items-center gap-1 cursor-pointer ml-1"
+              >
+                <X className="w-3.5 h-3.5" /> Limpar Pendência
+              </button>
+            </div>
           </div>
         )}
 

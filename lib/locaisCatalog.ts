@@ -682,7 +682,7 @@ export function parseLocaisCSV(csvText: string, defaultUf = 'PI', defaultMunicip
 
     const zonaRaw = idxZona !== -1 && parts[idxZona] ? parts[idxZona] : '001';
     const zona = zonaRaw.replace(/\D/g, '').padStart(3, '0') || '001';
-    const bairro = idxBairro !== -1 && parts[idxBairro] ? parts[idxBairro].trim() : 'Centro';
+    const bairro = idxBairro !== -1 && parts[idxBairro] ? parts[idxBairro].trim() : '';
     const endereco = idxEndereco !== -1 && parts[idxEndereco] ? parts[idxEndereco].trim() : '';
     const tipo = idxTipo !== -1 && parts[idxTipo] ? parts[idxTipo].trim() : 'Escola Estadual';
     const municipio = idxMunicipio !== -1 && parts[idxMunicipio] ? parts[idxMunicipio].trim() : defaultMunicipio;

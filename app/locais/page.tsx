@@ -39,7 +39,15 @@ import { useCampaignData, LocalVotacao } from '@/context/CampaignContext';
 import { matchLocalFilter } from '@/context/LocationContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
-import { exportLocaisReal, parseSecoesAgregadas, sanitizeSecoesFromAptosNumbers } from '@/lib/importExportUtils';
+import {
+  exportLocaisReal,
+  parseSecoesAgregadas,
+  sanitizeSecoesFromAptosNumbers,
+  parseImportFile,
+  ParsedLocalRow,
+  registrarHistoricoImportacaoReal,
+  downloadTemplate
+} from '@/lib/importExportUtils';
 import { recordCentralAuditLog } from '@/lib/firebase';
 import {
   CIDADES_DISPONIVEIS,
@@ -121,6 +129,7 @@ export default function LocaisVotacaoPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [selectedZona, setSelectedZona] = useState('todas');
+  const [voterLinkFilter, setVoterLinkFilter] = useState<'todos' | 'com_eleitor' | 'sem_eleitor'>('todos');
   const [sortBy, setSortBy] = useState<'nome' | 'eleitores' | 'secoes' | 'capacidade'>('eleitores');
 
   // Pagination & On-Demand Firestore Search State
@@ -178,25 +187,17 @@ export default function LocaisVotacaoPage() {
   // Detail Modal / View Voters State
   const [viewVotersLocal, setViewVotersLocal] = useState<LocalVotacao | null>(null);
 
-  // Modal 1: Official Catalog Importer by State / City
-  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
-  const [catalogUf, setCatalogUf] = useState<string>(activeUf);
-  const [selectedCidadeIdx, setSelectedCidadeIdx] = useState(0);
-  const [isProcessingCatalog, setIsProcessingCatalog] = useState(false);
-  const [definirPadraoAoImportar, setDefinirPadraoAoImportar] = useState(true);
-  const [customCidadeNome, setCustomCidadeNome] = useState('');
-  const [isCustomMode, setIsCustomMode] = useState(false);
-
   // Quick State/City Changer Modal
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [locModalUf, setLocModalUf] = useState<string>(activeUf);
   const [locModalCidade, setLocModalCidade] = useState<string>(activeCity);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
 
-  // Modal 2: CSV Importer
+  // Modal: Importador Unificado de Locais (CSV / Excel) com Histórico (Item 5)
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [csvPreview, setCsvPreview] = useState<Omit<LocalVotacao, 'id'>[]>([]);
+  const [parsedLocalRows, setParsedLocalRows] = useState<ParsedLocalRow[]>([]);
+  const [limparLocaisAntes, setLimparLocaisAntes] = useState(false);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [isProcessingCsv, setIsProcessingCsv] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -250,7 +251,6 @@ export default function LocaisVotacaoPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isDrawerOpen) setIsDrawerOpen(false);
-        else if (isCatalogModalOpen) setIsCatalogModalOpen(false);
         else if (isLocationModalOpen) setIsLocationModalOpen(false);
         else if (isCsvModalOpen) setIsCsvModalOpen(false);
         else if (isConflictModalOpen) setIsConflictModalOpen(false);
@@ -266,7 +266,6 @@ export default function LocaisVotacaoPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     isDrawerOpen,
-    isCatalogModalOpen,
     isLocationModalOpen,
     isCsvModalOpen,
     isConflictModalOpen,
@@ -616,7 +615,11 @@ export default function LocaisVotacaoPage() {
   const filteredLocais = useMemo(() => {
     const activeSearch = appliedSearch || searchTerm;
     return locaisWithStats
-      .filter((local) => matchLocalFilter(local, activeSearch, selectedZona))
+      .filter((local) => {
+        if (voterLinkFilter === 'com_eleitor' && (local.eleitoresIdentificados || 0) === 0) return false;
+        if (voterLinkFilter === 'sem_eleitor' && (local.eleitoresIdentificados || 0) > 0) return false;
+        return matchLocalFilter(local, activeSearch, selectedZona);
+      })
       .sort((a, b) => {
         if (sortBy === 'eleitores') return (b.eleitoresIdentificados || 0) - (a.eleitoresIdentificados || 0);
         if (sortBy === 'secoes') {
@@ -627,7 +630,7 @@ export default function LocaisVotacaoPage() {
         if (sortBy === 'capacidade') return (Number(b.capacidadeAprox) || 0) - (Number(a.capacidadeAprox) || 0);
         return (a.nome || '').localeCompare(b.nome || '');
       });
-  }, [locaisWithStats, searchTerm, appliedSearch, selectedZona, sortBy]);
+  }, [locaisWithStats, searchTerm, appliedSearch, selectedZona, voterLinkFilter, sortBy]);
 
   // Overall Statistics com contagens agregadas da base inteira
   const totalLocaisExibidos = filteredLocais.length;
@@ -770,7 +773,7 @@ export default function LocaisVotacaoPage() {
         nome: nome.trim(),
         tipo: tipo.trim(),
         zona: zona.trim() || '001',
-        bairro: bairro.trim() || 'Centro',
+        bairro: bairro.trim() || '',
         endereco: endereco.trim() || '',
         municipio: municipio.trim() || 'Teresina',
         uf: uf.trim() || 'PI',
@@ -1253,132 +1256,95 @@ export default function LocaisVotacaoPage() {
     });
   };
 
-  // ==================== CROSS-MATCHING EXECUTION: OFFICIAL CATALOG ====================
-  const handleImportOfficialCatalog = async () => {
-    const selected = pacotesNaUf[selectedCidadeIdx] || CIDADES_DISPONIVEIS[0];
-    if (!selected) return;
-
-    setIsProcessingCatalog(true);
-    try {
-      // Run through our Cross-Matching and Conflict Resolution Engine!
-      const result: CrossMatchResult = processLocaisCrossMatch(locais, selected.itens);
-
-      // Save non-conflicting creations and updates directly via Firestore batch
-      const { created, updated } = await batchSaveLocais(result.criados, result.atualizados);
-
-      if (definirPadraoAoImportar && atualizarConfiguracoes) {
-        await atualizarConfiguracoes({
-          municipioPadrao: selected.cidade,
-          ufPadrao: selected.uf
-        });
-      }
-
-      // If conflicts were isolated, add them to active conflicts list
-      if (result.conflitos.length > 0) {
-        setActiveConflicts((prev) => [...prev, ...result.conflitos]);
-        showToast(
-          `Importação de ${selected.cidade} - ${selected.uf}: ${created} criados, ${updated} atualizados. ${result.conflitos.length} conflito(s) isolado(s) para sua revisão.`,
-          'info'
-        );
-      } else {
-        showToast(
-          `Importação concluída com sucesso! ${created} novos colégios e ${updated} atualizados para ${selected.cidade} - ${selected.uf}.`,
-          'success'
-        );
-      }
-
-      setIsCatalogModalOpen(false);
-    } catch (err) {
-      console.error('Erro na importação oficial:', err);
-      showToast('Falha ao processar a importação.', 'error');
-    } finally {
-      setIsProcessingCatalog(false);
-    }
-  };
-
-  // ==================== CSV UPLOAD & CROSS-MATCHING ====================
-  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ==================== CSV / EXCEL UPLOAD COM MOTOR OFICIAL E HISTÓRICO (Item 5) ====================
+  const handleCsvFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setCsvFile(file);
     setCsvError(null);
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const parsed = parseLocaisCSV(text, activeUf, activeCity);
-        if (parsed.length === 0) {
-          setCsvError('Nenhum registro válido de local de votação pôde ser extraído do arquivo.');
-          setCsvPreview([]);
-        } else {
-          setCsvPreview(parsed);
-        }
-      } catch (err: any) {
-        setCsvError(err.message || 'Erro ao processar arquivo CSV.');
-        setCsvPreview([]);
-      }
-    };
-    reader.onerror = () => {
-      setCsvError('Erro ao ler arquivo.');
-    };
-    reader.readAsText(file, 'utf-8');
-  };
-
-  const handleImportCsv = async () => {
-    if (csvPreview.length === 0) return;
-
     setIsProcessingCsv(true);
+
     try {
-      // Execute Cross-Matching Engine between existing database and uploaded CSV
-      const result: CrossMatchResult = processLocaisCrossMatch(locais, csvPreview);
-
-      // Safe batch save for valid records
-      const { created, updated } = await batchSaveLocais(result.criados, result.atualizados);
-
-      if (result.conflitos.length > 0) {
-        setActiveConflicts((prev) => [...prev, ...result.conflitos]);
-        showToast(
-          `CSV processado: ${created} criados, ${updated} atualizados. ${result.conflitos.length} conflito(s) retido(s) para verificação.`,
-          'info'
-        );
+      const parsed = await parseImportFile(file, 'locais');
+      const localRows = parsed.rows as ParsedLocalRow[];
+      if (localRows.length === 0) {
+        setCsvError('Nenhum registro válido de local de votação encontrado no arquivo.');
+        setParsedLocalRows([]);
       } else {
-        showToast(
-          `Planilha importada com sucesso: ${created} colégios criados e ${updated} atualizados!`,
-          'success'
-        );
+        setParsedLocalRows(localRows);
       }
-
-      setIsCsvModalOpen(false);
-      setCsvFile(null);
-      setCsvPreview([]);
-    } catch (err) {
-      console.error('Erro ao importar CSV:', err);
-      showToast('Erro ao gravar dados da planilha.', 'error');
+    } catch (err: any) {
+      console.error('Erro ao ler planilha de locais:', err);
+      setCsvError(err.message || 'Erro ao processar arquivo.');
+      setParsedLocalRows([]);
     } finally {
       setIsProcessingCsv(false);
     }
   };
 
-  // Download Sample CSV
-  const handleDownloadSampleCsv = () => {
-    const sampleContent =
-      'NM_LOCAL_VOTACAO;NR_ZONA;NR_SECAO;NM_BAIRRO;DS_ENDERECO;DS_TIPO_LOCAL;QT_APTOS;NM_MUNICIPIO;SG_UF\n' +
-      'Unidade Escolar Zacarias de Goes - Liceu;001;0001,0002,0003,0042;Centro;Praca Landri Sales, s/n;Escola Estadual;2800;Teresina;PI\n' +
-      'Colegio Diocesano;001;0010,0011,0012,0013;Centro;Rua Desembargador Pires de Castro, 140;Colegio Particular;2500;Teresina;PI\n' +
-      'Premen Norte;002;0110,0111,0112;Buenos Aires;Rua Desembargador Freitas, s/n;Escola Estadual;1850;Teresina;PI\n' +
-      'UFPI - Campus Ininga;063;0201,0202,0203;Ininga;Campus Universitario Ministro Petronio Portella;Faculdade / Universidade;4200;Teresina;PI\n';
+  const handleImportCsv = async () => {
+    if (parsedLocalRows.length === 0) return;
 
-    const blob = new Blob([sampleContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'modelo_locais_votacao_tse.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const validRows = parsedLocalRows.filter((r) => r.isValid);
+    if (validRows.length === 0) {
+      showToast('Nenhum local de votação válido para importar.', 'error');
+      return;
+    }
+
+    setIsProcessingCsv(true);
+    try {
+      // Se opção de zerar estiver marcada, limpa antes
+      if (limparLocaisAntes && locais.length > 0) {
+        await clearAllLocais();
+      }
+
+      const toCreate = validRows.map((r) => ({
+        nome: r.nome,
+        tipo: r.tipo || 'Colégio Eleitoral',
+        zona: r.zona,
+        secoes: r.secoes,
+        secoesAgregadas: r.secoesAgregadas || '',
+        bairro: r.bairro || '',
+        endereco: r.endereco || '',
+        capacidadeAprox: r.capacidadeAprox,
+        municipio: r.municipio || activeCity,
+        uf: r.uf || activeUf
+      }));
+
+      await batchSaveLocais(toCreate, []);
+
+      // Registrar no Histórico de Importações exatamente igual à Central de Importação
+      await registrarHistoricoImportacaoReal({
+        nomeArquivo: csvFile?.name || 'locais_votacao.csv',
+        tipo: 'locais',
+        totalImportados: validRows.length,
+        tamanhoArquivo: csvFile ? `${(csvFile.size / 1024).toFixed(1)} KB` : undefined
+      });
+
+      await recordCentralAuditLog({
+        action: 'IMPORT_LOCAIS_TSE',
+        details: `Importação de ${validRows.length} colégios e seções eleitorais via arquivo ${csvFile?.name}`,
+        module: 'locais'
+      });
+
+      const totalSecoes = validRows.reduce((acc, r) => acc + (r.secoes?.length || 0), 0);
+      showToast(
+        `${validRows.length} colégio(s) e ${totalSecoes} seção(ões) importados com sucesso! Registro salvo no Histórico de Importações.`,
+        'success'
+      );
+
+      setIsCsvModalOpen(false);
+      setCsvFile(null);
+      setParsedLocalRows([]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      handleRefresh();
+    } catch (err) {
+      console.error('Erro ao importar locais:', err);
+      showToast('Erro ao gravar dados da planilha de locais.', 'error');
+    } finally {
+      setIsProcessingCsv(false);
+    }
   };
 
   // ==================== CONFLICT RESOLUTION ACTIONS ====================
@@ -1496,7 +1462,7 @@ export default function LocaisVotacaoPage() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap py-0.5 shrink-0 overflow-visible relative z-30">
           {/* Conflict Badge Button (when conflicts exist) */}
           {activeConflicts.length > 0 && (
             <button
@@ -1540,26 +1506,11 @@ export default function LocaisVotacaoPage() {
             <span>Agregar Seção</span>
           </button>
 
-          {/* Official City Importer */}
-          <button
-            onClick={() => {
-              setCatalogUf(activeUf);
-              setSelectedCidadeIdx(0);
-              setIsCustomMode(false);
-              setIsCatalogModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-surface hover:bg-surface-container text-on-surface border border-outline-variant rounded-lg transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
-            title="Importar colégios oficiais de qualquer município do Brasil"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-secondary" />
-            <span>Importar Colégios Oficiais (UF/Cidade)</span>
-          </button>
-
-          {/* CSV File Importer */}
+          {/* CSV / Excel File Importer (Item 5) */}
           <button
             onClick={() => setIsCsvModalOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-surface hover:bg-surface-container text-on-surface border border-outline-variant rounded-lg transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
-            title="Importar planilha de seções e locais em CSV"
+            title="Importar planilha de seções e locais (CSV / Excel) com registro no histórico"
           >
             <Upload className="w-3.5 h-3.5 text-secondary" />
             <span>Importar CSV</span>
@@ -1579,7 +1530,7 @@ export default function LocaisVotacaoPage() {
             </button>
           )}
 
-          {/* Export Dropdown */}
+          {/* Export Dropdown (Item 2) */}
           <div className="relative inline-block shrink-0">
             <button
               type="button"
@@ -1590,53 +1541,59 @@ export default function LocaisVotacaoPage() {
               <span>Exportar</span>
             </button>
             {isExportMenuOpen && (
-              <div className="absolute right-0 mt-1 w-64 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-lg py-1.5 z-30 divide-y divide-outline-variant/30">
-                <div className="px-3 py-1 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
-                  Planilha Oficial TSE (Com Seções)
+              <>
+                <div
+                  className="fixed inset-0 z-40 cursor-default"
+                  onClick={() => setIsExportMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-full mt-1.5 w-64 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 divide-y divide-outline-variant/30 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low/50">
+                    Planilha Oficial TSE (Com Seções)
+                  </div>
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => handleExportWithFormat('xlsx', 'tse')}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Excel Padrão TSE (.xlsx)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportWithFormat('csv', 'tse')}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
+                    >
+                      <Download className="w-4 h-4 text-secondary" /> CSV Padrão TSE (.csv)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportWithFormat('pdf', 'tse')}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4 text-error" /> PDF Padrão TSE (.pdf)
+                    </button>
+                  </div>
+                  <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider bg-surface-container-low/50">
+                    Visão Consolidada por Local
+                  </div>
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => handleExportWithFormat('xlsx', 'resumo')}
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600/70" /> Resumo por Estabelecimento (.xlsx)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportWithFormat('pdf', 'resumo')}
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-error/70" /> Resumo por Estabelecimento (.pdf)
+                    </button>
+                  </div>
                 </div>
-                <div className="py-1">
-                  <button
-                    type="button"
-                    onClick={() => handleExportWithFormat('xlsx', 'tse')}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Excel Padrão TSE (.xlsx)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportWithFormat('csv', 'tse')}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
-                  >
-                    <Download className="w-4 h-4 text-secondary" /> CSV Padrão TSE (.csv)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportWithFormat('pdf', 'tse')}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface font-medium cursor-pointer"
-                  >
-                    <FileText className="w-4 h-4 text-error" /> PDF Padrão TSE (.pdf)
-                  </button>
-                </div>
-                <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
-                  Visão Consolidada por Local
-                </div>
-                <div className="py-1">
-                  <button
-                    type="button"
-                    onClick={() => handleExportWithFormat('xlsx', 'resumo')}
-                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600/70" /> Resumo por Estabelecimento (.xlsx)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportWithFormat('pdf', 'resumo')}
-                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface-container flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-error/70" /> Resumo por Estabelecimento (.pdf)
-                  </button>
-                </div>
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -2056,6 +2013,24 @@ export default function LocaisVotacaoPage() {
             </select>
           </div>
 
+          {/* Filtro Eleitores Vinculados (Item 1) */}
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-on-surface-variant">Eleitores:</span>
+            <select
+              value={voterLinkFilter}
+              onChange={(e) => setVoterLinkFilter(e.target.value as 'todos' | 'com_eleitor' | 'sem_eleitor')}
+              className={`h-9 px-2.5 border rounded-lg font-medium text-xs focus:outline-none focus:border-secondary transition-colors ${
+                voterLinkFilter !== 'todos'
+                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-900 dark:text-amber-300 font-bold'
+                  : 'bg-surface-container-low border-outline-variant/60 text-on-surface'
+              }`}
+            >
+              <option value="todos">Todos os Locais</option>
+              <option value="com_eleitor">Com Eleitor Vinculado</option>
+              <option value="sem_eleitor">Sem Eleitor Vinculado</option>
+            </select>
+          </div>
+
           {/* Sort By */}
           <div className="flex items-center gap-1.5">
             <ArrowUpDown className="w-3.5 h-3.5 text-on-surface-variant" />
@@ -2092,10 +2067,10 @@ export default function LocaisVotacaoPage() {
           {totalLocaisCount === 0 && (
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <button
-                onClick={() => setIsCatalogModalOpen(true)}
+                onClick={handleOpenCreate}
                 className="px-4 py-2 text-xs font-bold bg-primary text-on-primary rounded-lg shadow-xs hover:bg-primary/90 transition-colors cursor-pointer"
               >
-                Importar Teresina - PI (TRE-PI)
+                Cadastrar Novo Local
               </button>
               <button
                 onClick={() => setIsCsvModalOpen(true)}
@@ -2287,291 +2262,6 @@ export default function LocaisVotacaoPage() {
         </div>
       )}
 
-      {/* ==================== MODAL 1: IMPORTAR COLÉGIOS POR CIDADE (ESTADOS & MUNICÍPIOS) ==================== */}
-      {isCatalogModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-scrim/50 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-xl w-full p-5 shadow-2xl space-y-4 max-h-[92vh] flex flex-col justify-between">
-            <div className="flex items-start justify-between border-b border-outline-variant/50 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                  <Compass className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-on-surface">Importador Oficial por Localidade</h3>
-                  <p className="text-xs text-on-surface-variant">
-                    Dados Oficiais da Justiça Eleitoral (TSE / TRE) com seleção de Estado e Município
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsCatalogModalOpen(false)}
-                className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4 overflow-y-auto flex-1 pr-1 text-xs">
-              {/* Esclarecimento sobre Dados Reais do TSE */}
-              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-[11px] text-blue-900 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-blue-800">
-                  <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0" />
-                  <span>Transparência e Autenticidade dos Dados (TSE / TRE)</span>
-                </div>
-                <p className="text-blue-900/90 leading-relaxed">
-                  <strong>Sim, os dados são reais!</strong> Os colégios, zonas e seções pré-carregados são extraídos da base oficial de Dados Abertos do TSE. Como o Brasil possui 5.570 municípios e o TSE não possui uma API online irrestrita, você pode selecionar os catálogos oficiais prontos ou carregar a planilha CSV do TSE da sua cidade com 1 clique.
-                </p>
-              </div>
-
-              {/* Filtro de Estado (UF) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-on-surface mb-1">1. Selecione o Estado (UF):</label>
-                  <select
-                    value={catalogUf}
-                    onChange={(e) => {
-                      const newUf = e.target.value;
-                      setCatalogUf(newUf);
-                      setSelectedCidadeIdx(0);
-                      const matching = CIDADES_DISPONIVEIS.filter((c) => c.uf === newUf);
-                      setIsCustomMode(matching.length === 0);
-                    }}
-                    className="w-full h-10 px-3 bg-surface-container-low border border-outline-variant/70 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary"
-                  >
-                    {ESTADOS_BRASIL.map((est) => (
-                      <option key={est.uf} value={est.uf}>
-                        {est.uf} - {est.nome}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-on-surface mb-1">2. Modo do Município:</label>
-                  <div className="flex items-center gap-1.5 h-10">
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomMode(false)}
-                      disabled={pacotesNaUf.length === 0}
-                      className={`flex-1 h-full rounded-lg font-bold text-[11px] border transition-colors cursor-pointer disabled:opacity-40 ${
-                        !isCustomMode && pacotesNaUf.length > 0
-                          ? 'bg-primary text-on-primary border-primary'
-                          : 'bg-surface-container-low text-on-surface-variant border-outline-variant/60 hover:bg-surface-container'
-                      }`}
-                    >
-                      Catálogo TSE ({pacotesNaUf.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomMode(true)}
-                      className={`flex-1 h-full rounded-lg font-bold text-[11px] border transition-colors cursor-pointer ${
-                        isCustomMode || pacotesNaUf.length === 0
-                          ? 'bg-secondary text-on-secondary border-secondary'
-                          : 'bg-surface-container-low text-on-surface-variant border-outline-variant/60 hover:bg-surface-container'
-                      }`}
-                    >
-                      Outra Cidade...
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* SELEÇÃO 1: Pacote Pré-carregado Oficial */}
-              {!isCustomMode && pacotesNaUf.length > 0 && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block font-bold text-on-surface mb-1">
-                      Municípios de {catalogUf} com pacote oficial pronto:
-                    </label>
-                    <select
-                      value={selectedCidadeIdx}
-                      onChange={(e) => setSelectedCidadeIdx(Number(e.target.value))}
-                      className="w-full h-10 px-3 bg-surface-container-low border border-outline-variant/70 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary"
-                    >
-                      {pacotesNaUf.map((c, idx) => (
-                        <option key={idx} value={idx}>
-                          {c.cidade} — {c.totalLocais} colégios oficiais mapeados
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {pacotesNaUf[selectedCidadeIdx] && (
-                    <div className="bg-surface-container-low p-3.5 rounded-xl border border-outline-variant/60 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-on-surface text-xs">
-                          {pacotesNaUf[selectedCidadeIdx].nomeCompleto}
-                        </span>
-                        <span className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded">
-                          {pacotesNaUf[selectedCidadeIdx].totalLocais} colégios oficiais
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
-                        <span className="font-semibold">Zonas Eleitorais:</span>
-                        <div className="flex flex-wrap gap-1">
-                          {pacotesNaUf[selectedCidadeIdx].zonas.map((z) => (
-                            <span key={z} className="px-1.5 py-0.2 bg-surface-container-lowest border rounded text-[10px] font-mono">
-                              Zona {z}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="text-[11px] text-on-surface-variant">
-                        <p className="font-semibold mb-1 text-on-surface">Amostra dos Colégios Registrados:</p>
-                        <ul className="list-disc list-inside space-y-0.5 text-on-surface-variant/90 max-h-[120px] overflow-y-auto">
-                          {pacotesNaUf[selectedCidadeIdx].itens.slice(0, 8).map((loc, i) => (
-                            <li key={i} className="truncate">
-                              <strong>{loc.nome}</strong> (Zona {loc.zona} - {loc.bairro}) • {Array.isArray(loc.secoes) ? loc.secoes.length : (loc.secoes ? 1 : 0)} seções
-                            </li>
-                          ))}
-                          {pacotesNaUf[selectedCidadeIdx].itens.length > 8 && (
-                            <li className="font-semibold text-secondary">
-                              + {pacotesNaUf[selectedCidadeIdx].itens.length - 8} outros colégios no lote...
-                            </li>
-                          )}
-                        </ul>
-                      </div>
-
-                      <label className="flex items-center gap-2 p-2 bg-surface-container-lowest border border-outline-variant/50 rounded-lg cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={definirPadraoAoImportar}
-                          onChange={(e) => setDefinirPadraoAoImportar(e.target.checked)}
-                          className="rounded text-primary focus:ring-primary h-4 w-4"
-                        />
-                        <span className="text-[11px] font-medium text-on-surface">
-                          Definir <strong>{pacotesNaUf[selectedCidadeIdx].cidade} - {pacotesNaUf[selectedCidadeIdx].uf}</strong> como cidade/estado padrão da campanha
-                        </span>
-                      </label>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* SELEÇÃO 2: Outro Município da UF (Customizado) */}
-              {(isCustomMode || pacotesNaUf.length === 0) && (
-                <div className="space-y-3 bg-surface-container-low p-4 rounded-xl border border-outline-variant/60">
-                  <div>
-                    <label className="block font-bold text-on-surface mb-1">
-                      Digite o nome do Município ({catalogUf}):
-                    </label>
-                    <input
-                      type="text"
-                      value={customCidadeNome}
-                      onChange={(e) => setCustomCidadeNome(e.target.value)}
-                      placeholder="Ex: Parnaíba, Picos, Floriano, Campinas, Santos..."
-                      className="w-full h-10 px-3 bg-surface border border-outline-variant rounded-lg font-semibold text-on-surface focus:border-primary outline-none"
-                    />
-                  </div>
-
-                  <div className="p-3 bg-surface-container-lowest border border-outline-variant/50 rounded-xl space-y-2">
-                    <span className="font-bold text-on-surface text-[11px] block">
-                      Como carregar colégios reais para {customCidadeNome || 'este município'} ({catalogUf}):
-                    </span>
-                    <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-on-surface-variant">
-                      <li>
-                        <strong>Importação de Planilha do TSE (Recomendado):</strong> Baixe a lista de locais de votação de {catalogUf} no portal Dados Abertos do TSE e carregue pelo nosso botão de CSV.
-                      </li>
-                      <li>
-                        <strong>Definir como Sede da Campanha:</strong> Defina {customCidadeNome || 'este município'} como cidade padrão para vincular automaticamente novas seções e eleitores.
-                      </li>
-                      <li>
-                        <strong>Cadastro Manual:</strong> Cadastre as escolas e seções diretamente no botão &quot;Novo Local&quot;.
-                      </li>
-                    </ol>
-
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-outline-variant/40">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const cid = customCidadeNome.trim() || 'Meu Município';
-                          if (atualizarConfiguracoes) {
-                            await atualizarConfiguracoes({
-                              municipioPadrao: cid,
-                              ufPadrao: catalogUf
-                            });
-                          }
-                          setMunicipio(cid);
-                          setUf(catalogUf);
-                          setIsCatalogModalOpen(false);
-                          setIsCsvModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-primary text-on-primary rounded-lg font-bold text-[11px] cursor-pointer hover:bg-primary/90"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Abrir Importador CSV com {customCidadeNome || catalogUf}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={!customCidadeNome.trim()}
-                        onClick={async () => {
-                          const cid = customCidadeNome.trim();
-                          if (!cid) return;
-                          if (atualizarConfiguracoes) {
-                            await atualizarConfiguracoes({
-                              municipioPadrao: cid,
-                              ufPadrao: catalogUf
-                            });
-                          }
-                          setMunicipio(cid);
-                          setUf(catalogUf);
-                          setIsCatalogModalOpen(false);
-                          showToast(`Localidade da campanha atualizada para ${cid} - ${catalogUf}!`, 'success');
-                        }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-surface-container-high text-on-surface border border-outline-variant rounded-lg font-semibold text-[11px] cursor-pointer hover:bg-surface-container-highest disabled:opacity-50"
-                      >
-                        <MapPin className="w-3.5 h-3.5 text-secondary" />
-                        <span>Definir como Cidade Padrão</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="pt-3 border-t border-outline-variant/50 flex items-center justify-between gap-2">
-              <span className="text-[10px] text-on-surface-variant">
-                Localidade atual da campanha: <strong>{activeCity} - {activeUf}</strong>
-              </span>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCatalogModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
-                >
-                  Fechar
-                </button>
-
-                {!isCustomMode && pacotesNaUf.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleImportOfficialCatalog}
-                    disabled={isProcessingCatalog}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-primary hover:bg-primary/95 text-on-primary rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {isProcessingCatalog ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Importando e Cruzando...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Importar para Minha Base</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ==================== MODAL RÁPIDO: ALTERAR ESTADO E CIDADE DA CAMPANHA ==================== */}
       {isLocationModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-scrim/50 backdrop-blur-xs animate-in fade-in duration-200">
@@ -2676,7 +2366,7 @@ export default function LocaisVotacaoPage() {
         </div>
       )}
 
-      {/* ==================== MODAL 2: IMPORTADOR VIA PLANILHA CSV ==================== */}
+      {/* ==================== MODAL 2: IMPORTADOR VIA PLANILHA (CSV / EXCEL) COM HISTÓRICO (Item 5) ==================== */}
       {isCsvModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-scrim/50 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4 max-h-[90vh] flex flex-col justify-between">
@@ -2686,9 +2376,9 @@ export default function LocaisVotacaoPage() {
                   <FileSpreadsheet className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-on-surface">Importar Colégios via Planilha CSV</h3>
+                  <h3 className="text-sm font-bold text-on-surface">Importar Colégios e Seções (CSV / Excel)</h3>
                   <p className="text-xs text-on-surface-variant">
-                    Compatível com o formato oficial do TSE / TRE ou planilhas customizadas
+                    Mecanismo oficial com agrupamento de seções e registro no Histórico de Importações
                   </p>
                 </div>
               </div>
@@ -2696,7 +2386,8 @@ export default function LocaisVotacaoPage() {
                 onClick={() => {
                   setIsCsvModalOpen(false);
                   setCsvFile(null);
-                  setCsvPreview([]);
+                  setParsedLocalRows([]);
+                  setCsvError(null);
                 }}
                 className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
               >
@@ -2710,27 +2401,25 @@ export default function LocaisVotacaoPage() {
                 <div className="flex items-center gap-2">
                   <FileSpreadsheet className="w-4 h-4 text-secondary shrink-0" />
                   <span className="text-[11px] text-on-surface font-medium">
-                    Precisa de um arquivo modelo ou dados oficiais do TSE?
+                    Baixe a planilha modelo oficial com o cabeçalho padrão:
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <a
-                    href="https://www.tse.jus.br/servicos-eleitorais/autoatendimento-eleitoral#/"
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Acessar o Autoatendimento Eleitoral e Serviços do TSE"
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-primary bg-primary/10 hover:bg-primary/20 rounded-md transition-colors cursor-pointer"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span>Portal TSE</span>
-                  </a>
                   <button
                     type="button"
-                    onClick={handleDownloadSampleCsv}
+                    onClick={() => downloadTemplate('locais', 'xlsx')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Modelo Excel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadTemplate('locais', 'csv')}
                     className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-secondary bg-secondary/10 hover:bg-secondary/20 rounded-md transition-colors cursor-pointer"
                   >
                     <Download className="w-3 h-3" />
-                    <span>Baixar Modelo CSV</span>
+                    <span>Modelo CSV</span>
                   </button>
                 </div>
               </div>
@@ -2743,7 +2432,7 @@ export default function LocaisVotacaoPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,text/csv"
+                  accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                   onChange={handleCsvFileChange}
                   className="hidden"
                 />
@@ -2752,13 +2441,21 @@ export default function LocaisVotacaoPage() {
                 </div>
                 <div>
                   <p className="font-bold text-on-surface text-xs">
-                    {csvFile ? csvFile.name : 'Clique para selecionar ou arraste o arquivo CSV aqui'}
+                    {csvFile ? csvFile.name : 'Clique para selecionar ou arraste o arquivo (CSV ou Excel) aqui'}
                   </p>
                   <p className="text-[11px] text-on-surface-variant mt-0.5">
-                    Colunas aceitas: Nome do Local, Zona, Seções, Bairro, Endereço, Capacidade
+                    Colunas aceitas: Colégio / Local de Votação, Zona, Seções, Seções Agregadas, Bairro, Endereço
                   </p>
                 </div>
               </div>
+
+              {/* Loading State */}
+              {isProcessingCsv && parsedLocalRows.length === 0 && (
+                <div className="p-4 rounded-xl bg-surface-container-low flex items-center justify-center gap-2 text-xs text-on-surface-variant">
+                  <RefreshCw className="w-4 h-4 animate-spin text-secondary" />
+                  <span>Lendo e analisando arquivo...</span>
+                </div>
+              )}
 
               {/* CSV Error */}
               {csvError && (
@@ -2768,15 +2465,35 @@ export default function LocaisVotacaoPage() {
                 </div>
               )}
 
+              {/* Opção de Zerar Base Anterior */}
+              {parsedLocalRows.length > 0 && (
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-container-low border border-outline-variant/60 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={limparLocaisAntes}
+                    onChange={(e) => setLimparLocaisAntes(e.target.checked)}
+                    className="rounded border-outline-variant mt-0.5 text-secondary focus:ring-secondary"
+                  />
+                  <div className="space-y-0.5 text-xs">
+                    <span className="font-bold text-on-surface block">
+                      Zerar base de locais existente antes de importar
+                    </span>
+                    <p className="text-[11px] text-on-surface-variant">
+                      Remove os {locais.length} colégios atuais para garantir que apenas os dados novos desta planilha fiquem no sistema sem duplicações.
+                    </p>
+                  </div>
+                </label>
+              )}
+
               {/* Preview Table */}
-              {csvPreview.length > 0 && (
+              {parsedLocalRows.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-on-surface">
-                      Colégios Identificados no Arquivo ({csvPreview.length})
+                      Colégios Identificados no Arquivo ({parsedLocalRows.length})
                     </span>
                     <span className="text-[11px] text-on-surface-variant font-mono">
-                      Prontos para cruzamento
+                      {parsedLocalRows.reduce((acc, r) => acc + (r.secoes?.length || 0), 0)} seções no total
                     </span>
                   </div>
 
@@ -2788,19 +2505,23 @@ export default function LocaisVotacaoPage() {
                           <th className="p-2">Zona</th>
                           <th className="p-2">Bairro</th>
                           <th className="p-2">Seções</th>
+                          <th className="p-2">Seções Agregadas</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-outline-variant/30">
-                        {csvPreview.map((item, idx) => (
+                        {parsedLocalRows.slice(0, 10).map((item, idx) => (
                           <tr key={idx} className="hover:bg-surface-container-low/40">
-                            <td className="p-2 font-bold text-on-surface truncate max-w-[200px]">{item.nome}</td>
+                            <td className="p-2 font-bold text-on-surface truncate max-w-[200px]" title={item.nome}>
+                              {item.nome}
+                            </td>
                             <td className="p-2 font-mono">Zona {item.zona}</td>
-                            <td className="p-2">{item.bairro}</td>
+                            <td className="p-2">{item.bairro || '-'}</td>
                             <td className="p-2 font-mono text-[10px] text-secondary">
-                              {Array.isArray(item.secoes)
-                                ? item.secoes.slice(0, 4).join(', ')
-                                : (item.secoes || item.secao || '-')}
-                              {Array.isArray(item.secoes) && item.secoes.length > 4 ? ` +${item.secoes.length - 4}` : ''}
+                              {item.secoes.slice(0, 3).join(', ')}
+                              {item.secoes.length > 3 ? ` +${item.secoes.length - 3}` : ''}
+                            </td>
+                            <td className="p-2 text-[10px] text-on-surface-variant">
+                              {item.secoesAgregadas || '-'}
                             </td>
                           </tr>
                         ))}
@@ -2808,10 +2529,10 @@ export default function LocaisVotacaoPage() {
                     </table>
                   </div>
 
-                  <div className="p-2.5 bg-primary/5 rounded-lg border border-primary/20 flex items-center gap-2 text-[11px] text-primary">
-                    <GitMerge className="w-4 h-4 shrink-0" />
+                  <div className="p-2.5 bg-secondary/5 rounded-lg border border-secondary/20 flex items-center gap-2 text-[11px] text-secondary">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
                     <span>
-                      O motor de cruzamento comparará este arquivo com os colégios já existentes, detectando e isolando seções duplicadas ou divergências de endereço.
+                      Esta importação será automaticamente registrada no <strong>Histórico de Importações</strong> com contagem auditável.
                     </span>
                   </div>
                 </div>
@@ -2824,7 +2545,8 @@ export default function LocaisVotacaoPage() {
                 onClick={() => {
                   setIsCsvModalOpen(false);
                   setCsvFile(null);
-                  setCsvPreview([]);
+                  setParsedLocalRows([]);
+                  setCsvError(null);
                 }}
                 className="px-3.5 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
               >
@@ -2833,18 +2555,18 @@ export default function LocaisVotacaoPage() {
               <button
                 type="button"
                 onClick={handleImportCsv}
-                disabled={isProcessingCsv || csvPreview.length === 0}
+                disabled={isProcessingCsv || parsedLocalRows.length === 0}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-secondary hover:bg-secondary/95 text-on-secondary rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 {isProcessingCsv ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Processando e Cruzando...</span>
+                    <span>Importando e Gravando...</span>
                   </>
                 ) : (
                   <>
                     <Upload className="w-3.5 h-3.5" />
-                    <span>Importar {csvPreview.length} Colégios</span>
+                    <span>Importar {parsedLocalRows.filter((r) => r.isValid).length} Colégios</span>
                   </>
                 )}
               </button>
