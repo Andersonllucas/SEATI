@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LocalCard } from '@/components/LocalCard';
 import {
@@ -31,7 +31,10 @@ import {
   Printer,
   ExternalLink,
   Link2,
-  Eye
+  Eye,
+  LayoutGrid,
+  Table as TableIcon,
+  Edit3
 } from 'lucide-react';
 import { useCampaignData, LocalVotacao } from '@/context/CampaignContext';
 import { matchLocalFilter } from '@/context/LocationContext';
@@ -103,9 +106,6 @@ export default function LocaisVotacaoPage() {
     registeredPairsList,
     isLoadingLocais,
     recarregarLocais,
-    fetchLocaisPage,
-    fetchAllLocaisDedicated,
-    fetchAllMatchingIds,
     eleitores,
     addLocalVotacao,
     updateLocalVotacao,
@@ -120,22 +120,17 @@ export default function LocaisVotacaoPage() {
   const activeCity = systemConfig?.municipioPadrao || 'Teresina';
   const activeUf = systemConfig?.ufPadrao || 'PI';
 
-  // Search, filter & sort state
+  // Search, filter & sort state (Opera sobre toda a base em memória com fluidez instantânea)
   const [searchTerm, setSearchTerm] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
   const [selectedZona, setSelectedZona] = useState('todas');
   const [voterLinkFilter, setVoterLinkFilter] = useState<'todos' | 'com_eleitor' | 'sem_eleitor'>('todos');
   const [sortBy, setSortBy] = useState<'nome' | 'eleitores' | 'secoes' | 'capacidade'>('eleitores');
 
-  // Pagination & On-Demand Firestore Search State
-  const [pageSize] = useState(60);
+  // Presentation & View Controls
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [pageSize, setPageSize] = useState<number | 'all'>(24);
   const [pageNumber, setPageNumber] = useState(1);
-  const [cursorHistory, setCursorHistory] = useState<any[]>([]);
-  const [currentLastDoc, setCurrentLastDoc] = useState<any>(null);
-  const [hasNextPage, setHasNextPage] = useState(false);
-  const [isSearchingFirestore, setIsSearchingFirestore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSelectingAll, setIsSelectingAll] = useState(false);
 
   // Responsive Virtualizer columns
   const [columns, setColumns] = useState(3);
@@ -429,100 +424,30 @@ export default function LocaisVotacaoPage() {
     });
   }, [eleitoresByZonaSecao, registeredPairs]);
 
-  // Handlers para busca sob demanda e paginação real no Firestore
-  const handleExecuteSearch = useCallback(
-    async (queryText: string, zona: string) => {
-      setIsSearchingFirestore(true);
-      try {
-        setPageNumber(1);
-        setCursorHistory([]);
-        const res = await fetchLocaisPage({
-          searchTerm: queryText,
-          selectedZona: zona,
-          pageSize
-        });
-        setCurrentLastDoc(res.lastDoc);
-        setHasNextPage(res.hasMore);
-        setAppliedSearch(queryText);
-      } catch (err) {
-        console.error('Erro na consulta do Firestore:', err);
-        showToast('Erro ao consultar locais no Firestore.', 'error');
-      } finally {
-        setIsSearchingFirestore(false);
-      }
-    },
-    [fetchLocaisPage, pageSize]
-  );
-
-  // Debounce automático da busca ao digitar (cobre a base inteira sob demanda)
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (searchTerm.trim() !== appliedSearch.trim()) {
-        handleExecuteSearch(searchTerm.trim(), selectedZona);
-      }
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [searchTerm, selectedZona, appliedSearch, handleExecuteSearch]);
-
-  const handleNextPage = async () => {
-    if (!currentLastDoc || !hasNextPage || isSearchingFirestore) return;
-    setIsSearchingFirestore(true);
-    try {
-      const res = await fetchLocaisPage({
-        pageSize,
-        startAfterDoc: currentLastDoc,
-        searchTerm: appliedSearch,
-        selectedZona
-      });
-      setCursorHistory((prev) => [...prev, currentLastDoc]);
-      setCurrentLastDoc(res.lastDoc);
-      setHasNextPage(res.hasMore);
-      setPageNumber((p) => p + 1);
-    } catch (err) {
-      console.error('Erro ao avançar página:', err);
-      showToast('Erro ao carregar próxima página.', 'error');
-    } finally {
-      setIsSearchingFirestore(false);
-    }
-  };
-
-  const handlePrevPage = async () => {
-    if (pageNumber <= 1 || isSearchingFirestore) return;
-    setIsSearchingFirestore(true);
-    try {
-      const prevCursor = pageNumber > 2 ? cursorHistory[pageNumber - 3] : null;
-      const res = await fetchLocaisPage({
-        pageSize,
-        startAfterDoc: prevCursor,
-        searchTerm: appliedSearch,
-        selectedZona
-      });
-      setCursorHistory((prev) => prev.slice(0, prev.length - 1));
-      setCurrentLastDoc(res.lastDoc);
-      setHasNextPage(true);
-      setPageNumber((p) => Math.max(1, p - 1));
-    } catch (err) {
-      console.error('Erro ao voltar página:', err);
-      showToast('Erro ao carregar página anterior.', 'error');
-    } finally {
-      setIsSearchingFirestore(false);
-    }
-  };
-
+  // Handler de atualização forçada sob demanda do Firestore
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
       await recarregarLocais();
       setPageNumber(1);
-      setCursorHistory([]);
-      setAppliedSearch('');
-      setSearchTerm('');
-      showToast('Locais de votação atualizados com sucesso!', 'success');
+      showToast('Locais de votação atualizados com sucesso da base central!', 'success');
     } catch (err) {
       console.error('Erro ao atualizar locais:', err);
       showToast('Falha ao atualizar dados do servidor.', 'error');
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (pageNumber < totalPages) {
+      setPageNumber((p) => p + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (pageNumber > 1) {
+      setPageNumber((p) => p - 1);
     }
   };
 
@@ -606,14 +531,14 @@ export default function LocaisVotacaoPage() {
     window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank', 'noopener,noreferrer');
   };
 
-  // Filter and Sort usando a função padronizada matchLocalFilter
+  // Filter and Sort usando a função padronizada matchLocalFilter cobrindo toda a base cadastrada
   const filteredLocais = useMemo(() => {
-    const activeSearch = appliedSearch || searchTerm;
+    const rawSearch = searchTerm.trim();
     return locaisWithStats
       .filter((local) => {
         if (voterLinkFilter === 'com_eleitor' && (local.eleitoresIdentificados || 0) === 0) return false;
         if (voterLinkFilter === 'sem_eleitor' && (local.eleitoresIdentificados || 0) > 0) return false;
-        return matchLocalFilter(local, activeSearch, selectedZona);
+        return matchLocalFilter(local, rawSearch, selectedZona);
       })
       .sort((a, b) => {
         if (sortBy === 'eleitores') return (b.eleitoresIdentificados || 0) - (a.eleitoresIdentificados || 0);
@@ -623,9 +548,43 @@ export default function LocaisVotacaoPage() {
           return countB - countA;
         }
         if (sortBy === 'capacidade') return (Number(b.capacidadeAprox) || 0) - (Number(a.capacidadeAprox) || 0);
-        return (a.nome || '').localeCompare(b.nome || '');
+        return (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' });
       });
-  }, [locaisWithStats, searchTerm, appliedSearch, selectedZona, voterLinkFilter, sortBy]);
+  }, [locaisWithStats, searchTerm, selectedZona, voterLinkFilter, sortBy]);
+
+  // Contadores dinâmicos para os filtros
+  const countComEleitores = useMemo(() => {
+    return locaisWithStats.filter((l) => (l.eleitoresIdentificados || 0) > 0).length;
+  }, [locaisWithStats]);
+
+  const countSemEleitores = useMemo(() => {
+    return locaisWithStats.filter((l) => (l.eleitoresIdentificados || 0) === 0).length;
+  }, [locaisWithStats]);
+
+  // Paginação no cliente ultra-fluida
+  const totalPages = useMemo(() => {
+    if (pageSize === 'all') return 1;
+    return Math.max(1, Math.ceil(filteredLocais.length / pageSize));
+  }, [filteredLocais.length, pageSize]);
+
+  // Ao alterar qualquer filtro ou busca, reinicia para a primeira página
+  useEffect(() => {
+    setPageNumber(1);
+  }, [searchTerm, selectedZona, voterLinkFilter, sortBy, pageSize]);
+
+  // Se a página atual exceder o total de páginas (ex: após filtro), ajusta
+  useEffect(() => {
+    if (pageNumber > totalPages) {
+      setPageNumber(totalPages);
+    }
+  }, [pageNumber, totalPages]);
+
+  // Itens atualmente exibidos na página ativa
+  const displayedLocais = useMemo(() => {
+    if (pageSize === 'all') return filteredLocais;
+    const start = (pageNumber - 1) * pageSize;
+    return filteredLocais.slice(start, start + pageSize);
+  }, [filteredLocais, pageNumber, pageSize]);
 
   // Overall Statistics com contagens agregadas da base inteira
   const totalLocaisExibidos = filteredLocais.length;
@@ -667,27 +626,35 @@ export default function LocaisVotacaoPage() {
 
   const taxaCobertura = eleitores.length > 0 ? Math.round((totalEleitoresMapeados / eleitores.length) * 100) : 0;
 
-  // Zonas eleitorais disponíveis para filtragem rápida
+  // Zonas eleitorais disponíveis para filtragem rápida com contagens reais
   const zonasDisponiveis = useMemo(() => {
-    const set = new Set<string>();
+    const countsMap = new Map<string, number>();
     locais.forEach((l) => {
       if (l.zona) {
         const normZ = normalizeNum(l.zona).padStart(3, '0');
-        if (normZ && normZ !== '000') set.add(normZ);
+        if (normZ && normZ !== '000') {
+          countsMap.set(normZ, (countsMap.get(normZ) || 0) + 1);
+        }
       }
     });
     eleitores.forEach((e) => {
       if (e.zona) {
         const normZ = normalizeNum(e.zona).padStart(3, '0');
-        if (normZ && normZ !== '000') set.add(normZ);
+        if (normZ && normZ !== '000' && !countsMap.has(normZ)) {
+          countsMap.set(normZ, 0);
+        }
       }
     });
-    ['001', '002', '063', '097', '098'].forEach((z) => set.add(z));
-    return Array.from(set).sort();
+    if (countsMap.size === 0) {
+      ['001', '002', '063', '097', '098'].forEach((z) => countsMap.set(z, 0));
+    }
+    return Array.from(countsMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([zona, count]) => ({ zona, count }));
   }, [locais, eleitores]);
 
-  // Virtualizador de Linhas do Grid
-  const rowCount = Math.ceil(filteredLocais.length / columns);
+  // Virtualizador de Linhas do Grid (usado quando pageSize === 'all' para garantir 60fps)
+  const rowCount = Math.ceil(displayedLocais.length / columns);
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
@@ -845,36 +812,19 @@ export default function LocaisVotacaoPage() {
     );
   };
 
-  const handleToggleSelectAll = async () => {
-    setIsSelectingAll(true);
-    try {
-      // Consulta dedicada na base inteira para obter todos os IDs que batem com o filtro ativo
-      const matchingIds = await fetchAllMatchingIds({
-        searchTerm: appliedSearch || searchTerm,
-        selectedZona
-      });
-
-      if (matchingIds.length === 0) {
-        showToast('Nenhum local correspondente para selecionar.', 'info');
-        return;
-      }
-
-      const allSelected = matchingIds.every((id) => selectedIds.includes(id));
-      if (allSelected) {
-        setSelectedIds((prev) => prev.filter((id) => !matchingIds.includes(id)));
-        showToast('Seleção limpa.');
-      } else {
-        setSelectedIds((prev) => Array.from(new Set([...prev, ...matchingIds])));
-        showToast(
-          `${matchingIds.length.toLocaleString('pt-BR')} local(is) selecionado(s) na base inteira.`,
-          'success'
-        );
-      }
-    } catch (err) {
-      console.error('Erro ao selecionar todos os locais:', err);
-      showToast('Falha ao selecionar todos os locais.', 'error');
-    } finally {
-      setIsSelectingAll(false);
+  const handleToggleSelectAll = () => {
+    const filteredIds = filteredLocais.map((l) => l.id);
+    if (filteredIds.length === 0) return;
+    const allSelected = filteredIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+      showToast('Seleção limpa.');
+    } else {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+      showToast(
+        `${filteredIds.length.toLocaleString('pt-BR')} local(is) selecionado(s).`,
+        'success'
+      );
     }
   };
 
@@ -883,25 +833,14 @@ export default function LocaisVotacaoPage() {
   };
 
   const isAllFilteredSelected = useMemo(() => {
-    if (selectedIds.length === 0) return false;
-    const isFiltered = Boolean((appliedSearch || searchTerm).trim()) || (selectedZona && selectedZona !== 'todas');
-    if (isFiltered) {
-      return (
-        filteredLocais.length > 0 &&
-        filteredLocais.every((l) => selectedIds.includes(l.id)) &&
-        selectedIds.length >= filteredLocais.length
-      );
-    }
-    return (
-      filteredLocais.length > 0 &&
-      filteredLocais.every((l) => selectedIds.includes(l.id)) &&
-      selectedIds.length >= totalLocaisGeral
-    );
-  }, [selectedIds, filteredLocais, appliedSearch, searchTerm, selectedZona, totalLocaisGeral]);
+    if (selectedIds.length === 0 || filteredLocais.length === 0) return false;
+    return filteredLocais.every((l) => selectedIds.includes(l.id));
+  }, [selectedIds, filteredLocais]);
 
-  const isSomeFilteredSelected =
-    (filteredLocais.some((l) => selectedIds.includes(l.id)) || selectedIds.length > 0) &&
-    !isAllFilteredSelected;
+  const isSomeFilteredSelected = useMemo(() => {
+    if (selectedIds.length === 0 || filteredLocais.length === 0) return false;
+    return filteredLocais.some((l) => selectedIds.includes(l.id)) && !isAllFilteredSelected;
+  }, [selectedIds, filteredLocais, isAllFilteredSelected]);
 
   const handleConfirmBatchDelete = async () => {
     if (selectedIds.length === 0) return;
@@ -940,9 +879,8 @@ export default function LocaisVotacaoPage() {
     try {
       let targets: LocalVotacao[];
       if (selectedIds.length > 0) {
-        const all = await fetchAllLocaisDedicated();
         const idSet = new Set(selectedIds);
-        targets = all.filter((l) => idSet.has(l.id));
+        targets = locais.filter((l) => idSet.has(l.id));
       } else {
         targets = filteredLocais.length > 0 ? filteredLocais : locais;
       }
@@ -1934,109 +1872,191 @@ export default function LocaisVotacaoPage() {
         )}
       </div>
 
-      {/* Filters, Search & Sort Bar (Consulta Direta no Firestore e Paginação) */}
-      <div className="bg-surface-container-lowest p-3.5 rounded-xl border border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleExecuteSearch(searchTerm, selectedZona);
-          }}
-          className="relative flex-1 min-w-[280px] flex items-center gap-2"
-        >
-          <div className="relative flex-1">
+      {/* Filters, Search & View Controls Bar (Instantânea e cobre 100% da base) */}
+      <div className="bg-surface-container-lowest p-3.5 rounded-xl border border-outline-variant/60 flex flex-col gap-3 shadow-xs">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+          {/* Campo de Busca Instantânea com Limpeza Rápida */}
+          <div className="relative flex-1 min-w-[280px]">
             <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar por colégio, bairro, zona ou seção (cobre toda a base de locais)..."
+              placeholder="Buscar por colégio, bairro, endereço, zona ou seção (pesquisa em 100% dos locais)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full h-9 pl-9 pr-8 text-xs bg-surface-container-low border border-outline-variant/60 rounded-lg focus:outline-none focus:border-secondary transition-colors"
+              className="w-full h-9.5 pl-9 pr-8 text-xs bg-surface-container-low border border-outline-variant/60 rounded-lg focus:outline-none focus:border-secondary transition-colors"
             />
             {searchTerm && (
               <button
                 type="button"
-                onClick={() => {
-                  setSearchTerm('');
-                  handleExecuteSearch('', selectedZona);
-                }}
+                onClick={() => setSearchTerm('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface p-0.5 cursor-pointer"
-                title="Limpar busca"
+                title="Limpar termo de busca"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
-          <button
-            type="submit"
-            disabled={isSearchingFirestore}
-            className="h-9 px-3.5 bg-primary text-on-primary font-bold text-xs rounded-lg hover:bg-secondary transition-colors shrink-0 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-          >
-            {isSearchingFirestore ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Buscando...</span>
-              </>
-            ) : (
-              <span>Buscar</span>
-            )}
-          </button>
-        </form>
 
-        <div className="flex flex-wrap items-center gap-2.5 text-xs">
-          {/* Zona Filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-semibold text-on-surface-variant">Zona:</span>
-            <select
-              value={selectedZona}
-              onChange={(e) => {
-                const z = e.target.value;
-                setSelectedZona(z);
-                handleExecuteSearch(searchTerm, z);
-              }}
-              className="h-9 px-2.5 bg-surface-container-low border border-outline-variant/60 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary text-xs"
-            >
-              <option value="todas">Todas as Zonas</option>
-              {zonasDisponiveis.map((z) => (
-                <option key={z} value={z}>
-                  Zona {z}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Filtros e Seletores */}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Filtro Zona Eleitoral */}
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-on-surface-variant">Zona:</span>
+              <select
+                value={selectedZona}
+                onChange={(e) => setSelectedZona(e.target.value)}
+                className="h-9 px-2.5 bg-surface-container-low border border-outline-variant/60 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary text-xs cursor-pointer"
+              >
+                <option value="todas">Todas as Zonas ({locais.length})</option>
+                {zonasDisponiveis.map((z) => (
+                  <option key={z.zona} value={z.zona}>
+                    Zona {z.zona} ({z.count})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Filtro Eleitores Vinculados (Item 1) */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-semibold text-on-surface-variant">Eleitores:</span>
-            <select
-              value={voterLinkFilter}
-              onChange={(e) => setVoterLinkFilter(e.target.value as 'todos' | 'com_eleitor' | 'sem_eleitor')}
-              className={`h-9 px-2.5 border rounded-lg font-medium text-xs focus:outline-none focus:border-secondary transition-colors ${
-                voterLinkFilter !== 'todos'
-                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-900 dark:text-amber-300 font-bold'
-                  : 'bg-surface-container-low border-outline-variant/60 text-on-surface'
-              }`}
-            >
-              <option value="todos">Todos os Locais</option>
-              <option value="com_eleitor">Com Eleitor Vinculado</option>
-              <option value="sem_eleitor">Sem Eleitor Vinculado</option>
-            </select>
-          </div>
+            {/* Filtro Eleitores Vinculados */}
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-on-surface-variant">Eleitores:</span>
+              <select
+                value={voterLinkFilter}
+                onChange={(e) => setVoterLinkFilter(e.target.value as 'todos' | 'com_eleitor' | 'sem_eleitor')}
+                className={`h-9 px-2.5 border rounded-lg font-medium text-xs focus:outline-none focus:border-secondary transition-colors cursor-pointer ${
+                  voterLinkFilter !== 'todos'
+                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-900 dark:text-amber-300 font-bold'
+                    : 'bg-surface-container-low border-outline-variant/60 text-on-surface'
+                }`}
+              >
+                <option value="todos">Todos os Locais ({locais.length})</option>
+                <option value="com_eleitor">Com Eleitor Vinculado ({countComEleitores})</option>
+                <option value="sem_eleitor">Sem Eleitor Vinculado ({countSemEleitores})</option>
+              </select>
+            </div>
 
-          {/* Sort By */}
-          <div className="flex items-center gap-1.5">
-            <ArrowUpDown className="w-3.5 h-3.5 text-on-surface-variant" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="h-9 px-2.5 bg-surface-container-low border border-outline-variant/60 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary text-xs"
-            >
-              <option value="eleitores">Mais Eleitores na Base</option>
-              <option value="nome">Nome (A-Z)</option>
-              <option value="secoes">Mais Seções</option>
-              <option value="capacidade">Maior Capacidade</option>
-            </select>
+            {/* Ordenação */}
+            <div className="flex items-center gap-1.5">
+              <ArrowUpDown className="w-3.5 h-3.5 text-on-surface-variant" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="h-9 px-2.5 bg-surface-container-low border border-outline-variant/60 rounded-lg font-medium text-on-surface focus:outline-none focus:border-secondary text-xs cursor-pointer"
+              >
+                <option value="eleitores">Mais Eleitores na Base</option>
+                <option value="nome">Nome (A-Z)</option>
+                <option value="secoes">Mais Seções</option>
+                <option value="capacidade">Maior Capacidade</option>
+              </select>
+            </div>
+
+            {/* Alternador de Modo de Visualização: Cards vs Tabela */}
+            <div className="flex items-center bg-surface-container-low border border-outline-variant/60 rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                  viewMode === 'grid'
+                    ? 'bg-surface text-primary shadow-2xs font-bold'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+                title="Visualização em Cards"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                  viewMode === 'table'
+                    ? 'bg-surface text-primary shadow-2xs font-bold'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+                title="Visualização em Tabela Compacta"
+              >
+                <TableIcon className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Itens por página */}
+            <div className="flex items-center gap-1">
+              <select
+                value={String(pageSize)}
+                onChange={(e) => setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="h-9 px-2 bg-surface-container-low border border-outline-variant/60 rounded-lg text-xs font-medium text-on-surface focus:outline-none focus:border-secondary cursor-pointer"
+                title="Quantidade de locais por página"
+              >
+                <option value="24">24 / pág</option>
+                <option value="48">48 / pág</option>
+                <option value="96">96 / pág</option>
+                <option value="all">Ver Todos</option>
+              </select>
+            </div>
           </div>
         </div>
+
+        {/* Chips de Filtros Ativos com Limpeza Rápida */}
+        {(Boolean(searchTerm.trim()) || selectedZona !== 'todas' || voterLinkFilter !== 'todos') && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-outline-variant/30 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-on-surface-variant">Filtros ativos:</span>
+              {Boolean(searchTerm.trim()) && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium text-[11px]">
+                  <span>Busca: &ldquo;{searchTerm}&rdquo;</span>
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="hover:opacity-70 p-0.5 cursor-pointer"
+                    title="Remover filtro de busca"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {selectedZona !== 'todas' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-secondary/15 text-secondary border border-secondary/25 font-medium text-[11px]">
+                  <span>Zona: {selectedZona}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedZona('todas')}
+                    className="hover:opacity-70 p-0.5 cursor-pointer"
+                    title="Remover filtro de zona"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {voterLinkFilter !== 'todos' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/25 font-medium text-[11px]">
+                  <span>{voterLinkFilter === 'com_eleitor' ? 'Com Eleitores Vinculados' : 'Sem Eleitores Vinculados'}</span>
+                  <button
+                    type="button"
+                    onClick={() => setVoterLinkFilter('todos')}
+                    className="hover:opacity-70 p-0.5 cursor-pointer"
+                    title="Remover filtro de eleitores"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedZona('todas');
+                  setVoterLinkFilter('todos');
+                }}
+                className="text-[11px] font-bold text-primary hover:underline ml-1 cursor-pointer"
+              >
+                Limpar todos os filtros
+              </button>
+            </div>
+
+            <div className="text-[11px] text-on-surface-variant font-medium">
+              Exibindo <strong>{filteredLocais.length}</strong> de <strong>{locais.length}</strong> colégios (100% da base consultada)
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Empty State when no locais found */}
@@ -2047,15 +2067,29 @@ export default function LocaisVotacaoPage() {
           </div>
           <div>
             <h3 className="text-sm font-bold text-on-surface">
-              {totalLocaisCount === 0 ? 'Nenhum Local de Votação Cadastrado' : 'Nenhum local encontrado para os filtros'}
+              {totalLocaisGeral === 0 ? 'Nenhum Local de Votação Cadastrado' : 'Nenhum local encontrado para os filtros selecionados'}
             </h3>
             <p className="text-xs text-on-surface-variant max-w-md mx-auto mt-1">
-              {totalLocaisCount === 0
+              {totalLocaisGeral === 0
                 ? 'Importe automaticamente os colégios e seções de Teresina - PI pelo assistente ou faça o upload de uma planilha CSV.'
-                : 'Tente alterar os termos de busca ou limpar os filtros de zona eleitoral.'}
+                : 'A pesquisa avaliou todos os colégios cadastrados no banco de dados. Tente ajustar os termos de busca ou limpar os filtros de zona e eleitores.'}
             </p>
           </div>
-          {totalLocaisCount === 0 && (
+          {totalLocaisGeral > 0 ? (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedZona('todas');
+                  setVoterLinkFilter('todos');
+                }}
+                className="px-4 py-2 text-xs font-bold bg-primary text-on-primary rounded-lg shadow-xs hover:bg-secondary transition-colors cursor-pointer"
+              >
+                Ver Todos os {locais.length} Locais
+              </button>
+            </div>
+          ) : (
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <button
                 onClick={handleOpenCreate}
@@ -2100,23 +2134,18 @@ export default function LocaisVotacaoPage() {
                 className="w-4 h-4 rounded text-primary focus:ring-primary/20 border-outline-variant cursor-pointer accent-primary"
               />
               <span>
-                {isSelectingAll ? (
-                  <span className="inline-flex items-center gap-1.5 text-primary font-bold">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Selecionando base inteira...</span>
-                  </span>
-                ) : isAllFilteredSelected ? (
+                {isAllFilteredSelected ? (
                   <span className="font-bold text-primary">
-                    {`Todos os ${selectedIds.length.toLocaleString('pt-BR')} locais selecionados (base completa)`}
+                    {`Todos os ${selectedIds.length.toLocaleString('pt-BR')} locais filtrados selecionados`}
                   </span>
                 ) : selectedIds.length > 0 ? (
                   <span>
-                    <strong className="text-primary">{selectedIds.length.toLocaleString('pt-BR')}</strong> selecionado(s)
-                    {totalLocaisGeral > 0 && ` (de aprox. ${totalLocaisGeral.toLocaleString('pt-BR')} no banco)`}
+                    <strong className="text-primary">{selectedIds.length.toLocaleString('pt-BR')}</strong> selecionado(s) de {filteredLocais.length} filtrados
                   </span>
                 ) : (
                   <span>
-                    Selecionar todos ({totalLocaisGeral > 0 ? totalLocaisGeral.toLocaleString('pt-BR') : filteredLocais.length})
+                    Selecionar todos os {filteredLocais.length.toLocaleString('pt-BR')} filtrados
+                    {locais.length > filteredLocais.length && ` (de ${locais.length.toLocaleString('pt-BR')} cadastrados)`}
                   </span>
                 )}
               </span>
@@ -2153,97 +2182,307 @@ export default function LocaisVotacaoPage() {
         </div>
       )}
 
-      {/* Grid Virtualizado de Locais de Votação (Apenas linhas visíveis montadas no DOM) */}
-      {filteredLocais.length > 0 && (
-        <div
-          ref={parentRef}
-          className="max-h-[760px] overflow-y-auto pr-1 rounded-xl scrollbar-thin scrollbar-thumb-outline-variant"
-        >
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative'
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const startIndex = virtualRow.index * columns;
-              const rowItems = filteredLocais.slice(startIndex, startIndex + columns);
+      {/* RENDERIZAÇÃO 1: MODO GRID DE CARDS */}
+      {filteredLocais.length > 0 && viewMode === 'grid' && (
+        <>
+          {pageSize === 'all' && displayedLocais.length > 40 ? (
+            /* Modo Virtualizado para listas gigantes (quando 'Ver Todos' selecionado) */
+            <div
+              ref={parentRef}
+              className="max-h-[760px] overflow-y-auto pr-1 rounded-xl scrollbar-thin scrollbar-thumb-outline-variant"
+            >
+              <div
+                style={{
+                  height: `${rowVirtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative'
+                }}
+              >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const startIndex = virtualRow.index * columns;
+                  const rowItems = displayedLocais.slice(startIndex, startIndex + columns);
 
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualRow.start}px)`
-                  }}
-                  className={`grid gap-4 py-2 ${
-                    columns === 1 ? 'grid-cols-1' : columns === 2 ? 'grid-cols-2' : 'grid-cols-3'
-                  }`}
-                >
-                  {rowItems.map((local) => (
-                    <LocalCard
-                      key={local.id}
-                      local={local}
-                      isSelected={selectedIds.includes(local.id)}
-                      onToggleSelect={() => handleToggleSelect(local.id)}
-                      onViewVoters={() => setViewVotersLocal(local)}
-                      onEdit={() => handleOpenEdit(local)}
-                      onDelete={() => setDeleteDialog(local)}
-                      onAgregarSecao={(sec, loc) => handleOpenAgregarModal(sec, loc.zona, loc.id)}
-                    />
-                  ))}
-                </div>
-              );
-            })}
-          </div>
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      ref={rowVirtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`
+                      }}
+                      className={`grid gap-4 py-2 ${
+                        columns === 1 ? 'grid-cols-1' : columns === 2 ? 'grid-cols-2' : 'grid-cols-3'
+                      }`}
+                    >
+                      {rowItems.map((local) => (
+                        <LocalCard
+                          key={local.id}
+                          local={local}
+                          isSelected={selectedIds.includes(local.id)}
+                          onToggleSelect={() => handleToggleSelect(local.id)}
+                          onViewVoters={() => setViewVotersLocal(local)}
+                          onEdit={() => handleOpenEdit(local)}
+                          onDelete={() => setDeleteDialog(local)}
+                          onAgregarSecao={(sec, loc) => handleOpenAgregarModal(sec, loc.zona, loc.id)}
+                        />
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            /* Grid Padrão Direto e Fluido (sem scrollbar aninhada) */
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {displayedLocais.map((local) => (
+                <LocalCard
+                  key={local.id}
+                  local={local}
+                  isSelected={selectedIds.includes(local.id)}
+                  onToggleSelect={() => handleToggleSelect(local.id)}
+                  onViewVoters={() => setViewVotersLocal(local)}
+                  onEdit={() => handleOpenEdit(local)}
+                  onDelete={() => setDeleteDialog(local)}
+                  onAgregarSecao={(sec, loc) => handleOpenAgregarModal(sec, loc.zona, loc.id)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* RENDERIZAÇÃO 2: MODO TABELA COMPACTA EXECUTIVA */}
+      {filteredLocais.length > 0 && viewMode === 'table' && (
+        <div className="overflow-x-auto border border-outline-variant/60 rounded-xl bg-surface-container-lowest shadow-xs">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-surface-container-low border-b border-outline-variant/60 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">
+                <th className="py-2.5 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllFilteredSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSomeFilteredSelected;
+                    }}
+                    onChange={handleToggleSelectAll}
+                    className="w-4 h-4 rounded text-primary border-outline-variant cursor-pointer accent-primary"
+                    aria-label="Selecionar todos os locais filtrados"
+                  />
+                </th>
+                <th className="py-2.5 px-3">Colégio / Estabelecimento</th>
+                <th className="py-2.5 px-3">Zona</th>
+                <th className="py-2.5 px-3">Bairro e Endereço</th>
+                <th className="py-2.5 px-3">Seções Cadastradas</th>
+                <th className="py-2.5 px-3 text-center">Eleitores na Base</th>
+                <th className="py-2.5 px-3 text-right">Capacidade</th>
+                <th className="py-2.5 px-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant/30 font-medium">
+              {displayedLocais.map((local) => {
+                const isSelected = selectedIds.includes(local.id);
+                const secoesList = Array.isArray(local.secoes)
+                  ? local.secoes
+                  : (local.secoes ? String(local.secoes).split(',').map((s) => s.trim()).filter(Boolean) : (local.secao ? [local.secao] : []));
+
+                return (
+                  <tr
+                    key={local.id}
+                    className={`hover:bg-primary/[0.03] transition-colors ${
+                      isSelected ? 'bg-primary/[0.04]' : ''
+                    }`}
+                  >
+                    {/* Checkbox */}
+                    <td className="py-2.5 px-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleSelect(local.id)}
+                        className="w-4 h-4 rounded text-primary border-outline-variant cursor-pointer accent-primary"
+                        aria-label={`Selecionar ${local.nome}`}
+                      />
+                    </td>
+
+                    {/* Colégio / Nome */}
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded bg-surface-container text-primary flex items-center justify-center shrink-0">
+                          <School className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0 max-w-xs">
+                          <p className="font-bold text-on-surface truncate hover:text-primary transition-colors cursor-pointer" onClick={() => handleOpenEdit(local)}>
+                            {local.nome}
+                          </p>
+                          <p className="text-[10px] text-on-surface-variant truncate">
+                            {local.tipo || 'Colégio Eleitoral'} • {local.municipio || activeCity}-{local.uf || activeUf}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Zona */}
+                    <td className="py-2.5 px-3 whitespace-nowrap">
+                      <span className="font-mono font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px]">
+                        Zona {local.zona}
+                      </span>
+                    </td>
+
+                    {/* Bairro e Endereço */}
+                    <td className="py-2.5 px-3 max-w-[220px]">
+                      <p className="font-semibold text-on-surface truncate">{local.bairro || '-'}</p>
+                      {local.endereco && (
+                        <p className="text-[10px] text-on-surface-variant truncate" title={local.endereco}>
+                          {local.endereco}
+                        </p>
+                      )}
+                    </td>
+
+                    {/* Seções */}
+                    <td className="py-2.5 px-3 max-w-xs">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {secoesList.slice(0, 6).map((sec) => (
+                          <span
+                            key={sec}
+                            onClick={() => handleOpenAgregarModal(sec, local.zona, local.id)}
+                            title="Clique para agregar esta seção a outra"
+                            className="px-1.5 py-0.5 bg-surface-container-low hover:bg-secondary/15 hover:text-secondary hover:border-secondary/30 text-[10px] font-mono rounded border border-outline-variant/50 transition-colors cursor-pointer"
+                          >
+                            {sec}
+                          </span>
+                        ))}
+                        {secoesList.length > 6 && (
+                          <span className="text-[10px] text-on-surface-variant font-mono">
+                            +{secoesList.length - 6}
+                          </span>
+                        )}
+                        {secoesList.length === 0 && (
+                          <span className="text-[10px] text-on-surface-variant italic">Sem seções</span>
+                        )}
+                      </div>
+                      {Boolean(local.secoesAgregadas) && (
+                        <div className="text-[9px] text-amber-800 dark:text-amber-300 font-mono mt-0.5 truncate">
+                          Agr: {String(local.secoesAgregadas)}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Eleitores na Base */}
+                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => setViewVotersLocal(local)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                          (local.eleitoresIdentificados || 0) > 0
+                            ? 'bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/20'
+                            : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+                        }`}
+                        title="Ver eleitores cadastrados neste local"
+                      >
+                        <Users className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{local.eleitoresIdentificados || 0}</span>
+                      </button>
+                    </td>
+
+                    {/* Capacidade */}
+                    <td className="py-2.5 px-3 text-right font-mono text-on-surface-variant whitespace-nowrap">
+                      ~{Number(local.capacidadeAprox || 0).toLocaleString('pt-BR')}
+                    </td>
+
+                    {/* Ações */}
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAgregarModal(secoesList[0] || '', local.zona, local.id)}
+                          title="Agregar Seção"
+                          className="p-1.5 text-on-surface-variant hover:text-secondary hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
+                        >
+                          <GitMerge className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(local)}
+                          title="Editar Local"
+                          className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteDialog(local)}
+                          title="Excluir Local"
+                          className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error-container/30 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Barra de Paginação Real com Cursores do Firestore */}
-      {filteredLocais.length > 0 && (
+      {/* Barra de Paginação Fluida e Amigável */}
+      {filteredLocais.length > 0 && pageSize !== 'all' && (
         <div className="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 shadow-xs text-xs mt-2">
           <div className="flex items-center gap-2 text-on-surface-variant font-medium">
             <span>
-              Página <strong className="text-on-surface">{pageNumber}</strong>
+              Página <strong className="text-on-surface">{pageNumber}</strong> de <strong className="text-on-surface">{totalPages}</strong>
             </span>
             <span>•</span>
             <span>
-              Exibindo <strong>{filteredLocais.length}</strong> locais
-              {totalLocaisGeral > 0 && ` (de aprox. ${totalLocaisGeral.toLocaleString('pt-BR')} no banco)`}
+              Exibindo <strong>{displayedLocais.length}</strong> de <strong>{filteredLocais.length}</strong> locais
+              {locais.length > filteredLocais.length && ` (${locais.length} total no banco)`}
             </span>
-            {isSearchingFirestore && (
-              <span className="inline-flex items-center gap-1.5 text-primary ml-2 font-bold animate-pulse">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Carregando dados do Firestore...</span>
-              </span>
-            )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={handlePrevPage}
-              disabled={pageNumber <= 1 || isSearchingFirestore}
+              disabled={pageNumber <= 1}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline-variant font-bold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               <span>Anterior</span>
             </button>
 
-            <span className="px-2.5 py-1 bg-surface-container rounded-md font-mono font-bold text-on-surface">
-              {pageNumber}
-            </span>
+            {/* Atalhos rápidos de página */}
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                let p = idx + 1;
+                if (totalPages > 5 && pageNumber > 3) {
+                  p = pageNumber - 2 + idx;
+                  if (p > totalPages) p = totalPages - (4 - idx);
+                }
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPageNumber(p)}
+                    className={`w-7 h-7 rounded-md font-mono font-bold text-xs transition-colors cursor-pointer ${
+                      p === pageNumber
+                        ? 'bg-primary text-on-primary'
+                        : 'bg-surface-container hover:bg-surface-container-high text-on-surface'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
 
             <button
               type="button"
               onClick={handleNextPage}
-              disabled={!hasNextPage || isSearchingFirestore}
+              disabled={pageNumber >= totalPages}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline-variant font-bold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <span>Próxima</span>

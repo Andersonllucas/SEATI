@@ -12,7 +12,8 @@ import {
   ChevronRight,
   TrendingUp,
   Plus,
-  RotateCcw
+  RotateCcw,
+  CheckCircle2
 } from 'lucide-react';
 import { useCampaignData, Eleitor } from '@/context/CampaignContext';
 import { useTenant } from '@/context/TenantContext';
@@ -36,7 +37,6 @@ function DashboardContent() {
   const {
     eleitores,
     liderancas,
-    locais,
     totalEleitores,
     totalLiderancasAtivas,
     totalConflitos
@@ -64,27 +64,21 @@ function DashboardContent() {
     return Math.min(100, Math.round((totalEleitores / totalMetaVotos) * 100));
   }, [totalEleitores, totalMetaVotos]);
 
-  // 3. Cobertura de Locais e Seções Reais
-  const totalSecoesMapeadas = useMemo(() => {
-    let count = 0;
-    locais.forEach((loc) => {
-      if (Array.isArray(loc.secoes)) {
-        count += loc.secoes.length;
-      }
-    });
-    return count;
-  }, [locais]);
+  // 3. Cadastros Validados e Confiabilidade da Base (Substitui Locais de Votação com zero consumo de recursos externos)
+  const eleitoresValidados = useMemo(() => {
+    return eleitores.filter(
+      (e) => e.status === 'Validado' || e.status === 'Confirmado' || (e as any).statusValidacao === 'Confirmado'
+    ).length;
+  }, [eleitores]);
 
-  const zonasAtivas = useMemo(() => {
-    const set = new Set<string>();
-    eleitores.forEach((e) => {
-      if (e.zona) set.add(String(e.zona).trim());
-    });
-    locais.forEach((l) => {
-      if (l.zona) set.add(String(l.zona).trim());
-    });
-    return Array.from(set).filter(Boolean).sort();
-  }, [eleitores, locais]);
+  const percentualValidados = useMemo(() => {
+    if (totalEleitores === 0) return 0;
+    return Math.round((eleitoresValidados / totalEleitores) * 100);
+  }, [eleitoresValidados, totalEleitores]);
+
+  const eleitoresPendentes = useMemo(() => {
+    return Math.max(0, totalEleitores - eleitoresValidados);
+  }, [totalEleitores, eleitoresValidados]);
 
   // 4. Bairros e Regiões Mais Expressivos Reais
   const topBairros = useMemo(() => {
@@ -350,17 +344,21 @@ function DashboardContent() {
           }
         />
 
-        {/* Card 4: Cobertura Territorial & Locais */}
+        {/* Card 4: Cadastros Validados & Confiabilidade da Base (Substitui Locais de Votação) */}
         <KpiCard
-          title="Locais de Votação"
-          value={`${locais.length} Colégios`}
-          icon={MapPin}
+          title="Cadastros Validados"
+          value={eleitoresValidados.toLocaleString('pt-BR')}
+          icon={CheckCircle2}
+          progress={percentualValidados}
+          progressLabel="Taxa de Validação"
+          highlight={totalEleitores > 0 ? `${percentualValidados}% validados` : undefined}
           sub={
-            locais.length > 0
-              ? `${totalSecoesMapeadas} seções em ${zonasAtivas.length || 1} zona${(zonasAtivas.length || 1) > 1 ? 's' : ''}`
-              : 'Nenhum local cadastrado ainda'
+            totalEleitores > 0
+              ? eleitoresValidados > 0
+                ? `${eleitoresValidados.toLocaleString('pt-BR')} confirmados • ${eleitoresPendentes.toLocaleString('pt-BR')} pendentes`
+                : `${eleitoresPendentes.toLocaleString('pt-BR')} eleitores aguardando validação de contato`
+              : 'Nenhum eleitor cadastrado'
           }
-          highlight={topBairros.length > 0 ? `${topBairros.length} Bairros` : undefined}
         />
       </div>
 

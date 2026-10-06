@@ -3,7 +3,14 @@ import type {NextConfig} from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ['@google/genai', 'protobufjs'],
-  allowedDevOrigins: ['*.run.app', '*.google.com', 'localhost:*'],
+  allowedDevOrigins: [
+    'ais-dev-umgoxrv5g7z5rprhf3yjnm-337117804073.us-east1.run.app',
+    'ais-pre-umgoxrv5g7z5rprhf3yjnm-337117804073.us-east1.run.app',
+    '*.us-east1.run.app',
+    '*.run.app',
+    '*.google.com',
+    'localhost:*'
+  ],
   experimental: {
     optimizePackageImports: ['lucide-react'],
     webpackMemoryOptimizations: true,

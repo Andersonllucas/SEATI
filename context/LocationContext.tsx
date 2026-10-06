@@ -404,74 +404,26 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeDb, tenantKey, totalLocaisCount]);
 
-  // Busca sob demanda: traz resultados relevantes cobrindo a base inteira quando busca, ou paginação leve quando navega
+  // Busca sob demanda e filtro: opera sobre a base completa garantindo que nenhuma consulta fique limitada
   const fetchLocaisPage = useCallback(
     async (params?: FetchLocaisParams): Promise<FetchLocaisResult> => {
-      const pageSize = params?.pageSize || 100;
-      const startAfterDoc = params?.startAfterDoc || null;
       const searchTerm = (params?.searchTerm || '').trim();
       const selectedZona = params?.selectedZona || 'todas';
 
       setIsLoadingLocais(true);
       try {
-        const targetDb = activeDb || getActiveDb();
-        const colRef = collection(targetDb, 'locais_votacao');
-
-        // 1. SE TEM TERMO DE BUSCA OU FILTRO DE ZONA: Busca dedicada cobrindo a base inteira
-        if (searchTerm || (selectedZona && selectedZona !== 'todas')) {
-          const allLocais = await fetchAllLocaisDedicated();
-          const matched = allLocais.filter((local) =>
-            matchLocalFilter(local, searchTerm, selectedZona)
-          );
-          matched.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-
-          setLocais(matched);
-          return {
-            locais: matched,
-            lastDoc: null,
-            firstDoc: null,
-            hasMore: false,
-            totalCount: matched.length
-          };
-        }
-
-        // 2. Sem termo de busca: paginação padrão leve ordenada por nome
-        let q;
-        if (startAfterDoc) {
-          q = query(colRef, orderBy('nome', 'asc'), startAfter(startAfterDoc), limit(pageSize + 1));
-        } else {
-          q = query(colRef, orderBy('nome', 'asc'), limit(pageSize + 1));
-        }
-
-        const snap = await getDocs(q);
-        const docs = snap.docs;
-        const hasMore = docs.length > pageSize;
-        const returnDocs = hasMore ? docs.slice(0, pageSize) : docs;
-
-        const list: LocalVotacao[] = returnDocs.map((d) => {
-          const data = d.data();
-          const rawSecoes = Array.isArray(data.secoes)
-            ? data.secoes
-            : (data.secao ? [data.secao] : (typeof data.secoes === 'string' ? data.secoes.split(',').map((s: string) => s.trim()) : []));
-          const cleanSecoes = sanitizeSecoesFromAptosNumbers(
-            rawSecoes,
-            typeof data.secoesAgregadas === 'string' ? data.secoesAgregadas : undefined
-          );
-          return {
-            id: d.id,
-            ...data,
-            secoes: cleanSecoes
-          } as LocalVotacao;
-        });
-
-        setLocais(list);
-        setCachedCollection('locais_votacao', list, tenantKey);
+        const allLocais = await fetchAllLocaisDedicated();
+        const matched = allLocais.filter((local) =>
+          matchLocalFilter(local, searchTerm, selectedZona)
+        );
+        matched.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
         return {
-          locais: list,
-          lastDoc: returnDocs[returnDocs.length - 1] || null,
-          firstDoc: returnDocs[0] || null,
-          hasMore
+          locais: matched,
+          lastDoc: null,
+          firstDoc: null,
+          hasMore: false,
+          totalCount: matched.length
         };
       } catch (err) {
         handleFirestoreError(err, OperationType.LIST, 'locais_votacao', tenantKey);
@@ -485,22 +437,47 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         setIsLoadingLocais(false);
       }
     },
-    [activeDb, tenantKey, fetchAllLocaisDedicated]
+    [tenantKey, fetchAllLocaisDedicated]
   );
 
-  // Recarregar locais explicitamente sob demanda
+  // Recarregar locais explicitamente sob demanda trazendo a base completa
   const recarregarLocais = useCallback(async () => {
     setIsLoadingLocais(true);
     dedicatedCacheRef.current = null;
     try {
+      const all = await fetchAllLocaisDedicated(true);
+      setLocais(all);
+      setTotalLocaisCount(all.length);
+      setCachedCollection('locais_votacao', all, tenantKey);
+      safeStorage.setItem(`locais_count_${tenantKey}`, String(all.length));
+
+      // Calcula métricas completas da base
+      const pairSet = new Set<string>();
+      let capCount = 0;
+      all.forEach((l) => {
+        capCount += Number(l.capacidadeAprox || 0);
+        const zNorm = (l.zona || '1').replace(/\D/g, '') || '1';
+        const sArr = Array.isArray(l.secoes)
+          ? l.secoes
+          : (l.secoes ? String(l.secoes).split(',').map((s) => s.trim()) : (l.secao ? [l.secao] : []));
+        sArr.forEach((s) => {
+          const sNorm = String(s).replace(/\D/g, '');
+          if (sNorm) pairSet.add(`${zNorm}:${sNorm}`);
+        });
+      });
+      setTotalSecoesCount(pairSet.size);
+      setTotalCapacidadeCount(capCount);
+      setRegisteredPairsList(Array.from(pairSet));
+      safeStorage.setItem(`locais_secoes_count_${tenantKey}`, String(pairSet.size));
+      safeStorage.setItem(`locais_capacidade_count_${tenantKey}`, String(capCount));
+
       await fetchResumoStats();
-      await fetchLocaisPage({ pageSize: 100 });
     } finally {
       setIsLoadingLocais(false);
     }
-  }, [fetchResumoStats, fetchLocaisPage]);
+  }, [fetchAllLocaisDedicated, tenantKey, fetchResumoStats]);
 
-  // Carregamento inicial leve sob demanda (sem onSnapshot de 5000 documentos)
+  // Carregamento inicial completo: assegura que TODOS os locais cadastrados estejam na memória
   useEffect(() => {
     if (!isAuthReady || !currentUserId || isLoadingTenant) {
       return;
@@ -529,16 +506,37 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const loadInitialData = async () => {
       setIsLoadingLocais(true);
       try {
-        await fetchResumoStats();
+        const all = await fetchAllLocaisDedicated(false);
         if (!isCurrent) return;
 
-        const res = await fetchLocaisPage({ pageSize: 100 });
-        if (!isCurrent) return;
-        if (res.locais.length > 0) {
-          setLocais(res.locais);
-        }
+        setLocais(all);
+        setTotalLocaisCount(all.length);
+        setCachedCollection('locais_votacao', all, tenantKey);
+        safeStorage.setItem(`locais_count_${tenantKey}`, String(all.length));
+
+        // Atualiza pares de seções e capacidades
+        const pairSet = new Set<string>();
+        let capCount = 0;
+        all.forEach((l) => {
+          capCount += Number(l.capacidadeAprox || 0);
+          const zNorm = (l.zona || '1').replace(/\D/g, '') || '1';
+          const sArr = Array.isArray(l.secoes)
+            ? l.secoes
+            : (l.secoes ? String(l.secoes).split(',').map((s) => s.trim()) : (l.secao ? [l.secao] : []));
+          sArr.forEach((s) => {
+            const sNorm = String(s).replace(/\D/g, '');
+            if (sNorm) pairSet.add(`${zNorm}:${sNorm}`);
+          });
+        });
+        setTotalSecoesCount(pairSet.size);
+        setTotalCapacidadeCount(capCount);
+        setRegisteredPairsList(Array.from(pairSet));
+        safeStorage.setItem(`locais_secoes_count_${tenantKey}`, String(pairSet.size));
+        safeStorage.setItem(`locais_capacidade_count_${tenantKey}`, String(capCount));
+
+        await fetchResumoStats();
       } catch (err) {
-        console.warn('[LocationContext] Aviso no carregamento inicial sob demanda:', err);
+        console.warn('[LocationContext] Aviso no carregamento inicial de locais:', err);
       } finally {
         if (isCurrent) {
           setIsLoadingLocais(false);
@@ -552,7 +550,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant, fetchResumoStats, fetchLocaisPage]);
+  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant, fetchResumoStats, fetchAllLocaisDedicated]);
 
   const addLocalVotacao = useCallback(async (data: Omit<LocalVotacao, 'id' | 'dataCadastro'>) => {
     const cleanData = sanitizeFirestoreData(data);
