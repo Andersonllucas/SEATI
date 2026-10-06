@@ -358,6 +358,9 @@ export async function parseSpreadsheetFile(
   }
 }
 
+// Alias de compatibilidade
+export const parseImportFile = parseSpreadsheetFile;
+
 function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
   return rawJson.map((row, index) => {
     // Map columns dynamically

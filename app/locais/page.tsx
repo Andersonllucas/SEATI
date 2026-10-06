@@ -16,7 +16,6 @@ import {
   Trash2,
   X,
   Building2,
-  Sparkles,
   Check,
   AlertCircle,
   Layers,
@@ -28,7 +27,6 @@ import {
   AlertTriangle,
   RefreshCw,
   GitMerge,
-  ShieldCheck,
   Compass,
   Printer,
   ExternalLink,
@@ -52,10 +50,7 @@ import { recordCentralAuditLog } from '@/lib/firebase';
 import {
   CIDADES_DISPONIVEIS,
   ESTADOS_BRASIL,
-  processLocaisCrossMatch,
-  parseLocaisCSV,
-  LocalConflictItem,
-  CrossMatchResult
+  LocalConflictItem
 } from '@/lib/locaisCatalog';
 
 interface SecaoPendente {
@@ -989,10 +984,6 @@ export default function LocaisVotacaoPage() {
       }
     });
   };
-
-  const pacotesNaUf = useMemo(() => {
-    return CIDADES_DISPONIVEIS.filter((c) => c.uf === catalogUf);
-  }, [catalogUf]);
 
   // Quick Location Save
   const handleSaveQuickLocation = async (novaUf: string, novaCidade: string) => {

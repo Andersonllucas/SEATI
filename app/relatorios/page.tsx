@@ -20,8 +20,7 @@ import {
   Minimize2,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp,
-  School
+  ChevronUp
 } from 'lucide-react';
 import { useCampaignData, Lideranca, formatTituloUtil } from '@/context/CampaignContext';
 import { useTenant } from '@/context/TenantContext';
