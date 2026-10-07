@@ -1473,10 +1473,10 @@ export default function Eleitores() {
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Nome do Eleitor</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">CPF</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Título</th>
-                <th className="py-2 px-2 md:py-2 md:px-2.5 text-center">Auditoria</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Zona / Seção</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5">Liderança / Articulador</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5 text-center">WhatsApp</th>
+                <th className="py-2 px-2 md:py-2 md:px-2.5 text-center">Auditoria</th>
                 <th className="py-2 px-3 md:py-2 md:px-3.5 text-right">Ações</th>
               </tr>
             </thead>
