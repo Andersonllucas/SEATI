@@ -28,7 +28,7 @@ export const ConflictItem = React.memo(function ConflictItem({
       className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
         isSelected
           ? isTitulo
-            ? 'bg-amber-50 border-amber-500 text-amber-950 shadow-xs ring-1 ring-amber-500'
+            ? 'bg-secondary/10 border-secondary text-secondary shadow-xs ring-1 ring-secondary'
             : 'bg-error/5 border-error text-on-surface shadow-xs ring-1 ring-error'
           : 'bg-surface-container-lowest border-outline-variant/50 hover:bg-surface-container-low text-on-surface-variant'
       }`}
@@ -37,7 +37,7 @@ export const ConflictItem = React.memo(function ConflictItem({
         <span
           className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
             isTitulo
-              ? 'text-amber-900 bg-amber-100 border border-amber-300'
+              ? 'text-secondary bg-secondary/10 border border-secondary/30'
               : 'text-error bg-error/10 border border-error/30'
           }`}
         >
@@ -45,7 +45,7 @@ export const ConflictItem = React.memo(function ConflictItem({
         </span>
         <span
           className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-            isTitulo ? 'bg-amber-600 text-white' : 'bg-error text-on-error'
+            isTitulo ? 'bg-secondary text-white' : 'bg-error text-on-error'
           }`}
         >
           {group.count}x

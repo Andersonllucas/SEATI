@@ -111,6 +111,7 @@ export function useCampaignData() {
     batchImportEleitores: voters.batchImportEleitores,
     batchDeleteEleitores: voters.batchDeleteEleitores,
     batchUpdateEleitores: voters.batchUpdateEleitores,
+    desvincularEleitoresDeLiderancas: voters.desvincularEleitoresDeLiderancas,
     registrarValidacao: voters.registrarValidacao,
     batchImportLiderancas: leaders.batchImportLiderancas,
     batchDeleteLiderancas: leaders.batchDeleteLiderancas,

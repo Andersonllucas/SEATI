@@ -170,8 +170,8 @@ export const LiderancaRow = React.memo(function LiderancaRow({
           </span>
         )}
         {leader.status === 'Em Formação' && (
-          <span className="inline-flex items-center gap-1 text-[11px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-            <Clock className="w-3 h-3" /> Em Formação
+          <span className="inline-flex items-center gap-1 text-[11px] bg-blue-100 text-blue-900 px-2 py-0.5 rounded-full font-bold border border-blue-200">
+            <Clock className="w-3 h-3 text-blue-700" /> Em Formação
           </span>
         )}
         {leader.status === 'Inativa' && (

@@ -13,7 +13,6 @@ const nextConfig: NextConfig = {
   ],
   experimental: {
     optimizePackageImports: ['lucide-react'],
-    webpackMemoryOptimizations: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
@@ -35,7 +34,6 @@ const nextConfig: NextConfig = {
   transpilePackages: ['motion'],
   webpack: (config, {dev}) => {
     if (dev) {
-      config.cache = false;
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       if (process.env.DISABLE_HMR === 'true') {
         config.watchOptions = {

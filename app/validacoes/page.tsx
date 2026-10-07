@@ -59,15 +59,13 @@ export default function ValidacoesPage() {
       return (cpfConflictGroups as CpfConflictGroup[]).filter((g) => {
         const hasCpf = g.formattedCpf.includes(term) || g.cpfClean.includes(term);
         const hasVoter = g.voters.some((v) => v.nome.toLowerCase().includes(term));
-        const hasLeader = g.liderancas.some((l) => l.toLowerCase().includes(term));
-        return hasCpf || hasVoter || hasLeader;
+        return hasCpf || hasVoter;
       });
     } else {
       return (tituloConflictGroups as TituloConflictGroup[]).filter((g) => {
         const hasTitulo = g.formattedTitulo.includes(term) || g.tituloClean.includes(term);
         const hasVoter = g.voters.some((v) => v.nome.toLowerCase().includes(term));
-        const hasLeader = g.liderancas.some((l) => l.toLowerCase().includes(term));
-        return hasTitulo || hasVoter || hasLeader;
+        return hasTitulo || hasVoter;
       });
     }
   }, [activeConflictGroups, conflictType, cpfConflictGroups, tituloConflictGroups, searchTerm]);
@@ -342,7 +340,7 @@ export default function ValidacoesPage() {
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
                   <input
                     type="text"
-                    placeholder={conflictType === 'cpf' ? 'Buscar por nome, CPF ou liderança...' : 'Buscar por nome, Título ou liderança...'}
+                    placeholder={conflictType === 'cpf' ? 'Buscar por nome ou CPF...' : 'Buscar por nome ou Título...'}
                     value={searchTerm}
                     onChange={(e) => {
                       setSearchTerm(e.target.value);

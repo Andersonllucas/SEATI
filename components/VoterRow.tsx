@@ -86,7 +86,7 @@ export const VoterRow = React.memo(function VoterRow({
           <button
             type="button"
             onClick={() => onAuditConflict('titulo')}
-            className="font-mono text-xs font-bold text-amber-700 hover:underline inline-flex items-center gap-1 cursor-pointer text-left"
+            className="font-mono text-xs font-bold text-purple-800 hover:underline inline-flex items-center gap-1 cursor-pointer text-left"
             title="Título Duplicado - Clique para auditar na aba de Título de Eleitor"
           >
             <span>{formatTituloUtil(eleitor.tituloEleitor)}</span>
@@ -111,10 +111,10 @@ export const VoterRow = React.memo(function VoterRow({
             <button
               type="button"
               onClick={() => onAuditConflict('titulo')}
-              className="text-[9px] md:text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold border border-amber-300 hover:bg-amber-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+              className="text-[9px] md:text-[10px] bg-purple-100 text-purple-950 px-2 py-0.5 rounded-full font-bold border border-purple-300 hover:bg-purple-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
               title="Clique para auditar e resolver a duplicidade deste Título"
             >
-              <AlertTriangle className="w-3 h-3 text-amber-700" /> Título Duplicado
+              <AlertTriangle className="w-3 h-3 text-purple-700" /> Título Duplicado
             </button>
           </div>
         ) : isConflict ? (
@@ -130,10 +130,10 @@ export const VoterRow = React.memo(function VoterRow({
           <button
             type="button"
             onClick={() => onAuditConflict('titulo')}
-            className="text-[9px] md:text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold border border-amber-300 hover:bg-amber-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+            className="text-[9px] md:text-[10px] bg-purple-100 text-purple-950 px-2 py-0.5 rounded-full font-bold border border-purple-300 hover:bg-purple-200 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
             title="Clique para auditar e resolver a duplicidade deste Título"
           >
-            <AlertTriangle className="w-3 h-3 text-amber-700" /> Título Duplicado
+            <AlertTriangle className="w-3 h-3 text-purple-700" /> Título Duplicado
           </button>
         ) : (
           <span
@@ -154,8 +154,8 @@ export const VoterRow = React.memo(function VoterRow({
         eleitor.lideranca.trim().toLowerCase() === 'sem lideranca' ||
         eleitor.lideranca.trim().toLowerCase() === 'não informada' ||
         eleitor.lideranca.trim().toLowerCase() === 'nao informada' ? (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/40">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse" />
             Sem Liderança
           </span>
         ) : (

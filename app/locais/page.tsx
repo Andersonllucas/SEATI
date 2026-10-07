@@ -34,7 +34,8 @@ import {
   Eye,
   LayoutGrid,
   Table as TableIcon,
-  Edit3
+  Edit3,
+  MapPinCheck
 } from 'lucide-react';
 import { useCampaignData, LocalVotacao } from '@/context/CampaignContext';
 import { matchLocalFilter } from '@/context/LocationContext';
@@ -126,8 +127,8 @@ export default function LocaisVotacaoPage() {
   const [voterLinkFilter, setVoterLinkFilter] = useState<'todos' | 'com_eleitor' | 'sem_eleitor'>('todos');
   const [sortBy, setSortBy] = useState<'nome' | 'eleitores' | 'secoes' | 'capacidade'>('eleitores');
 
-  // Presentation & View Controls
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  // Presentation & View Controls (Visualização em Tabela Compacta como padrão)
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [pageSize, setPageSize] = useState<number | 'all'>(24);
   const [pageNumber, setPageNumber] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -588,7 +589,7 @@ export default function LocaisVotacaoPage() {
 
   // Overall Statistics com contagens agregadas da base inteira
   const totalLocaisExibidos = filteredLocais.length;
-  const totalLocaisGeral = totalLocaisCount > 0 ? totalLocaisCount : locais.length;
+  const totalLocaisGeral = locais.length;
 
   const totalSecoesUnicas = useMemo(() => {
     const set = new Set<string>();
@@ -603,13 +604,13 @@ export default function LocaisVotacaoPage() {
     });
     return set.size;
   }, [locais]);
-  const totalSecoesGeral = totalSecoesCount > 0 ? totalSecoesCount : totalSecoesUnicas;
+  const totalSecoesGeral = totalSecoesUnicas;
 
   const totalCapacidadeLocal = useMemo(
     () => locais.reduce((acc, l) => acc + (Number(l.capacidadeAprox) || 0), 0),
     [locais]
   );
-  const totalCapacidadeGeral = totalCapacidadeCount > 0 ? totalCapacidadeCount : totalCapacidadeLocal;
+  const totalCapacidadeGeral = totalCapacidadeLocal;
 
   // Eleitores da base mapeados em colégios cadastrados (considera a base inteira via registeredPairs)
   const totalEleitoresMapeados = useMemo(() => {
@@ -1396,10 +1397,34 @@ export default function LocaisVotacaoPage() {
           {activeConflicts.length > 0 && (
             <button
               onClick={() => setIsConflictModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-500/30 rounded-lg shadow-2xs transition-colors cursor-pointer animate-pulse whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-rose-100 hover:bg-rose-200 text-black border border-rose-400 rounded-lg shadow-2xs transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-              <span>Conflitos ({activeConflicts.length})</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+              <span className="text-black font-black">Conflitos ({activeConflicts.length})</span>
+            </button>
+          )}
+
+          {/* Botão Seções Pendentes */}
+          {secoesPendentes.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsPendingExpanded(true);
+                const el = document.getElementById('painel-secoes-pendentes');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-rose-100 hover:bg-rose-200 text-black border-2 border-rose-400 rounded-xl shadow-xs transition-all cursor-pointer whitespace-nowrap shrink-0 group"
+              title="Ver e resolver seções que possuem eleitores cadastrados mas ainda não têm colégio vinculado"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
+              </span>
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-700 shrink-0" />
+              <span className="text-black font-black">{secoesPendentes.length} Seções Pendentes</span>
+              <span className="text-[10px] font-mono font-black text-black bg-white border border-rose-300 px-2 py-0.5 rounded-full shadow-2xs">
+                {totalEleitoresPendentes} eleitor(es)
+              </span>
             </button>
           )}
 
@@ -1530,23 +1555,23 @@ export default function LocaisVotacaoPage() {
 
       {/* CONFLICT ALERT BANNER (If conflicts exist) */}
       {activeConflicts.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-amber-900 shadow-xs">
+        <div className="bg-rose-50/80 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-700 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-rose-950 dark:text-rose-100 shadow-xs">
           <div className="flex items-start gap-3">
-            <div className="p-2 bg-amber-100 rounded-lg shrink-0 mt-0.5">
-              <AlertTriangle className="w-5 h-5 text-amber-700" />
+            <div className="p-2 bg-rose-100 dark:bg-rose-900/60 rounded-lg shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5 text-rose-700 dark:text-rose-300" />
             </div>
             <div>
-              <h4 className="text-xs font-bold text-amber-950">
+              <h4 className="text-xs font-bold text-rose-950 dark:text-rose-100">
                 Atenção: O Motor Eleitoral isolou {activeConflicts.length} conflito(s) entre as importações
               </h4>
-              <p className="text-[11px] text-amber-800 mt-0.5">
+              <p className="text-[11px] text-rose-900/80 dark:text-rose-200 mt-0.5">
                 Para proteger a integridade dos dados, as seções e registros conflitantes foram desconsiderados da gravação automática. Você pode inspecionar e decidir qual registro manter.
               </p>
             </div>
           </div>
           <button
             onClick={() => setIsConflictModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-2xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-lg text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-2xs"
           >
             <span>Analisar e Resolver Conflitos</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -1556,16 +1581,30 @@ export default function LocaisVotacaoPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-        <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/60 shadow-xs">
+        {/* Card: Colégios com Eleitores da Base (Substitui o card anterior por métrica relevante e direta) */}
+        <div
+          onClick={() => setVoterLinkFilter((prev) => (prev === 'com_eleitor' ? 'todos' : 'com_eleitor'))}
+          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer ${
+            voterLinkFilter === 'com_eleitor'
+              ? 'bg-primary/10 border-primary/50 ring-1 ring-primary/30'
+              : 'bg-surface-container-lowest border-outline-variant/60 hover:border-primary/40'
+          }`}
+          title="Clique para filtrar apenas colégios com eleitores vinculados à campanha"
+        >
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold uppercase text-on-surface-variant">Colégios Mapeados</p>
-            <Building2 className="w-4 h-4 text-primary" />
+            <p className="text-[11px] font-bold uppercase text-on-surface-variant">Colégios com Eleitores</p>
+            <MapPinCheck className="w-4 h-4 text-primary" />
           </div>
-          <p className="text-2xl font-black text-primary font-mono mt-1">
-            {totalLocaisGeral.toLocaleString('pt-BR')}
-          </p>
+          <div className="flex items-baseline gap-2 mt-1">
+            <p className="text-2xl font-black text-primary font-mono">
+              {countComEleitores.toLocaleString('pt-BR')}
+            </p>
+            <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+              {locais.length > 0 ? Math.round((countComEleitores / locais.length) * 100) : 0}%
+            </span>
+          </div>
           <p className="text-[11px] text-on-surface-variant mt-0.5">
-            Total no banco ({totalLocaisExibidos} visíveis)
+            {countComEleitores} de {locais.length} colégios com presença da base
           </p>
         </div>
 
@@ -1601,19 +1640,21 @@ export default function LocaisVotacaoPage() {
             const el = document.getElementById('painel-secoes-pendentes');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer ${
+          className={`p-4 rounded-xl border-2 shadow-xs transition-all cursor-pointer ${
             secoesPendentes.length > 0
-              ? 'bg-amber-500/10 border-amber-500/40 hover:bg-amber-500/20'
+              ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-500 hover:border-rose-600 hover:shadow-md ring-1 ring-rose-500/25'
               : 'bg-emerald-500/10 border-emerald-500/30'
           }`}
           title="Clique para ir ao painel de resolução de seções pendentes"
         >
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
+            <p className="text-[11px] font-black uppercase tracking-wider text-black dark:text-black">
               Seções Pendentes
             </p>
             {secoesPendentes.length > 0 ? (
-              <AlertTriangle className="w-4 h-4 text-amber-600 animate-pulse" />
+              <div className="w-6 h-6 rounded-lg bg-rose-600 text-white flex items-center justify-center shadow-xs">
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </div>
             ) : (
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             )}
@@ -1621,18 +1662,18 @@ export default function LocaisVotacaoPage() {
           <div className="flex items-baseline gap-2 mt-1">
             <p
               className={`text-2xl font-black font-mono ${
-                secoesPendentes.length > 0 ? 'text-amber-800 dark:text-amber-400' : 'text-emerald-700'
+                secoesPendentes.length > 0 ? 'text-black dark:text-black' : 'text-emerald-700'
               }`}
             >
               {secoesPendentes.length}
             </p>
             {secoesPendentes.length > 0 && (
-              <span className="text-xs font-bold text-amber-800 bg-amber-200/90 px-1.5 py-0.5 rounded">
+              <span className="text-[11px] font-mono font-black text-black bg-white border border-rose-300 px-2 py-0.5 rounded-full shadow-xs">
                 {totalEleitoresPendentes} eleitor(es)
               </span>
             )}
           </div>
-          <p className="text-[11px] text-on-surface-variant mt-0.5">
+          <p className="text-[11px] text-black dark:text-black mt-1 font-bold">
             {secoesPendentes.length > 0 ? 'Sem colégio cadastrado' : '100% dos eleitores mapeados'}
           </p>
         </div>
@@ -1652,19 +1693,19 @@ export default function LocaisVotacaoPage() {
       {/* ==================== PAINEL DE DIAGNÓSTICO: SEÇÕES PENDENTES DE CADASTRO ==================== */}
       <div id="painel-secoes-pendentes" className="scroll-mt-4">
         {secoesPendentes.length > 0 ? (
-          <div className="bg-surface-container-lowest border-2 border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
+          <div className="bg-surface-container-lowest border-2 border-rose-400 dark:border-rose-700 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
             {/* Cabeçalho do Painel */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-outline-variant/40 pb-3.5">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 animate-pulse" />
+                <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/50 border border-rose-300 text-rose-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertTriangle className="w-5 h-5 text-rose-600" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-sm sm:text-base font-extrabold text-on-surface tracking-tight">
                       Seções Eleitorais Pendentes de Mapeamento
                     </h3>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-800 border border-amber-500/30">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-900 dark:bg-rose-900/60 dark:text-rose-100 border border-rose-300">
                       {secoesPendentes.length} combinação(ões) pendente(s)
                     </span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant">
@@ -1682,7 +1723,7 @@ export default function LocaisVotacaoPage() {
                 <button
                   type="button"
                   onClick={() => setIsPrintModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-rose-700 hover:bg-rose-800 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
                   title="Imprimir relatório para pesquisa em papel ou salvar em PDF"
                 >
                   <Printer className="w-4 h-4" />
@@ -1727,7 +1768,7 @@ export default function LocaisVotacaoPage() {
                       placeholder="Filtrar por zona, seção ou bairro..."
                       value={searchPending}
                       onChange={(e) => setSearchPending(e.target.value)}
-                      className="w-full h-8.5 pl-9 pr-3 text-xs bg-surface-container-low border border-outline-variant/60 rounded-lg focus:outline-none focus:border-amber-500 transition-colors"
+                      className="w-full h-8.5 pl-9 pr-3 text-xs bg-surface-container-low border border-outline-variant/60 rounded-lg focus:outline-none focus:border-rose-500 transition-colors"
                     />
                   </div>
 
@@ -1750,7 +1791,7 @@ export default function LocaisVotacaoPage() {
                     </thead>
                     <tbody className="divide-y divide-outline-variant/30 font-medium">
                       {filteredSecoesPendentes.map((item) => (
-                        <tr key={item.key} className="hover:bg-amber-500/[0.04] transition-colors">
+                        <tr key={item.key} className="hover:bg-rose-500/[0.04] transition-colors">
                           {/* Zona */}
                           <td className="py-2.5 px-3 font-mono font-bold text-on-surface whitespace-nowrap">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-container text-on-surface border border-outline-variant/40">
@@ -1918,13 +1959,13 @@ export default function LocaisVotacaoPage() {
 
             {/* Filtro Eleitores Vinculados */}
             <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-on-surface-variant">Eleitores:</span>
+              <span className="text-xs font-bold text-on-surface">Eleitores:</span>
               <select
                 value={voterLinkFilter}
                 onChange={(e) => setVoterLinkFilter(e.target.value as 'todos' | 'com_eleitor' | 'sem_eleitor')}
                 className={`h-9 px-2.5 border rounded-lg font-medium text-xs focus:outline-none focus:border-secondary transition-colors cursor-pointer ${
                   voterLinkFilter !== 'todos'
-                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-900 dark:text-amber-300 font-bold'
+                    ? 'bg-primary/10 border-primary/40 text-primary font-bold'
                     : 'bg-surface-container-low border-outline-variant/60 text-on-surface'
                 }`}
               >
@@ -2026,7 +2067,7 @@ export default function LocaisVotacaoPage() {
                 </span>
               )}
               {voterLinkFilter !== 'todos' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/25 font-medium text-[11px]">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium text-[11px]">
                   <span>{voterLinkFilter === 'com_eleitor' ? 'Com Eleitores Vinculados' : 'Sem Eleitores Vinculados'}</span>
                   <button
                     type="button"
@@ -2274,9 +2315,16 @@ export default function LocaisVotacaoPage() {
                   />
                 </th>
                 <th className="py-2.5 px-3">Colégio / Estabelecimento</th>
-                <th className="py-2.5 px-3">Zona</th>
+                <th className="py-2.5 px-3 text-center">Zona</th>
+                <th className="py-2.5 px-3">
+                  <div className="flex items-center gap-2">
+                    <span>Seções Cadastradas</span>
+                    <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-normal px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/60 text-purple-900 dark:text-purple-100 border border-purple-300 shadow-2xs">
+                      <GitMerge className="w-2.5 h-2.5 text-purple-700 dark:text-purple-300" /> roxo = agregada
+                    </span>
+                  </div>
+                </th>
                 <th className="py-2.5 px-3">Bairro e Endereço</th>
-                <th className="py-2.5 px-3">Seções Cadastradas</th>
                 <th className="py-2.5 px-3 text-center">Eleitores na Base</th>
                 <th className="py-2.5 px-3 text-right">Capacidade</th>
                 <th className="py-2.5 px-3 text-right">Ações</th>
@@ -2288,6 +2336,25 @@ export default function LocaisVotacaoPage() {
                 const secoesList = Array.isArray(local.secoes)
                   ? local.secoes
                   : (local.secoes ? String(local.secoes).split(',').map((s) => s.trim()).filter(Boolean) : (local.secao ? [local.secao] : []));
+
+                const agregadasList = local.secoesAgregadas
+                  ? parseSecoesAgregadas(typeof local.secoesAgregadas === 'string' ? local.secoesAgregadas : undefined).secoes
+                  : [];
+                const agregadasSet = new Set<string>();
+                agregadasList.forEach((s) => {
+                  agregadasSet.add(s);
+                  agregadasSet.add(String(Number(s)));
+                  agregadasSet.add(s.replace(/^0+/, ''));
+                });
+                if (typeof local.secoesAgregadas === 'object' && local.secoesAgregadas !== null) {
+                  Object.keys(local.secoesAgregadas).forEach((k) => {
+                    const clean = k.replace(/\D/g, '');
+                    if (clean) {
+                      agregadasSet.add(clean.padStart(4, '0'));
+                      agregadasSet.add(String(Number(clean)));
+                    }
+                  });
+                }
 
                 return (
                   <tr
@@ -2324,36 +2391,39 @@ export default function LocaisVotacaoPage() {
                       </div>
                     </td>
 
-                    {/* Zona */}
-                    <td className="py-2.5 px-3 whitespace-nowrap">
+                    {/* Zona (Posicionada ao lado de Seções Cadastradas) */}
+                    <td className="py-2.5 px-3 whitespace-nowrap text-center">
                       <span className="font-mono font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px]">
                         Zona {local.zona}
                       </span>
                     </td>
 
-                    {/* Bairro e Endereço */}
-                    <td className="py-2.5 px-3 max-w-[220px]">
-                      <p className="font-semibold text-on-surface truncate">{local.bairro || '-'}</p>
-                      {local.endereco && (
-                        <p className="text-[10px] text-on-surface-variant truncate" title={local.endereco}>
-                          {local.endereco}
-                        </p>
-                      )}
-                    </td>
-
-                    {/* Seções */}
+                    {/* Seções Cadastradas */}
                     <td className="py-2.5 px-3 max-w-xs">
                       <div className="flex flex-wrap items-center gap-1">
-                        {secoesList.slice(0, 6).map((sec) => (
-                          <span
-                            key={sec}
-                            onClick={() => handleOpenAgregarModal(sec, local.zona, local.id)}
-                            title="Clique para agregar esta seção a outra"
-                            className="px-1.5 py-0.5 bg-surface-container-low hover:bg-secondary/15 hover:text-secondary hover:border-secondary/30 text-[10px] font-mono rounded border border-outline-variant/50 transition-colors cursor-pointer"
-                          >
-                            {sec}
-                          </span>
-                        ))}
+                        {secoesList.slice(0, 6).map((sec) => {
+                          const secClean = String(sec).replace(/\D/g, '');
+                          const isAgregada =
+                            agregadasSet.has(secClean.padStart(4, '0')) ||
+                            agregadasSet.has(secClean) ||
+                            agregadasSet.has(String(sec).trim());
+
+                          return (
+                            <span
+                              key={sec}
+                              onClick={() => handleOpenAgregarModal(sec, local.zona, local.id)}
+                              title={isAgregada ? `Seção ${sec} (Seção Agregada)` : 'Clique para agregar esta seção a outra'}
+                              className={`px-1.5 py-0.5 text-[10px] font-mono rounded transition-colors cursor-pointer ${
+                                isAgregada
+                                  ? 'bg-purple-700 hover:bg-purple-800 text-white border border-purple-800 font-extrabold shadow-2xs inline-flex items-center gap-1'
+                                  : 'bg-surface-container-low text-on-surface hover:bg-secondary/15 hover:text-secondary hover:border-secondary/30 border border-outline-variant/50'
+                              }`}
+                            >
+                              {isAgregada && <GitMerge className="w-2.5 h-2.5 text-purple-200 shrink-0" />}
+                              {sec}
+                            </span>
+                          );
+                        })}
                         {secoesList.length > 6 && (
                           <span className="text-[10px] text-on-surface-variant font-mono">
                             +{secoesList.length - 6}
@@ -2363,10 +2433,15 @@ export default function LocaisVotacaoPage() {
                           <span className="text-[10px] text-on-surface-variant italic">Sem seções</span>
                         )}
                       </div>
-                      {Boolean(local.secoesAgregadas) && (
-                        <div className="text-[9px] text-amber-800 dark:text-amber-300 font-mono mt-0.5 truncate">
-                          Agr: {String(local.secoesAgregadas)}
-                        </div>
+                    </td>
+
+                    {/* Bairro e Endereço */}
+                    <td className="py-2.5 px-3 max-w-[220px]">
+                      <p className="font-semibold text-on-surface truncate">{local.bairro || '-'}</p>
+                      {local.endereco && (
+                        <p className="text-[10px] text-on-surface-variant truncate" title={local.endereco}>
+                          {local.endereco}
+                        </p>
                       )}
                     </td>
 
@@ -2811,8 +2886,8 @@ export default function LocaisVotacaoPage() {
           <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-3xl w-full p-5 shadow-2xl space-y-4 max-h-[90vh] flex flex-col justify-between">
             <div className="flex items-start justify-between border-b border-outline-variant/50 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-rose-600" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-on-surface">Central de Conciliação Eleitoral</h3>
@@ -2840,11 +2915,11 @@ export default function LocaisVotacaoPage() {
                 activeConflicts.map((conf) => (
                   <div
                     key={conf.id}
-                    className="p-4 bg-surface-container-low border border-amber-200/80 rounded-xl space-y-3 shadow-xs"
+                    className="p-4 bg-surface-container-low border border-rose-200 dark:border-rose-900/60 rounded-xl space-y-3 shadow-xs"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
                           {conf.type === 'secao_duplicada' ? 'Seção em Colégios Diferentes' : 'Divergência Cadastral'}
                         </span>
                         <span className="font-bold text-xs text-on-surface">{conf.titulo}</span>
@@ -3339,8 +3414,8 @@ export default function LocaisVotacaoPage() {
           <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4 max-h-[85vh] flex flex-col justify-between">
             <div className="flex items-start justify-between border-b border-outline-variant/50 pb-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0">
-                  <Users className="w-5 h-5 text-amber-600" />
+                <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/50 text-rose-700 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5 text-rose-600" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-on-surface">
@@ -3503,8 +3578,8 @@ export default function LocaisVotacaoPage() {
             {/* Top Bar do Modal (não visível na impressão física) */}
             <div className="no-print flex items-center justify-between border-b border-outline-variant/50 pb-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0">
-                  <Printer className="w-5 h-5 text-amber-600" />
+                <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/50 text-rose-700 flex items-center justify-center shrink-0">
+                  <Printer className="w-5 h-5 text-rose-600" />
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-on-surface tracking-tight">
@@ -3520,7 +3595,7 @@ export default function LocaisVotacaoPage() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-rose-700 hover:bg-rose-800 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />
                   <span>Imprimir Agora (Ctrl + P)</span>
@@ -3578,13 +3653,13 @@ export default function LocaisVotacaoPage() {
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500">Status da Base</span>
-                  <p className="text-sm font-bold text-amber-700 mt-1">Aguardando Pesquisa Web</p>
+                  <p className="text-sm font-bold text-rose-700 mt-1">Aguardando Pesquisa Web</p>
                 </div>
               </div>
 
               {/* Instruções de Pesquisa para o Operador */}
-              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-[11px] text-slate-700 space-y-1">
-                <p className="font-bold text-amber-900 flex items-center gap-1.5">
+              <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-lg text-[11px] text-slate-700 space-y-1">
+                <p className="font-bold text-rose-900 flex items-center gap-1.5">
                   <span>📌 Instruções para o Operador de Dados:</span>
                 </p>
                 <p className="leading-relaxed">
@@ -3680,7 +3755,7 @@ export default function LocaisVotacaoPage() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold bg-rose-700 hover:bg-rose-800 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />
                   <span>Imprimir Relatório</span>
@@ -3782,7 +3857,7 @@ export default function LocaisVotacaoPage() {
                   <div className="bg-surface-container-low border border-outline-variant/60 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
-                        <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-800 text-[10px] font-bold flex items-center justify-center">
+                        <span className="w-5 h-5 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center">
                           1
                         </span>
                         Seção de Origem (Saída)
@@ -3822,7 +3897,7 @@ export default function LocaisVotacaoPage() {
                         </div>
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-on-surface-variant">Eleitores para transferir:</span>
-                          <strong className="text-amber-700 font-bold">{eleitoresTransferencia.length}</strong>
+                          <strong className="text-primary font-bold">{eleitoresTransferencia.length}</strong>
                         </div>
                         {liderancasOrigem.length > 0 && (
                           <div className="pt-1 border-t border-outline-variant/30 text-[10px]">
@@ -3964,12 +4039,12 @@ export default function LocaisVotacaoPage() {
                 </div>
 
                 {/* Caixa de Confirmação Irreversível */}
-                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-3">
-                  <div className="flex items-start gap-2 text-amber-900 font-bold">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-400 dark:border-rose-700 text-xs space-y-3">
+                  <div className="flex items-start gap-2 text-rose-950 dark:text-rose-100 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                     <span>Atenção: Esta é uma operação em lote irreversível!</span>
                   </div>
-                  <p className="text-amber-950/80 leading-relaxed text-[11px]">
+                  <p className="text-rose-950/90 dark:text-rose-200 leading-relaxed text-[11px]">
                     Todos os <strong>{eleitoresTransferencia.length}</strong> eleitor(es) vinculados à{' '}
                     <strong>Seção {secaoOrigemObj?.secao || 'origem'} (Zona {secaoOrigemObj?.zona || '—'})</strong>{' '}
                     serão transferidos permanentemente para a{' '}
@@ -3977,7 +4052,7 @@ export default function LocaisVotacaoPage() {
                   </p>
 
                   <div className="pt-1">
-                    <label className="block text-[11px] font-bold text-amber-950 mb-1">
+                    <label className="block text-[11px] font-bold text-rose-950 dark:text-rose-100 mb-1">
                       Para confirmar, digite a palavra <span className="font-mono underline">AGREGAR</span> abaixo:
                     </label>
                     <input
@@ -3985,7 +4060,7 @@ export default function LocaisVotacaoPage() {
                       value={confirmacaoTexto}
                       onChange={(e) => setConfirmacaoTexto(e.target.value)}
                       placeholder="Digite AGREGAR"
-                      className="w-full sm:w-64 px-3 py-2 rounded-xl bg-white border border-amber-300 text-xs font-mono font-bold text-amber-950 uppercase focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                      className="w-full sm:w-64 px-3 py-2 rounded-xl bg-white border border-rose-400 text-xs font-mono font-bold text-rose-950 uppercase focus:outline-none focus:ring-2 focus:ring-rose-500/50"
                     />
                   </div>
                 </div>

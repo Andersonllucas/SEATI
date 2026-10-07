@@ -153,7 +153,7 @@ export const LeaderRow = React.memo(function LeaderRow({
             leader.status === 'Ativa'
               ? 'bg-emerald-500/10 text-emerald-800 border-emerald-500/20'
               : leader.status === 'Em Formação'
-              ? 'bg-amber-500/10 text-amber-800 border-amber-500/20'
+              ? 'bg-blue-500/10 text-blue-800 border-blue-500/20'
               : 'bg-surface-container-high text-on-surface-variant border-outline-variant/30'
           }`}
         >
@@ -162,7 +162,7 @@ export const LeaderRow = React.memo(function LeaderRow({
               leader.status === 'Ativa'
                 ? 'bg-emerald-600'
                 : leader.status === 'Em Formação'
-                ? 'bg-amber-600'
+                ? 'bg-blue-600'
                 : 'bg-outline'
             }`}
           />

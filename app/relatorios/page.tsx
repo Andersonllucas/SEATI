@@ -320,17 +320,19 @@ export default function RelatoriosPage() {
         }
       }
 
-      // Busca por texto
+      // Busca por texto na tabela (NÃO considera Liderança pois há filtros dedicados de liderança principal e sub-liderança)
       if (searchTerm.trim()) {
         const term = searchTerm.trim().toLowerCase();
+        const cleanDigits = term.replace(/\D/g, '');
         const nomeMatch = (e.nome || '').toLowerCase().includes(term);
-        const cpfMatch = (e.cpf || '').replace(/\D/g, '').includes(term.replace(/\D/g, ''));
-        const tituloMatch = (e.tituloEleitor || '').replace(/\D/g, '').includes(term.replace(/\D/g, ''));
-        const telMatch = (e.telefone || '').replace(/\D/g, '').includes(term.replace(/\D/g, ''));
+        const cpfMatch = cleanDigits ? (e.cpf || '').replace(/\D/g, '').includes(cleanDigits) : false;
+        const tituloMatch = cleanDigits ? (e.tituloEleitor || '').replace(/\D/g, '').includes(cleanDigits) : false;
+        const telMatch = cleanDigits ? (e.telefone || '').replace(/\D/g, '').includes(cleanDigits) : false;
         const bairroMatch = (e.bairro || '').toLowerCase().includes(term);
-        const liderMatch = (e.lideranca || '').toLowerCase().includes(term);
+        const zonaMatch = (e.zona || '').includes(term);
+        const secaoMatch = (e.secao || '').includes(term);
 
-        if (!nomeMatch && !cpfMatch && !tituloMatch && !telMatch && !bairroMatch && !liderMatch) {
+        if (!nomeMatch && !cpfMatch && !tituloMatch && !telMatch && !bairroMatch && !zonaMatch && !secaoMatch) {
           return false;
         }
       }
@@ -810,7 +812,7 @@ export default function RelatoriosPage() {
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
             <input
               type="text"
-              placeholder="Pesquisar eleitor, CPF, título, bairro ou líder..."
+              placeholder="Pesquisar eleitor, CPF, título, telefone ou bairro..."
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);

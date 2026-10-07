@@ -663,12 +663,18 @@ export default function Eleitores() {
         return false;
       }
 
+      // Busca textual da tabela (NÃO considera Liderança / Articulador pois possui filtro dedicado)
+      const term = searchTerm.trim().toLowerCase();
+      const cleanDigits = term.replace(/\D/g, '');
       const matchesSearch =
-        (eleitor.nome?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (eleitor.cpf || '').includes(searchTerm) ||
-        (eleitor.lideranca?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (eleitor.bairro?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (eleitor.zona || '').includes(searchTerm);
+        !term ||
+        (eleitor.nome?.toLowerCase() || '').includes(term) ||
+        (Boolean(cleanDigits) && (eleitor.cpf || '').replace(/\D/g, '').includes(cleanDigits)) ||
+        (Boolean(cleanDigits) && (eleitor.tituloEleitor || '').replace(/\D/g, '').includes(cleanDigits)) ||
+        (Boolean(cleanDigits) && (eleitor.telefone || '').replace(/\D/g, '').includes(cleanDigits)) ||
+        (eleitor.bairro?.toLowerCase() || '').includes(term) ||
+        (eleitor.zona || '').includes(term) ||
+        (eleitor.secao || '').includes(term);
 
       const matchesLideranca =
         selectedLiderancaFilter === 'todas'

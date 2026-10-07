@@ -312,6 +312,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
   // Cache em memória dos locais completos para buscas dedicadas pontuais sem travamento
   const dedicatedCacheRef = useRef<{ data: LocalVotacao[]; timestamp: number } | null>(null);
+  const initialLoadKeyRef = useRef<string>('');
 
   const currentUserId = currentUser?.id;
 
@@ -382,12 +383,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.warn('[LocationContext] Erro ao buscar resumo de locais:', err);
       return {
-        totalLocais: totalLocaisCount,
-        totalSecoes: totalSecoesCount,
-        totalCapacidade: totalCapacidadeCount
+        totalLocais: 0,
+        totalSecoes: 0,
+        totalCapacidade: 0
       };
     }
-  }, [activeDb, tenantKey, totalLocaisCount, totalSecoesCount, totalCapacidadeCount]);
+  }, [activeDb, tenantKey]);
 
   // Consulta contagem total agregada de locais via getCountFromServer (1 leitura rápida)
   const fetchLocaisCount = useCallback(async (): Promise<number> => {
@@ -400,9 +401,9 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       return count;
     } catch (err) {
       console.warn('[LocationContext] Erro ao contar locais:', err);
-      return totalLocaisCount;
+      return 0;
     }
-  }, [activeDb, tenantKey, totalLocaisCount]);
+  }, [activeDb, tenantKey]);
 
   // Busca sob demanda e filtro: opera sobre a base completa garantindo que nenhuma consulta fique limitada
   const fetchLocaisPage = useCallback(
@@ -470,18 +471,22 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       setRegisteredPairsList(Array.from(pairSet));
       safeStorage.setItem(`locais_secoes_count_${tenantKey}`, String(pairSet.size));
       safeStorage.setItem(`locais_capacidade_count_${tenantKey}`, String(capCount));
-
-      await fetchResumoStats();
     } finally {
       setIsLoadingLocais(false);
     }
-  }, [fetchAllLocaisDedicated, tenantKey, fetchResumoStats]);
+  }, [fetchAllLocaisDedicated, tenantKey]);
 
   // Carregamento inicial completo: assegura que TODOS os locais cadastrados estejam na memória
   useEffect(() => {
     if (!isAuthReady || !currentUserId || isLoadingTenant) {
       return;
     }
+
+    const loadKey = `${currentUserId}_${tenantKey}_${tenantVersion || 0}`;
+    if (initialLoadKeyRef.current === loadKey) {
+      return;
+    }
+    initialLoadKeyRef.current = loadKey;
 
     const isCleared = safeStorage.getItem(`locais_cleared_${tenantKey}`) === 'true';
     if (isCleared) {
@@ -533,8 +538,6 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         setRegisteredPairsList(Array.from(pairSet));
         safeStorage.setItem(`locais_secoes_count_${tenantKey}`, String(pairSet.size));
         safeStorage.setItem(`locais_capacidade_count_${tenantKey}`, String(capCount));
-
-        await fetchResumoStats();
       } catch (err) {
         console.warn('[LocationContext] Aviso no carregamento inicial de locais:', err);
       } finally {
@@ -550,7 +553,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isCurrent = false;
     };
-  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, activeDb, isLoadingTenant, fetchResumoStats, fetchAllLocaisDedicated]);
+  }, [currentUserId, isAuthReady, tenantKey, tenantVersion, isLoadingTenant, fetchAllLocaisDedicated]);
 
   const addLocalVotacao = useCallback(async (data: Omit<LocalVotacao, 'id' | 'dataCadastro'>) => {
     const cleanData = sanitizeFirestoreData(data);

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { LocalVotacao } from '@/context/CampaignContext';
+import { parseSecoesAgregadas } from '@/lib/importExportUtils';
 import {
   School,
   MapPin,
@@ -111,18 +112,56 @@ export const LocalCard = React.memo(function LocalCard({
             )}
           </div>
           <div className="flex flex-wrap gap-1">
-            {secoesList.slice(0, 8).map((sec) => (
-              <span
-                key={sec}
-                onClick={onAgregarSecao ? () => onAgregarSecao(sec, local) : undefined}
-                title={onAgregarSecao ? `Clique para agregar a seção ${sec} a outra` : undefined}
-                className={`px-1.5 py-0.5 bg-surface-container-low text-on-surface text-[10px] font-mono rounded border border-outline-variant/50 transition-colors ${
-                  onAgregarSecao ? 'hover:border-secondary hover:text-secondary hover:bg-secondary/10 cursor-pointer' : ''
-                }`}
-              >
-                {sec}
-              </span>
-            ))}
+            {(() => {
+              const agregadasList = local.secoesAgregadas
+                ? parseSecoesAgregadas(typeof local.secoesAgregadas === 'string' ? local.secoesAgregadas : undefined).secoes
+                : [];
+              const agregadasSet = new Set<string>();
+              agregadasList.forEach((s) => {
+                agregadasSet.add(s);
+                agregadasSet.add(String(Number(s)));
+                agregadasSet.add(s.replace(/^0+/, ''));
+              });
+              if (typeof local.secoesAgregadas === 'object' && local.secoesAgregadas !== null) {
+                Object.keys(local.secoesAgregadas).forEach((k) => {
+                  const clean = k.replace(/\D/g, '');
+                  if (clean) {
+                    agregadasSet.add(clean.padStart(4, '0'));
+                    agregadasSet.add(String(Number(clean)));
+                  }
+                });
+              }
+
+              return secoesList.slice(0, 8).map((sec) => {
+                const secClean = String(sec).replace(/\D/g, '');
+                const isAgregada =
+                  agregadasSet.has(secClean.padStart(4, '0')) ||
+                  agregadasSet.has(secClean) ||
+                  agregadasSet.has(String(sec).trim());
+
+                return (
+                  <span
+                    key={sec}
+                    onClick={onAgregarSecao ? () => onAgregarSecao(sec, local) : undefined}
+                    title={
+                      isAgregada
+                        ? `Seção ${sec} (Seção Agregada)`
+                        : onAgregarSecao
+                        ? `Clique para agregar a seção ${sec} a outra`
+                        : undefined
+                    }
+                    className={`px-1.5 py-0.5 text-[10px] font-mono rounded transition-colors ${
+                      isAgregada
+                        ? 'bg-purple-700 hover:bg-purple-800 text-white border border-purple-800 font-extrabold shadow-2xs inline-flex items-center gap-1'
+                        : 'bg-surface-container-low text-on-surface border border-outline-variant/50'
+                    } ${onAgregarSecao ? 'hover:border-secondary hover:text-secondary hover:bg-secondary/10 cursor-pointer' : ''}`}
+                  >
+                    {isAgregada && <GitMerge className="w-2.5 h-2.5 text-purple-200 shrink-0" />}
+                    {sec}
+                  </span>
+                );
+              });
+            })()}
             {secoesList.length > 8 && (
               <span className="px-1.5 py-0.5 bg-surface-container-high text-on-surface-variant text-[10px] font-mono rounded">
                 +{secoesList.length - 8}
@@ -134,10 +173,10 @@ export const LocalCard = React.memo(function LocalCard({
           </div>
           {Boolean(local.secoesAgregadas) && (
             <div
-              className="mt-1.5 flex items-center gap-1.5 text-[10px] text-amber-900 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-md font-mono"
+              className="mt-1.5 flex items-center gap-1.5 text-[10px] text-purple-950 dark:text-purple-200 bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-700/80 px-2 py-0.5 rounded-md font-mono font-semibold"
               title={`Seções agregadas oficiais: ${local.secoesAgregadas}`}
             >
-              <GitMerge className="w-3 h-3 text-amber-700 dark:text-amber-400 shrink-0" />
+              <GitMerge className="w-3 h-3 text-purple-600 shrink-0" />
               <span className="truncate">
                 Agregada(s): <strong>{String(local.secoesAgregadas)}</strong>
               </span>

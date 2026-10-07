@@ -47,7 +47,12 @@ const REGIOES_DISPONIVEIS = [
 
 export default function LiderancasPage() {
   const { liderancas, eleitores, isLoaded } = useCampaignData();
-  const { batchDeleteLiderancas, recarregarLiderancas } = useCampaignActions();
+  const {
+    batchDeleteLiderancas,
+    recarregarLiderancas,
+    batchUpdateEleitores,
+    desvincularEleitoresDeLiderancas
+  } = useCampaignActions();
   const { solicitarSenhaMestre, registrarLog } = useAuth();
   const loading = !isLoaded;
   const [viewMode, setViewMode] = useState<'table' | 'hierarchy'>('table');
@@ -256,11 +261,17 @@ export default function LiderancasPage() {
       description: desc,
       onSuccess: async () => {
         try {
+          // 1. Identifica e desvincula atomicamente todos os eleitores ligados a esta liderança (por ID ou nome)
+          const unlinkedCount = await desvincularEleitoresDeLiderancas([leader.id], [leader.nome]);
+
+          // 2. Exclui a liderança do sistema
           await batchDeleteLiderancas([leader.id]);
           await registrarLog({
             tipo: 'EXCLUSAO',
             acao: `Exclusão da liderança: ${leader.nome} (${leader.tipo})`,
-            detalhes: `Liderança removida com confirmação de Senha Mestre. ID: ${leader.id}`,
+            detalhes: `Liderança removida com confirmação de Senha Mestre. ID: ${leader.id}.${
+              unlinkedCount > 0 ? ` ${unlinkedCount} eleitor(es) desvinculado(s).` : ''
+            }`,
             entidade: 'Liderança',
             entidadeId: leader.id
           });
@@ -269,8 +280,12 @@ export default function LiderancasPage() {
             next.delete(leader.id);
             return next;
           });
-          setActionFeedback(`Liderança "${leader.nome}" excluída com sucesso.`);
-          setTimeout(() => setActionFeedback(null), 3500);
+          setActionFeedback(
+            `Liderança "${leader.nome}" excluída com sucesso.${
+              unlinkedCount > 0 ? ` ${unlinkedCount} eleitor(es) desvinculado(s).` : ''
+            }`
+          );
+          setTimeout(() => setActionFeedback(null), 4000);
         } catch (err) {
           console.error('Error deleting lideranca:', err);
           alert('Erro ao excluir liderança.');
@@ -510,14 +525,29 @@ export default function LiderancasPage() {
       onSuccess: async () => {
         setIsBatchDeleting(true);
         try {
+          const idsToDelete = new Set(ids);
+          const rawNamesToDelete = liderancas
+            .filter((l) => idsToDelete.has(l.id))
+            .map((l) => l.nome);
+
+          // 1. Desvincula atomicamente todos os eleitores ligados a quaisquer das lideranças selecionadas
+          const unlinkedBatchCount = await desvincularEleitoresDeLiderancas(ids, rawNamesToDelete);
+
+          // 2. Exclui as lideranças selecionadas
           const { deleted } = await batchDeleteLiderancas(ids);
           await registrarLog({
             tipo: 'EXCLUSAO',
             acao: `Exclusão em lote de ${deleted} lideranças (${selectedPrincipaisCount} principais, ${selectedSubsCount} sub-lideranças)`,
-            detalhes: `Registros de liderança removidos em massa da base de dados.`,
+            detalhes: `Registros de liderança removidos em massa da base de dados.${
+              unlinkedBatchCount > 0 ? ` ${unlinkedBatchCount} eleitor(es) desvinculado(s).` : ''
+            }`,
             entidade: 'Liderança'
           });
-          setActionFeedback(`${deleted} ${deleted === 1 ? 'liderança foi excluída' : 'lideranças foram excluídas'} com sucesso.`);
+          setActionFeedback(
+            `${deleted} ${deleted === 1 ? 'liderança foi excluída' : 'lideranças foram excluídas'} com sucesso.${
+              unlinkedBatchCount > 0 ? ` ${unlinkedBatchCount} eleitor(es) desvinculado(s).` : ''
+            }`
+          );
           setSelectedIds(new Set());
           setTimeout(() => setActionFeedback(null), 4000);
         } catch (err) {

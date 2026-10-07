@@ -12,7 +12,9 @@ import {
   updateDoc,
   deleteDoc,
   writeBatch,
-  serverTimestamp
+  serverTimestamp,
+  getDocs,
+  where
 } from 'firebase/firestore';
 import { getActiveDb } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -133,6 +135,7 @@ interface VoterContextType {
   ) => Promise<{ imported: number }>;
   batchDeleteEleitores: (ids: string[]) => Promise<{ deleted: number }>;
   batchUpdateEleitores: (ids: string[], data: Partial<Eleitor>) => Promise<{ updated: number }>;
+  desvincularEleitoresDeLiderancas: (leaderIds: string[], leaderNames?: string[]) => Promise<number>;
   registrarValidacao: (
     eleitorId: string,
     dados: {
@@ -508,6 +511,88 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
     return { updated: updated || ids.length };
   }, [tenantKey, activeDb]);
 
+  const desvincularEleitoresDeLiderancas = useCallback(
+    async (leaderIds: string[], leaderNames: string[] = []) => {
+      const cleanIds = new Set(leaderIds.filter(Boolean));
+      const cleanNames = new Set(
+        leaderNames
+          .filter(Boolean)
+          .map((n) => n.trim().toLowerCase())
+      );
+
+      let unlinkedCount = 0;
+      setEleitores((prev) => {
+        const updated = prev.map((e) => {
+          const isMatchId = e.liderancaId && cleanIds.has(e.liderancaId);
+          const isMatchNome =
+            e.lideranca && cleanNames.has(e.lideranca.trim().toLowerCase());
+          const isMatchIndicado =
+            e.indicadoPor && cleanNames.has(e.indicadoPor.trim().toLowerCase());
+
+          if (isMatchId || isMatchNome || isMatchIndicado) {
+            unlinkedCount++;
+            return {
+              ...e,
+              liderancaId: '',
+              lideranca: '',
+              indicadoPor: isMatchIndicado ? '' : e.indicadoPor
+            };
+          }
+          return e;
+        });
+
+        setCachedCollection('eleitores', updated, tenantKey);
+        return updated;
+      });
+
+      try {
+        const targetDb = activeDb || getActiveDb();
+        const votersColl = collection(targetDb, 'eleitores');
+        const docIdsToUpdate = new Set<string>();
+
+        for (const lid of cleanIds) {
+          try {
+            const qId = query(votersColl, where('liderancaId', '==', lid));
+            const snapId = await getDocs(qId);
+            snapId.forEach((d) => docIdsToUpdate.add(d.id));
+          } catch (e) {
+            console.warn('Erro ao consultar eleitores por liderancaId:', e);
+          }
+        }
+
+        for (const name of leaderNames) {
+          if (!name || !name.trim()) continue;
+          try {
+            const qNome = query(votersColl, where('lideranca', '==', name.trim()));
+            const snapNome = await getDocs(qNome);
+            snapNome.forEach((d) => docIdsToUpdate.add(d.id));
+          } catch (e) {
+            console.warn('Erro ao consultar eleitores por lideranca:', e);
+          }
+        }
+
+        const docIdsArray = Array.from(docIdsToUpdate);
+        const CHUNK_SIZE = 400;
+        for (let i = 0; i < docIdsArray.length; i += CHUNK_SIZE) {
+          const chunk = docIdsArray.slice(i, i + CHUNK_SIZE);
+          const batch = writeBatch(targetDb);
+          chunk.forEach((id) => {
+            batch.update(doc(targetDb, 'eleitores', id), {
+              liderancaId: '',
+              lideranca: ''
+            });
+          });
+          await batch.commit();
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, 'eleitores');
+      }
+
+      return unlinkedCount;
+    },
+    [tenantKey, activeDb]
+  );
+
   const registrarValidacao = useCallback(
     async (
       eleitorId: string,
@@ -602,6 +687,7 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
       batchImportEleitores,
       batchDeleteEleitores,
       batchUpdateEleitores,
+      desvincularEleitoresDeLiderancas,
       registrarValidacao
     }),
     [
@@ -621,6 +707,7 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
       batchImportEleitores,
       batchDeleteEleitores,
       batchUpdateEleitores,
+      desvincularEleitoresDeLiderancas,
       registrarValidacao
     ]
   );

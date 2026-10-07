@@ -238,6 +238,13 @@ export default function CadastroExternoCampoPage() {
   const [mostrarSenhaAutorizacao, setMostrarSenhaAutorizacao] = useState(false);
   const [isSubmittingLider, setIsSubmittingLider] = useState(false);
 
+  // Controle de Bloqueio/Desbloqueio com Senha de Segurança para Lideranças
+  const [isLiderancaUnlocked, setIsLiderancaUnlocked] = useState(false);
+  const [senhaTentativa, setSenhaTentativa] = useState('');
+  const [mostrarSenhaTentativa, setMostrarSenhaTentativa] = useState(false);
+  const [isCheckingPassword, setIsCheckingPassword] = useState(false);
+  const [senhaError, setSenhaError] = useState<string | null>(null);
+
   // Inicializa cidade e estado padrão da campanha
   useEffect(() => {
     const defaultCity = currentTenant?.cidade || 'Teresina';
@@ -528,40 +535,113 @@ export default function CadastroExternoCampoPage() {
     }
   };
 
-  // ==================== SUBMISSÃO DA LIDERANÇA (INFORMAÇÕES NÃO OBRIGATÓRIAS) ====================
-  const handleSubmitLideranca = async (e: React.FormEvent) => {
+  // ==================== DESBLOQUEIO DE ACESSO COM SENHA OBRIGATÓRIA ====================
+  const handleUnlockLideranca = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFeedbackBanner(null);
+    setSenhaError(null);
+    const cleanInput = senhaTentativa.trim();
 
-    const trimmedNomeLider = nomeLider.trim() || 'Liderança sem nome';
-    const cleanCpf = cpfLider.replace(/\D/g, '');
-    const cleanSenha = senhaAutorizacao.trim();
+    if (!cleanInput) {
+      playAlertSound();
+      setSenhaError('Por favor, digite a Senha de Autorização.');
+      return;
+    }
 
-    // Se senha foi digitada, valida autorização; se deixada em branco, permite prosseguir sem bloqueio
-    if (cleanSenha) {
-      let activeExpectedPassword = configuredPassword;
+    setIsCheckingPassword(true);
+    try {
+      let expected = configuredPassword;
       try {
         const configSnap = await getDoc(doc(getActiveDb(), 'configuracoes', 'geral'));
         if (configSnap.exists()) {
           const cfgData = configSnap.data();
           if (cfgData.senhaCadastroLiderancaCampo) {
-            activeExpectedPassword = String(cfgData.senhaCadastroLiderancaCampo).trim();
-            setConfiguredPassword(activeExpectedPassword);
+            expected = String(cfgData.senhaCadastroLiderancaCampo).trim();
+            setConfiguredPassword(expected);
           }
         }
-      } catch (cfgErr) {
-        console.warn('Usando senha de cache:', cfgErr);
+      } catch (err) {
+        console.warn('Erro ao consultar senha de liderança:', err);
       }
 
-      if (cleanSenha !== activeExpectedPassword) {
-        playAlertSound();
+      if (cleanInput === expected) {
+        playSuccessSound();
+        setIsLiderancaUnlocked(true);
+        setSenhaAutorizacao(cleanInput);
         setFeedbackBanner({
-          type: 'error',
-          message: '❌ Senha de autorização incorreta! Verifique em Configurações > Segurança ou deixe em branco.'
+          type: 'success',
+          message: '✓ Acesso autorizado! Formulário de cadastro de liderança desbloqueado.'
         });
-        senhaInputRef.current?.focus();
-        return;
+        setTimeout(() => setFeedbackBanner(null), 3500);
+      } else {
+        playAlertSound();
+        setSenhaError('❌ Senha incorreta! Digite a senha definida pela coordenação em Configurações > Segurança.');
       }
+    } finally {
+      setIsCheckingPassword(false);
+    }
+  };
+
+  // ==================== SUBMISSÃO DA LIDERANÇA (EXIGE SENHA OBRIGATÓRIA) ====================
+  const handleSubmitLideranca = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFeedbackBanner(null);
+
+    if (!isLiderancaUnlocked) {
+      playAlertSound();
+      setFeedbackBanner({
+        type: 'error',
+        message: '❌ É obrigatório desbloquear com a Senha de Autorização antes de cadastrar uma liderança.'
+      });
+      return;
+    }
+
+    const trimmedNomeLider = nomeLider.trim();
+    if (!trimmedNomeLider || trimmedNomeLider.length < 3) {
+      playAlertSound();
+      setFeedbackBanner({
+        type: 'error',
+        message: 'Por favor, digite o Nome Completo da liderança (mínimo de 3 letras).'
+      });
+      nomeLiderInputRef.current?.focus();
+      return;
+    }
+
+    const cleanCpf = cpfLider.replace(/\D/g, '');
+    const cleanSenha = senhaAutorizacao.trim();
+
+    // Senha de autorização é estritamente OBRIGATÓRIA para cadastrar liderança em campo
+    if (!cleanSenha) {
+      playAlertSound();
+      setFeedbackBanner({
+        type: 'error',
+        message: '❌ A Senha de Autorização é obrigatória para cadastrar uma liderança política em campo.'
+      });
+      senhaInputRef.current?.focus();
+      return;
+    }
+
+    let activeExpectedPassword = configuredPassword;
+    try {
+      const configSnap = await getDoc(doc(getActiveDb(), 'configuracoes', 'geral'));
+      if (configSnap.exists()) {
+        const cfgData = configSnap.data();
+        if (cfgData.senhaCadastroLiderancaCampo) {
+          activeExpectedPassword = String(cfgData.senhaCadastroLiderancaCampo).trim();
+          setConfiguredPassword(activeExpectedPassword);
+        }
+      }
+    } catch (cfgErr) {
+      console.warn('Usando senha de cache:', cfgErr);
+    }
+
+    if (cleanSenha !== activeExpectedPassword) {
+      playAlertSound();
+      setFeedbackBanner({
+        type: 'error',
+        message: '❌ Senha de autorização incorreta! Solicite a senha correta à coordenação da campanha.'
+      });
+      senhaInputRef.current?.focus();
+      return;
     }
 
     setIsSubmittingLider(true);
@@ -1159,7 +1239,83 @@ export default function CadastroExternoCampoPage() {
         {/* ======================================================== */}
         {/* ABA 2: CADASTRO DE LIDERANÇA / SUB-LIDERANÇA (COM SENHA) */}
         {/* ======================================================== */}
-        {activeMainTab === 'lideranca' && (
+        {activeMainTab === 'lideranca' && !isLiderancaUnlocked && (
+          <div className="space-y-5 animate-in fade-in duration-150">
+            <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl text-center max-w-lg mx-auto space-y-5">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border-2 border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
+                <Lock className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-1.5">
+                <h2 className="text-lg font-black text-white">
+                  Acesso Restrito: Cadastro de Liderança
+                </h2>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Para cadastrar uma nova liderança ou sub-liderança em campo, digite a <strong>Senha de Autorização</strong> definida pela coordenação em <em>Configurações &gt; Segurança</em>.
+                </p>
+              </div>
+
+              {senhaError && (
+                <div className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-xl text-xs text-rose-200 font-semibold text-left flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{senhaError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleUnlockLideranca} className="space-y-3.5">
+                <div className="relative text-left">
+                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                    Senha de Autorização de Campo <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={mostrarSenhaTentativa ? 'text' : 'password'}
+                      value={senhaTentativa}
+                      onChange={(e) => {
+                        setSenhaTentativa(e.target.value);
+                        setSenhaError(null);
+                      }}
+                      placeholder="Digite a senha configurada no sistema..."
+                      autoFocus
+                      required
+                      className="w-full h-11 bg-slate-950 border-2 border-slate-700 focus:border-amber-400 rounded-xl pl-3.5 pr-11 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none transition-colors font-bold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMostrarSenhaTentativa(!mostrarSenhaTentativa)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer"
+                      title={mostrarSenhaTentativa ? 'Ocultar Senha' : 'Ver Senha'}
+                    >
+                      {mostrarSenhaTentativa ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isCheckingPassword}
+                  className="w-full py-3.5 px-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 active:scale-[0.99] text-slate-950 font-black rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                >
+                  <Unlock className="w-4 h-4" />
+                  <span>{isCheckingPassword ? 'Verificando Senha...' : 'Desbloquear Cadastro de Liderança'}</span>
+                </button>
+              </form>
+
+              <div className="pt-2 border-t border-slate-700/60">
+                <button
+                  type="button"
+                  onClick={() => setActiveMainTab('eleitor')}
+                  className="text-xs text-slate-400 hover:text-white underline cursor-pointer"
+                >
+                  &larr; Voltar para Cadastro de Eleitores
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ABA 2: FORMULÁRIO QUANDO DESBLOQUEADO COM SENHA */}
+        {activeMainTab === 'lideranca' && isLiderancaUnlocked && (
           <div className="space-y-5 animate-in fade-in duration-150">
             <form
               onSubmit={handleSubmitLideranca}
@@ -1176,8 +1332,8 @@ export default function CadastroExternoCampoPage() {
                       <h2 className="text-sm font-bold text-white uppercase tracking-wider">
                         Cadastrar Liderança ou Sub-liderança
                       </h2>
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" /> Exige Senha
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                        <Unlock className="w-2.5 h-2.5" /> Acesso Autorizado
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400">
@@ -1185,6 +1341,20 @@ export default function CadastroExternoCampoPage() {
                     </p>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLiderancaUnlocked(false);
+                    setSenhaTentativa('');
+                    setSenhaAutorizacao('');
+                  }}
+                  className="px-2.5 py-1 text-xs bg-slate-900 hover:bg-slate-950 text-slate-400 hover:text-rose-300 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Bloquear formulário e exigir senha novamente"
+                >
+                  <Lock className="w-3 h-3 text-amber-400" />
+                  <span>Bloquear</span>
+                </button>
               </div>
 
               {/* 1. Escolha do Tipo: Principal vs Sub */}
@@ -1427,10 +1597,10 @@ export default function CadastroExternoCampoPage() {
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-extrabold text-amber-200 flex items-center gap-1.5">
                       <KeyRound className="w-4 h-4 text-amber-400" />
-                      Senha de Autorização de Campo <span className="text-slate-400 font-normal">(Opcional se configurada)</span>
+                      Senha de Autorização de Campo <span className="text-rose-400 font-bold">* (Obrigatória)</span>
                     </label>
                     <span className="text-[10px] text-amber-300 font-semibold bg-amber-500/20 px-2 py-0.5 rounded-full">
-                      Cadastrada nas Configurações
+                      Exigida pelo Sistema
                     </span>
                   </div>
 
@@ -1438,7 +1608,8 @@ export default function CadastroExternoCampoPage() {
                     <input
                       ref={senhaInputRef}
                       type={mostrarSenhaAutorizacao ? 'text' : 'password'}
-                      placeholder="Digite a senha de autorização (opcional)..."
+                      placeholder="Digite a senha de autorização obrigatória..."
+                      required
                       value={senhaAutorizacao}
                       onChange={(e) => setSenhaAutorizacao(e.target.value)}
                       className="w-full h-11 bg-slate-950 border-2 border-amber-500/60 rounded-xl pl-3.5 pr-11 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-amber-400 transition-all font-bold"
@@ -1453,8 +1624,8 @@ export default function CadastroExternoCampoPage() {
                     </button>
                   </div>
 
-                  <p className="text-[11px] text-amber-200/80 leading-relaxed">
-                    Esta senha de segurança é cadastrada no painel da campanha em <strong>Configurações &gt; Segurança</strong> para evitar lideranças duplicadas. Se você não a possui, solicite à coordenação da campanha.
+                  <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                    Esta senha de segurança é definida pela coordenação em <strong>Configurações &gt; Segurança</strong>. O cadastro da liderança só será concluído mediante a senha válida.
                   </p>
                 </div>
               </div>

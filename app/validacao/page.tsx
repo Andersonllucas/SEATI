@@ -245,18 +245,17 @@ export default function ValidacaoPage() {
         if ((e.bairro || '').trim() !== bairroFilter) return false;
       }
 
-      // Busca textual
+      // Busca textual (não considera Liderança pois há filtro dedicado)
       if (searchTerm.trim()) {
         const term = searchTerm.trim().toLowerCase();
         const cleanDigits = term.replace(/\D/g, '');
         const matchNome = (e.nome || '').toLowerCase().includes(term);
         const matchCpf = cleanDigits && (e.cpf || '').replace(/\D/g, '').includes(cleanDigits);
         const matchTel = cleanDigits && (e.telefone || '').replace(/\D/g, '').includes(cleanDigits);
-        const matchLider = (e.lideranca || '').toLowerCase().includes(term);
         const matchBairro = (e.bairro || '').toLowerCase().includes(term);
         const matchObs = (e.observacoesValidacao || '').toLowerCase().includes(term);
 
-        if (!matchNome && !matchCpf && !matchTel && !matchLider && !matchBairro && !matchObs) {
+        if (!matchNome && !matchCpf && !matchTel && !matchBairro && !matchObs) {
           return false;
         }
       }
