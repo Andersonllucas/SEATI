@@ -22,7 +22,8 @@ import {
   Check,
   Camera,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Printer
 } from 'lucide-react';
 import {
   useCampaignData,
@@ -33,6 +34,8 @@ import {
   normalizeSecao,
   makeSecaoKey
 } from '@/context/CampaignContext';
+import { useTenant } from '@/context/TenantContext';
+import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { TseCsvImporterModal } from '@/components/TseCsvImporterModal';
@@ -117,11 +120,34 @@ interface LiderancaDesempenho {
 }
 
 export default function CumprimentoVotosPage() {
+  const { currentTenant, subdomain } = useTenant();
+  const { currentUser } = useAuth();
   const { eleitores, liderancas, locais } = useCampaignData();
   const { apuracoes, apuracoesMap, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao, limparTodasApuracoes } = useApuracao();
 
   // Abas: "secoes" (Análise por Seção) ou "liderancas" (Auditoria por Liderança)
   const [activeTab, setActiveTab] = useState<'secoes' | 'liderancas'>('secoes');
+
+  // Modal de Impressão de Relatório
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printReportType, setPrintReportType] = useState<'secoes' | 'liderancas' | 'lideranca_individual'>('secoes');
+  const [printSelectedLideranca, setPrintSelectedLideranca] = useState<LiderancaDesempenho | null>(null);
+  const [printScope, setPrintScope] = useState<'todas' | 'apenas_apuradas' | 'apenas_quebras'>('todas');
+
+  const campaignDisplayName =
+    currentTenant?.nome || (subdomain && subdomain !== 'demo' ? `Campanha ${subdomain}` : 'Campanha Eleitoral 2026');
+
+  const handleOpenPrintModal = (type: 'secoes' | 'liderancas' | 'lideranca_individual', lideranca?: LiderancaDesempenho | null) => {
+    setPrintReportType(type);
+    if (lideranca) {
+      setPrintSelectedLideranca(lideranca);
+    }
+    setIsPrintModalOpen(true);
+  };
+
+  const handleTriggerPrint = () => {
+    window.print();
+  };
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -387,6 +413,9 @@ export default function CumprimentoVotosPage() {
     let votosEmSecoesCadastradas = 0;
     let secoesCadastradasCumpridasCount = 0;
     let secoesCadastradasQuebradasCount = 0;
+    let votosCumpridosBase = 0; // Votos efetivamente validados da base (limitado ao total de cadastrados de cada seção)
+    let votosQuebradosBase = 0; // Votos de eleitores prometidos que não compareceram na urna
+    let votosExcedentesUrnas = 0; // Votos excedentes nas urnas acima da meta de cadastrados
 
     // Métricas gerais de todas as seções (incluindo avulsas sem cadastro)
     const totalSecoesGerais = secoesAgrupadas.length;
@@ -406,6 +435,14 @@ export default function CumprimentoVotosPage() {
           eleitoresEmSecoesApuradas += s.totalCadastrados;
           votosEmSecoesCadastradas += s.votosApurados;
 
+          const cumpridosNestaSecao = Math.min(s.votosApurados, s.totalCadastrados);
+          const quebraNestaSecao = Math.max(0, s.totalCadastrados - s.votosApurados);
+          const excedenteNestaSecao = Math.max(0, s.votosApurados - s.totalCadastrados);
+
+          votosCumpridosBase += cumpridosNestaSecao;
+          votosQuebradosBase += quebraNestaSecao;
+          votosExcedentesUrnas += excedenteNestaSecao;
+
           if (s.votosApurados >= s.totalCadastrados) {
             secoesCadastradasCumpridasCount++;
           } else {
@@ -424,16 +461,25 @@ export default function CumprimentoVotosPage() {
       ? Math.round((secoesCadastradasApuradasCount / secoesComEleitoresCount) * 100)
       : 0;
 
-    // Cumprimento Real Isolado da Base (votos apurados nas seções cadastradas / eleitores nessas mesmas seções)
-    const taxaCumprimentoReal = eleitoresEmSecoesApuradas > 0
-      ? Math.round((votosEmSecoesCadastradas / eleitoresEmSecoesApuradas) * 100)
+    // Total de todos os votos contabilizados no arquivo de importação
+    const totalVotosImportados = apuracoes.length > 0
+      ? apuracoes.reduce((acc, a) => acc + (Number(a.votosApurados) || 0), 0)
+      : totalVotosApuradosGerais;
+
+    const totalSecoesImportadas = apuracoes.length > 0
+      ? apuracoes.length
+      : totalSecoesApuradasGerais;
+
+    // Cumprimento Real: Eleitores da base que efetivamente cumpriram o voto nas urnas vs Total Prometido
+    // Votos excedentes em uma seção NÃO compensam eleitores que não cumpriram em outra!
+    const taxaCumprimentoReal = totalEleitoresCadastrados > 0
+      ? Math.round((votosCumpridosBase / totalEleitoresCadastrados) * 100)
       : 0;
 
-    const saldoRealIsolado = votosEmSecoesCadastradas - eleitoresEmSecoesApuradas;
+    const saldoReal = votosCumpridosBase - totalEleitoresCadastrados;
+    const saldoRealIsolado = saldoReal;
 
-    const taxaCumprimentoBaseTotal = totalEleitoresCadastrados > 0
-      ? Math.round((votosEmSecoesCadastradas / totalEleitoresCadastrados) * 100)
-      : 0;
+    const taxaCumprimentoBaseTotal = taxaCumprimentoReal;
 
     return {
       totalEleitoresCadastrados,
@@ -443,7 +489,13 @@ export default function CumprimentoVotosPage() {
       taxaCoberturaBase,
       eleitoresEmSecoesApuradas,
       votosEmSecoesCadastradas,
+      votosCumpridosBase,
+      votosQuebradosBase,
+      votosExcedentesUrnas,
+      totalVotosImportados,
+      totalSecoesImportadas,
       taxaCumprimentoReal,
+      saldoReal,
       saldoRealIsolado,
       taxaCumprimentoBaseTotal,
       secoesCadastradasCumpridasCount,
@@ -452,7 +504,7 @@ export default function CumprimentoVotosPage() {
       totalSecoesApuradasGerais,
       totalVotosApuradosGerais
     };
-  }, [secoesAgrupadas]);
+  }, [secoesAgrupadas, apuracoes]);
 
   // Desempenho por Liderança (Cruzamento de Votos com Eleitores Cadastrados de Cada Liderança)
   const desempenhoLiderancas = useMemo(() => {
@@ -669,6 +721,45 @@ export default function CumprimentoVotosPage() {
     return filteredSecoes.slice(start, start + pageSize);
   }, [filteredSecoes, safeCurrentPage, pageSize]);
 
+  // Listagens Preparadas para Impressão Completa (sem corte de paginação)
+  const printSecoesList = useMemo(() => {
+    if (printScope === 'apenas_apuradas') {
+      return filteredSecoes.filter((s) => s.isApurada);
+    }
+    if (printScope === 'apenas_quebras') {
+      return filteredSecoes.filter((s) => s.isApurada && s.teveVotosSuficientes === false);
+    }
+    return filteredSecoes;
+  }, [filteredSecoes, printScope]);
+
+  const printLiderancasList = useMemo(() => {
+    if (printScope === 'apenas_apuradas') {
+      return desempenhoLiderancas.filter((l) => l.secoesApuradas > 0);
+    }
+    if (printScope === 'apenas_quebras') {
+      return desempenhoLiderancas.filter((l) => l.secoesComQuebra > 0 || l.classificacao === 'Quebra Grave');
+    }
+    return desempenhoLiderancas;
+  }, [desempenhoLiderancas, printScope]);
+
+  const activeFiltersSummaryText = useMemo(() => {
+    const parts: string[] = [];
+    if (statusApuracaoFilter !== 'todos') {
+      const labels: Record<string, string> = {
+        apuradas: 'Apenas Apuradas',
+        pendentes: 'Pendentes de Apuração',
+        superaram: 'Superaram a Meta',
+        abaixo: 'Com Quebra / Abaixo'
+      };
+      parts.push(`Status: ${labels[statusApuracaoFilter] || statusApuracaoFilter}`);
+    }
+    if (zonaFilter !== 'todas') parts.push(`Zona: ${zonaFilter}`);
+    if (bairroFilter !== 'todos') parts.push(`Bairro: ${bairroFilter}`);
+    if (liderancaFilter !== 'todas') parts.push(`Liderança: ${liderancaFilter}`);
+    if (searchTerm.trim()) parts.push(`Busca: "${searchTerm.trim()}"`);
+    return parts.length > 0 ? parts.join(' • ') : 'Listagem Geral (Sem Filtros)';
+  }, [statusApuracaoFilter, zonaFilter, bairroFilter, liderancaFilter, searchTerm]);
+
   // Manipulação de Edição Inline de Votos
   const handleVoteInputChange = (key: string, value: string) => {
     setEditingVotes((prev) => ({
@@ -791,7 +882,7 @@ export default function CumprimentoVotosPage() {
   };
 
   return (
-    <div className="p-3 md:p-4 space-y-3 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
+    <div className={`p-3 md:p-4 space-y-3 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative ${isPrintModalOpen ? 'print:hidden' : ''}`}>
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed top-4 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-fadeIn border border-white/10">
@@ -853,6 +944,17 @@ export default function CumprimentoVotosPage() {
             <span>Exportar Excel</span>
           </button>
 
+          {/* Botão Imprimir Relatório da Tabela */}
+          <button
+            type="button"
+            onClick={() => handleOpenPrintModal(activeTab)}
+            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            title="Imprimir relatório da tabela ou gerar PDF"
+          >
+            <Printer className="w-3.5 h-3.5 text-secondary" />
+            <span>Imprimir Relatório</span>
+          </button>
+
           {/* Botão de Excluir Todos os Votos da Importação (Sempre Visível) */}
           <button
             type="button"
@@ -902,18 +1004,18 @@ export default function CumprimentoVotosPage() {
           </div>
         </div>
 
-        {/* Card 2: Votos Reais na Base */}
+        {/* Card 2: Total de Votos Geral (Todos os votos contabilizados no arquivo de importação) */}
         <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-secondary/40 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-secondary uppercase tracking-wider">
-              Votos Reais na Base
+              Total de Votos Geral
             </p>
             <div className="flex items-baseline gap-1.5 mt-0.5">
-              <h3 className="text-lg md:text-xl font-black text-secondary">{stats.votosEmSecoesCadastradas}</h3>
+              <h3 className="text-lg md:text-xl font-black text-secondary">{stats.totalVotosImportados}</h3>
               <span className="text-[11px] text-on-surface-variant font-medium">nas urnas</span>
             </div>
             <p className="text-[10px] text-on-surface-variant/80 mt-0.5 font-medium">
-              {stats.secoesCadastradasApuradasCount} seções apuradas
+              {stats.totalSecoesImportadas} seções contabilizadas no arquivo
             </p>
           </div>
           <div className="p-1.5 bg-secondary/10 rounded-lg text-secondary">
@@ -921,13 +1023,13 @@ export default function CumprimentoVotosPage() {
           </div>
         </div>
 
-        {/* Card 3: CUMPRIMENTO REAL DE VOTO (Isolado somente nos Eleitores Cadastrados) */}
+        {/* Card 3: CUMPRIMENTO REAL DE VOTO (Prometidos no Sistema vs Cumpridos) */}
         <div className={`px-3.5 py-2 rounded-xl border shadow-xs flex items-center justify-between col-span-2 sm:col-span-1 ${
           stats.taxaCumprimentoReal >= 100
             ? 'border-emerald-300 bg-emerald-50/50'
             : stats.taxaCumprimentoReal >= 75
             ? 'border-sky-300 bg-sky-50/50'
-            : stats.secoesCadastradasApuradasCount > 0
+            : stats.totalSecoesImportadas > 0
             ? 'border-amber-300 bg-amber-50/50'
             : 'border-outline-variant/60 bg-surface-container-lowest'
         }`}>
@@ -942,18 +1044,18 @@ export default function CumprimentoVotosPage() {
             </div>
             <div className="flex items-baseline gap-1.5 mt-0.5">
               <h3 className={`text-lg md:text-xl font-black ${
-                stats.taxaCumprimentoReal >= 100 ? 'text-emerald-700' : stats.taxaCumprimentoReal >= 75 ? 'text-sky-700' : 'text-primary'
+                stats.taxaCumprimentoReal === 100 ? 'text-emerald-700' : stats.taxaCumprimentoReal >= 80 ? 'text-sky-700' : 'text-primary'
               }`}>
                 {stats.taxaCumprimentoReal}%
               </h3>
               <span className={`text-[11px] font-bold ${
-                stats.saldoRealIsolado >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                stats.saldoReal >= 0 ? 'text-emerald-700' : 'text-rose-700'
               }`}>
-                {stats.saldoRealIsolado >= 0 ? `+${stats.saldoRealIsolado}` : stats.saldoRealIsolado} saldo
+                {stats.saldoReal >= 0 ? 'Meta 100%' : `${stats.saldoReal} quebras`}
               </span>
             </div>
             <p className="text-[10px] text-on-surface-variant mt-0.5">
-              {stats.votosEmSecoesCadastradas} votos / {stats.eleitoresEmSecoesApuradas} cadastrados
+              {stats.votosCumpridosBase} cumpridos / {stats.totalEleitoresCadastrados} prometidos
             </p>
           </div>
           <div className="p-1.5 bg-surface-container rounded-lg">
@@ -1046,21 +1148,6 @@ export default function CumprimentoVotosPage() {
               <span className="text-[11px] bg-surface-container text-on-surface px-2 py-0.5 rounded-full font-medium">
                 {filteredSecoes.length} de {secoesAgrupadas.length}
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (apuracoes.length === 0) {
-                    showToast('Nenhum voto cadastrado da importação no momento.');
-                    return;
-                  }
-                  setIsDeleteAllModalOpen(true);
-                }}
-                className="px-2.5 py-1 text-[11px] font-semibold text-on-surface bg-surface-container-lowest hover:bg-surface-container rounded-md border border-rose-500 hover:border-rose-600 flex items-center gap-1 transition-colors shadow-2xs cursor-pointer"
-                title="Excluir todos os votos apurados importados no sistema e zerar contagem de urnas"
-              >
-                <Trash2 className="w-3 h-3 text-rose-600 dark:text-rose-500" />
-                <span>Excluir Todos os Votos ({apuracoes.length})</span>
-              </button>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -1425,9 +1512,20 @@ export default function CumprimentoVotosPage() {
                 Cruze a quantidade de eleitores que cada liderança prometeu com os votos reais apurados nas seções onde esses eleitores votam.
               </p>
             </div>
-            <span className="text-xs bg-surface-container text-on-surface px-2.5 py-1 rounded-full font-bold">
-              {desempenhoLiderancas.length} Lideranças Ativas
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleOpenPrintModal('liderancas')}
+                className="px-2.5 py-1 text-[11px] font-semibold text-on-surface bg-surface-container-lowest hover:bg-surface-container rounded-md border border-outline-variant flex items-center gap-1 transition-colors shadow-2xs cursor-pointer"
+                title="Imprimir relatório geral de eficácia das lideranças"
+              >
+                <Printer className="w-3 h-3 text-secondary" />
+                <span>Imprimir Relatório</span>
+              </button>
+              <span className="text-xs bg-surface-container text-on-surface px-2.5 py-1 rounded-full font-bold">
+                {desempenhoLiderancas.length} Lideranças Ativas
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto flex-1 custom-scrollbar">
@@ -1797,13 +1895,24 @@ export default function CumprimentoVotosPage() {
                   {selectedLiderancaAudit.tipo || 'Liderança'} {selectedLiderancaAudit.liderancaPaiNome ? `• Articulador Superior: ${selectedLiderancaAudit.liderancaPaiNome}` : ''}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedLiderancaAudit(null)}
-                className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenPrintModal('lideranca_individual', selectedLiderancaAudit)}
+                  className="px-2.5 py-1 text-xs font-semibold text-on-surface bg-surface-container hover:bg-surface-container-high border border-outline-variant rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Imprimir relatório detalhado desta liderança"
+                >
+                  <Printer className="w-3.5 h-3.5 text-secondary" />
+                  <span>Imprimir Auditoria</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedLiderancaAudit(null)}
+                  className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
@@ -2095,6 +2204,521 @@ export default function CumprimentoVotosPage() {
                 )}
                 <span>{isDeletingAll ? 'Excluindo...' : 'Sim, Excluir Todos'}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE IMPRESSÃO PROFISSIONAL DE RELATÓRIO */}
+      {isPrintModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-xs animate-fadeIn overflow-y-auto print:fixed print:inset-0 print:p-0 print:bg-white print:overflow-visible print:z-[9999]">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-5xl w-full shadow-2xl flex flex-col max-h-[95vh] my-auto print:border-none print:shadow-none print:max-w-none print:max-h-none print:p-0 print:m-0 print:rounded-none print:w-full print:h-auto">
+            {/* Top Bar do Modal (não visível na impressão física) */}
+            <div className="no-print px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-secondary/10 text-secondary rounded-xl">
+                  <Printer className="w-5 h-5 text-secondary" />
+                </div>
+                <div>
+                  <h3 className="text-sm md:text-base font-bold text-on-surface">
+                    Relatório para Impressão • Cumprimento de Votos
+                  </h3>
+                  <p className="text-xs text-on-surface-variant font-medium">
+                    Pré-visualização formatada para papel A4 e exportação para PDF
+                  </p>
+                </div>
+              </div>
+
+              {/* Controles de Modelo, Escopo e Impressão */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Seletor de Modelo de Relatório */}
+                <div className="inline-flex rounded-lg border border-outline-variant bg-surface-container-low p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setPrintReportType('secoes')}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                      printReportType === 'secoes'
+                        ? 'bg-surface-container-lowest text-on-surface shadow-2xs'
+                        : 'text-on-surface-variant hover:text-on-surface'
+                    }`}
+                  >
+                    Por Seção ({filteredSecoes.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintReportType('liderancas')}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                      printReportType === 'liderancas'
+                        ? 'bg-surface-container-lowest text-on-surface shadow-2xs'
+                        : 'text-on-surface-variant hover:text-on-surface'
+                    }`}
+                  >
+                    Por Liderança ({desempenhoLiderancas.length})
+                  </button>
+                  {printSelectedLideranca && (
+                    <button
+                      type="button"
+                      onClick={() => setPrintReportType('lideranca_individual')}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                        printReportType === 'lideranca_individual'
+                          ? 'bg-surface-container-lowest text-on-surface shadow-2xs'
+                          : 'text-on-surface-variant hover:text-on-surface'
+                      }`}
+                    >
+                      {printSelectedLideranca.nome}
+                    </button>
+                  )}
+                </div>
+
+                {/* Filtro de Escopo de Impressão */}
+                <select
+                  value={printScope}
+                  onChange={(e) => setPrintScope(e.target.value as any)}
+                  className="h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-2 text-xs text-on-surface font-medium focus:outline-none"
+                >
+                  <option value="todas">Todos os registros filtrados</option>
+                  <option value="apenas_apuradas">Apenas Seções Apuradas</option>
+                  <option value="apenas_quebras">Apenas com Quebra / Críticas</option>
+                </select>
+
+                {/* Botão de Disparo Direto */}
+                <button
+                  type="button"
+                  onClick={handleTriggerPrint}
+                  className="px-4 py-1.5 bg-primary hover:bg-secondary text-on-primary rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  title="Imprimir folha A4 ou salvar como PDF"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Imprimir Agora (Ctrl + P)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPrintModalOpen(false)}
+                  className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+                  title="Fechar pré-visualização"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* ÁREA IMPRIMÍVEL DO DOCUMENTO (Formatação A4 Oficial) */}
+            <div
+              id="printable-report-area"
+              className="flex-1 overflow-y-auto bg-white text-slate-900 p-6 md:p-8 custom-scrollbar space-y-4 text-xs font-sans print:p-0 print:border-none print:shadow-none print:overflow-visible print:text-black"
+            >
+              {/* Cabeçalho Timbrado Oficial */}
+              <div className="border-b-2 border-slate-900 pb-3 flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black tracking-widest uppercase bg-slate-900 text-white px-2 py-0.5 rounded">
+                      SEATI ELEITORAL
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-600">
+                      Sistema de Conciliação e Auditoria de Votos
+                    </span>
+                  </div>
+                  <h1 className="text-lg md:text-xl font-black text-slate-950 mt-1 uppercase tracking-tight">
+                    {printReportType === 'secoes'
+                      ? 'Relatório de Cumprimento de Votos por Seção Eleitoral'
+                      : printReportType === 'liderancas'
+                      ? 'Relatório de Auditoria de Cumprimento por Liderança'
+                      : `Auditoria de Eficácia: ${printSelectedLideranca?.nome.toUpperCase()}`}
+                  </h1>
+                  <p className="text-xs text-slate-700 font-medium">
+                    Campanha: <strong>{campaignDisplayName}</strong>
+                    {printSelectedLideranca?.liderancaPaiNome && (
+                      <span> • Articulador Superior: <strong>{printSelectedLideranca.liderancaPaiNome}</strong></span>
+                    )}
+                  </p>
+                </div>
+
+                <div className="text-right text-[10px] text-slate-600 font-mono shrink-0">
+                  <p>
+                    Emissão: <strong>{new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</strong>
+                  </p>
+                  <p>Operador: <strong>{currentUser?.nome || 'Coordenação de Campanha'}</strong></p>
+                  <p className="mt-0.5">
+                    Registros Listados: <strong>{
+                      printReportType === 'secoes'
+                        ? printSecoesList.length
+                        : printReportType === 'liderancas'
+                        ? printLiderancasList.length
+                        : printSelectedLideranca?.detalhesSecoes.length || 0
+                    }</strong>
+                  </p>
+                </div>
+              </div>
+
+              {/* Filtros e Escopo Aplicados */}
+              <div className="p-2 bg-slate-100 rounded border border-slate-200 text-[10px] text-slate-700 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-900">Filtros da Listagem: </span>
+                  <span>{activeFiltersSummaryText}</span>
+                </div>
+                {printScope !== 'todas' && (
+                  <span className="font-semibold text-slate-800">
+                    • Escopo: {printScope === 'apenas_apuradas' ? 'Apenas Seções Apuradas' : 'Apenas com Quebra de Votos'}
+                  </span>
+                )}
+              </div>
+
+              {/* Resumo Estatístico em 4 Blocos Compactos */}
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="p-2 border border-slate-300 rounded bg-slate-50">
+                  <p className="text-[9px] font-bold uppercase text-slate-500">Eleitores Cadastrados</p>
+                  <p className="text-sm font-black text-slate-900 mt-0.5 font-mono">{stats.totalEleitoresCadastrados}</p>
+                  <p className="text-[9px] text-slate-500">{stats.secoesComEleitoresCount} seções da base</p>
+                </div>
+                <div className="p-2 border border-slate-300 rounded bg-slate-50">
+                  <p className="text-[9px] font-bold uppercase text-slate-500">Votos nas Urnas</p>
+                  <p className="text-sm font-black text-slate-900 mt-0.5 font-mono">{stats.totalVotosImportados}</p>
+                  <p className="text-[9px] text-slate-500">{stats.totalSecoesImportadas} seções importadas</p>
+                </div>
+                <div className="p-2 border border-slate-300 rounded bg-slate-50">
+                  <p className="text-[9px] font-bold uppercase text-slate-500">Cumprimento Real</p>
+                  <p className="text-sm font-black text-slate-900 mt-0.5 font-mono">{stats.taxaCumprimentoReal}%</p>
+                  <p className="text-[9px] text-slate-500">
+                    {stats.votosCumpridosBase} cumpridos / {stats.totalEleitoresCadastrados} prometidos
+                    {stats.votosQuebradosBase > 0 && ` (${stats.votosQuebradosBase} quebras)`}
+                  </p>
+                </div>
+                <div className="p-2 border border-slate-300 rounded bg-slate-50">
+                  <p className="text-[9px] font-bold uppercase text-slate-500">Balanço das Seções</p>
+                  <p className="text-sm font-black text-slate-900 mt-0.5 font-mono">
+                    {stats.secoesCadastradasCumpridasCount} ✓ / {stats.secoesCadastradasQuebradasCount} ✗
+                  </p>
+                  <p className="text-[9px] text-slate-500">{stats.taxaCoberturaBase}% da base apurada</p>
+                </div>
+              </div>
+
+              {/* MODELO 1: TABELA DE SEÇÕES ELEITORAIS */}
+              {printReportType === 'secoes' && (
+                <div className="space-y-2">
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead>
+                      <tr className="bg-slate-900 text-white font-bold">
+                        <th className="py-1.5 px-2 text-center w-8">#</th>
+                        <th className="py-1.5 px-2 text-center w-20">Zona / Seção</th>
+                        <th className="py-1.5 px-2">Local de Votação (Colégio)</th>
+                        <th className="py-1.5 px-2">Bairro</th>
+                        <th className="py-1.5 px-2 text-center w-16">Cadastrados</th>
+                        <th className="py-1.5 px-2 text-center w-16">Votos Urna</th>
+                        <th className="py-1.5 px-2 text-center w-16">Cumprimento</th>
+                        <th className="py-1.5 px-2 text-center w-14">Saldo</th>
+                        <th className="py-1.5 px-2 text-center w-24">Situação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-300">
+                      {printSecoesList.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="py-8 text-center text-slate-500">
+                            Nenhuma seção eleitoral encontrada com os filtros aplicados.
+                          </td>
+                        </tr>
+                      ) : (
+                        printSecoesList.map((item, idx) => (
+                          <tr key={item.key} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-600">{idx + 1}</td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">{item.zona} / {item.secao}</td>
+                            <td className="py-1.5 px-2 font-medium">{item.localNome}</td>
+                            <td className="py-1.5 px-2 text-slate-600">{item.bairro}</td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">{item.totalCadastrados}</td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {item.isApurada ? item.votosApurados : '-'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {item.isApurada ? `${item.cumprimentoPct}%` : 'Pendente'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {item.isApurada ? (item.saldo > 0 ? `+${item.saldo}` : item.saldo) : '-'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-semibold text-[9px]">
+                              {item.isApurada ? (
+                                item.teveVotosSuficientes ? (
+                                  <span className="text-emerald-800 font-bold">✓ Meta Cumprida</span>
+                                ) : (
+                                  <span className="text-rose-800 font-bold">✗ Quebra de Votos</span>
+                                )
+                              ) : (
+                                <span className="text-slate-500 italic">Aguardando Urna</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    {printSecoesList.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-slate-200 font-bold text-slate-900 border-t-2 border-slate-800">
+                          <td colSpan={4} className="py-1.5 px-2 text-right uppercase">
+                            Totais Listados ({printSecoesList.length} seções):
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {printSecoesList.reduce((acc, s) => acc + s.totalCadastrados, 0)}
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {printSecoesList.reduce((acc, s) => acc + (s.votosApurados || 0), 0)}
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {(() => {
+                              const cad = printSecoesList.reduce((acc, s) => acc + (s.isApurada ? s.totalCadastrados : 0), 0);
+                              const vot = printSecoesList.reduce((acc, s) => acc + (s.isApurada ? (s.votosApurados || 0) : 0), 0);
+                              return cad > 0 ? `${Math.round((vot / cad) * 100)}%` : '-';
+                            })()}
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {(() => {
+                              const sld = printSecoesList.reduce((acc, s) => acc + (s.isApurada ? s.saldo : 0), 0);
+                              return sld > 0 ? `+${sld}` : sld;
+                            })()}
+                          </td>
+                          <td className="py-1.5 px-2 text-center text-[9px]">
+                            {printSecoesList.filter((s) => s.isApurada).length} apuradas
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
+
+              {/* MODELO 2: TABELA DE AUDITORIA POR LIDERANÇA */}
+              {printReportType === 'liderancas' && (
+                <div className="space-y-2">
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead>
+                      <tr className="bg-slate-900 text-white font-bold">
+                        <th className="py-1.5 px-2 text-center w-8">#</th>
+                        <th className="py-1.5 px-2">Liderança / Articulador</th>
+                        <th className="py-1.5 px-2">Tipo / Superior</th>
+                        <th className="py-1.5 px-2 text-center w-20">Prometidos</th>
+                        <th className="py-1.5 px-2 text-center w-20">Seções Apuradas</th>
+                        <th className="py-1.5 px-2 text-center w-24">Votos Validados</th>
+                        <th className="py-1.5 px-2 text-center w-20">Cumprimento</th>
+                        <th className="py-1.5 px-2 text-center w-16">Saldo Real</th>
+                        <th className="py-1.5 px-2 text-center w-24">Balanço Seções</th>
+                        <th className="py-1.5 px-2 text-center w-24">Situação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-300">
+                      {printLiderancasList.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="py-8 text-center text-slate-500">
+                            Nenhuma liderança encontrada com os filtros aplicados.
+                          </td>
+                        </tr>
+                      ) : (
+                        printLiderancasList.map((lider, idx) => (
+                          <tr key={lider.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-600">{idx + 1}</td>
+                            <td className="py-1.5 px-2 font-bold text-slate-900">{lider.nome}</td>
+                            <td className="py-1.5 px-2 text-slate-600">
+                              {lider.tipo || 'Liderança'} {lider.liderancaPaiNome ? `(Sub de ${lider.liderancaPaiNome})` : ''}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {lider.totalEleitoresPrometidos}
+                              <span className="text-[9px] text-slate-500 block">({lider.eleitoresEmSecoesApuradas} apurados)</span>
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono">
+                              {lider.secoesApuradas} / {lider.secoesAtuadas}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-900">
+                              {lider.votosValidadosTotal}
+                              <span className="text-[9px] text-slate-500 block">de {lider.eleitoresEmSecoesApuradas} esp.</span>
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {lider.secoesApuradas > 0 ? `${lider.cumprimentoMedioPct}%` : 'Pendente'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {lider.secoesApuradas > 0 ? (lider.saldoEstimado > 0 ? `+${lider.saldoEstimado}` : lider.saldoEstimado) : '-'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono text-[9px]">
+                              <span className="text-emerald-800 font-bold">{lider.secoesCumpridas}✓</span> / <span className="text-rose-800 font-bold">{lider.secoesComQuebra}✗</span>
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-semibold text-[9px]">
+                              {lider.classificacao === 'Meta Cumprida' ? (
+                                <span className="text-emerald-800 font-bold">Meta Cumprida</span>
+                              ) : lider.classificacao === 'Cumprimento Parcial' ? (
+                                <span className="text-sky-800 font-bold">Dentro da Meta</span>
+                              ) : lider.classificacao === 'Quebra Grave' ? (
+                                <span className="text-rose-800 font-bold">Quebra de Votos</span>
+                              ) : (
+                                <span className="text-slate-500 italic">Aguardando Urna</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    {printLiderancasList.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-slate-200 font-bold text-slate-900 border-t-2 border-slate-800">
+                          <td colSpan={3} className="py-1.5 px-2 text-right uppercase">
+                            Totais de Lideranças ({printLiderancasList.length}):
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {printLiderancasList.reduce((acc, l) => acc + l.totalEleitoresPrometidos, 0)}
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {printLiderancasList.reduce((acc, l) => acc + l.secoesApuradas, 0)} apuradas
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {printLiderancasList.reduce((acc, l) => acc + l.votosValidadosTotal, 0)}
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {(() => {
+                              const esp = printLiderancasList.reduce((acc, l) => acc + l.eleitoresEmSecoesApuradas, 0);
+                              const val = printLiderancasList.reduce((acc, l) => acc + l.votosValidadosTotal, 0);
+                              return esp > 0 ? `${Math.round((val / esp) * 100)}%` : '-';
+                            })()}
+                          </td>
+                          <td className="py-1.5 px-2 text-center font-mono">
+                            {(() => {
+                              const esp = printLiderancasList.reduce((acc, l) => acc + l.eleitoresEmSecoesApuradas, 0);
+                              const val = printLiderancasList.reduce((acc, l) => acc + l.votosValidadosTotal, 0);
+                              const diff = val - esp;
+                              return diff > 0 ? `+${diff}` : diff;
+                            })()}
+                          </td>
+                          <td colSpan={2} className="py-1.5 px-2 text-center text-[9px]">
+                            {printLiderancasList.reduce((acc, l) => acc + l.secoesCumpridas, 0)} seções cumpridas
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
+
+              {/* MODELO 3: AUDITORIA INDIVIDUAL DE UMA LIDERANÇA ESPECÍFICA */}
+              {printReportType === 'lideranca_individual' && printSelectedLideranca && (
+                <div className="space-y-4">
+                  {/* Resumo do Articulador */}
+                  <div className="p-3 bg-slate-50 border border-slate-300 rounded grid grid-cols-4 gap-2 text-center">
+                    <div>
+                      <p className="text-[9px] uppercase text-slate-500 font-bold">Total Prometido</p>
+                      <p className="text-base font-black text-slate-900 font-mono mt-0.5">
+                        {printSelectedLideranca.totalEleitoresPrometidos}
+                      </p>
+                      <p className="text-[9px] text-slate-500">eleitores na base</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase text-slate-500 font-bold">Seções de Atuação</p>
+                      <p className="text-base font-black text-slate-900 font-mono mt-0.5">
+                        {printSelectedLideranca.secoesApuradas} / {printSelectedLideranca.secoesAtuadas}
+                      </p>
+                      <p className="text-[9px] text-slate-500">{printSelectedLideranca.eleitoresEmSecoesApuradas} eleitores avaliados</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase text-slate-500 font-bold">Votos Validados</p>
+                      <p className="text-base font-black text-slate-900 font-mono mt-0.5">
+                        {printSelectedLideranca.votosValidadosTotal}
+                      </p>
+                      <p className="text-[9px] text-slate-500">atribuídos pelas urnas</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase text-slate-500 font-bold">Eficácia Real</p>
+                      <p className="text-base font-black text-slate-900 font-mono mt-0.5">
+                        {printSelectedLideranca.cumprimentoMedioPct}%
+                      </p>
+                      <p className="text-[9px] text-slate-500">
+                        {printSelectedLideranca.saldoEstimado > 0 ? `+${printSelectedLideranca.saldoEstimado}` : printSelectedLideranca.saldoEstimado} saldo real
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tabela de Seções Desta Liderança */}
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5">
+                      Desempenho por Seção Eleitoral ({printSelectedLideranca.detalhesSecoes.length} seções)
+                    </h3>
+                    <table className="w-full text-left border-collapse text-[10px]">
+                      <thead>
+                        <tr className="bg-slate-900 text-white font-bold">
+                          <th className="py-1.5 px-2 text-center w-8">#</th>
+                          <th className="py-1.5 px-2 text-center w-20">Zona / Seção</th>
+                          <th className="py-1.5 px-2">Local de Votação (Colégio)</th>
+                          <th className="py-1.5 px-2">Bairro</th>
+                          <th className="py-1.5 px-2 text-center w-16">Prometidos</th>
+                          <th className="py-1.5 px-2 text-center w-16">Votos Urna</th>
+                          <th className="py-1.5 px-2 text-center w-16">Validados</th>
+                          <th className="py-1.5 px-2 text-center w-14">Saldo</th>
+                          <th className="py-1.5 px-2 text-center w-24">Situação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-300">
+                        {printSelectedLideranca.detalhesSecoes.map((sec, idx) => (
+                          <tr key={sec.key} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-600">{idx + 1}</td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">{sec.zona} / {sec.secao}</td>
+                            <td className="py-1.5 px-2 font-medium">{sec.localNome}</td>
+                            <td className="py-1.5 px-2 text-slate-600">{sec.bairro}</td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">{sec.eleitoresLideranca}</td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {sec.isApurada ? sec.votosApurados : '-'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {sec.isApurada ? sec.votosValidados : '-'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold">
+                              {sec.isApurada ? (sec.saldoSecao > 0 ? `+${sec.saldoSecao}` : sec.saldoSecao) : '-'}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-semibold text-[9px]">
+                              {sec.isApurada ? (
+                                sec.teveVotosSuficientes ? (
+                                  <span className="text-emerald-800 font-bold">✓ Cumprida</span>
+                                ) : (
+                                  <span className="text-rose-800 font-bold">✗ Quebra</span>
+                                )
+                              ) : (
+                                <span className="text-slate-500 italic">Aguardando</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Relação Nominal Resumida dos Eleitores Desta Liderança */}
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5">
+                      Relação Nominal dos Eleitores Cadastrados ({printSelectedLideranca.detalhesSecoes.flatMap((s) => s.eleitores).length} eleitores)
+                    </h3>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] border border-slate-300 p-2 rounded bg-slate-50">
+                      {printSelectedLideranca.detalhesSecoes
+                        .flatMap((s) => s.eleitores)
+                        .map((e, idx) => (
+                          <div key={e.id || idx} className="flex items-center justify-between py-0.5 border-b border-slate-200">
+                            <span className="font-semibold text-slate-900 truncate max-w-[180px]">
+                              {idx + 1}. {e.nome}
+                            </span>
+                            <span className="text-slate-600 font-mono">
+                              Z{e.zona}/S{e.secao} • {e.bairro || 'Sem Bairro'}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Rodapé Oficial da Folha Timbrada */}
+              <div className="pt-4 border-t-2 border-slate-800 text-[9px] text-slate-600 flex justify-between items-end">
+                <div>
+                  <p className="font-bold text-slate-900">SEATI Eleitoral • Sistema de Auditoria e Gestão Estratégica</p>
+                  <p>Documento de auditoria interna para conferência e prestação de contas da campanha.</p>
+                  <p className="text-slate-500 mt-0.5">Gerado automaticamente em {new Date().toLocaleDateString('pt-BR')}.</p>
+                </div>
+                <div className="text-right">
+                  <p className="mb-6 font-mono text-[8px] text-slate-400">Visto da Coordenação</p>
+                  <p className="border-t border-slate-500 pt-1 font-semibold text-slate-800">
+                    Assinatura do Responsável
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
