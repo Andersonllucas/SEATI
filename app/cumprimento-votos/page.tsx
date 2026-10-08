@@ -20,7 +20,9 @@ import {
   TrendingUp,
   TrendingDown,
   Check,
-  Camera
+  Camera,
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import {
   useCampaignData,
@@ -116,7 +118,7 @@ interface LiderancaDesempenho {
 
 export default function CumprimentoVotosPage() {
   const { eleitores, liderancas, locais } = useCampaignData();
-  const { apuracoes, apuracoesMap, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao } = useApuracao();
+  const { apuracoes, apuracoesMap, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao, limparTodasApuracoes } = useApuracao();
 
   // Abas: "secoes" (Análise por Seção) ou "liderancas" (Auditoria por Liderança)
   const [activeTab, setActiveTab] = useState<'secoes' | 'liderancas'>('secoes');
@@ -149,12 +151,31 @@ export default function CumprimentoVotosPage() {
   const [batchRawText, setBatchRawText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
+  // Modal de Exclusão de Todos os Votos da Importação
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
   // Toast Feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Excluir todos os votos apurados importados no sistema
+  const handleConfirmDeleteAllVotes = async () => {
+    setIsDeletingAll(true);
+    try {
+      const res = await limparTodasApuracoes();
+      showToast(`✓ Todos os ${res.deleted} votos cadastrados foram excluídos com sucesso!`);
+      setIsDeleteAllModalOpen(false);
+    } catch (err: any) {
+      console.error('Erro ao excluir todos os votos:', err);
+      showToast(`Falha ao excluir votos: ${err.message || 'Erro desconhecido.'}`);
+    } finally {
+      setIsDeletingAll(false);
+    }
   };
 
   // Mapa de Locais de Votação por Zona e Seção
@@ -368,7 +389,7 @@ export default function CumprimentoVotosPage() {
     let secoesCadastradasQuebradasCount = 0;
 
     // Métricas gerais de todas as seções (incluindo avulsas sem cadastro)
-    let totalSecoesGerais = secoesAgrupadas.length;
+    const totalSecoesGerais = secoesAgrupadas.length;
     let totalSecoesApuradasGerais = 0;
     let totalVotosApuradosGerais = 0;
 
@@ -824,22 +845,29 @@ export default function CumprimentoVotosPage() {
 
           <button
             type="button"
-            onClick={() => setIsBatchModalOpen(true)}
-            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
-            title="Digitar ou colar texto no formato: Zona, Seção, Votos"
-          >
-            <Upload className="w-3.5 h-3.5 text-secondary" />
-            <span>Digitar em Lote</span>
-          </button>
-
-          <button
-            type="button"
             onClick={handleExportExcel}
             className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
             title="Exportar planilha de auditoria eleitoral"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
             <span>Exportar Excel</span>
+          </button>
+
+          {/* Botão de Excluir Todos os Votos da Importação (Sempre Visível) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (apuracoes.length === 0) {
+                showToast('Nenhum voto cadastrado da importação no momento.');
+                return;
+              }
+              setIsDeleteAllModalOpen(true);
+            }}
+            className="px-2.5 py-1.5 border border-rose-500 hover:border-rose-600 bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+            title="Excluir permanentemente todos os votos cadastrados da importação e zerar a contagem de urnas"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-500" />
+            <span>Excluir Votos da Importação ({apuracoes.length})</span>
           </button>
 
           <Link
@@ -1013,11 +1041,26 @@ export default function CumprimentoVotosPage() {
         <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/60 shadow-sm overflow-hidden flex flex-col flex-1">
           {/* Toolbar de Filtros */}
           <div className="px-3.5 py-2 bg-surface border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xs md:text-sm text-on-surface font-bold">Listagem de Seções</h2>
               <span className="text-[11px] bg-surface-container text-on-surface px-2 py-0.5 rounded-full font-medium">
                 {filteredSecoes.length} de {secoesAgrupadas.length}
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (apuracoes.length === 0) {
+                    showToast('Nenhum voto cadastrado da importação no momento.');
+                    return;
+                  }
+                  setIsDeleteAllModalOpen(true);
+                }}
+                className="px-2.5 py-1 text-[11px] font-semibold text-on-surface bg-surface-container-lowest hover:bg-surface-container rounded-md border border-rose-500 hover:border-rose-600 flex items-center gap-1 transition-colors shadow-2xs cursor-pointer"
+                title="Excluir todos os votos apurados importados no sistema e zerar contagem de urnas"
+              >
+                <Trash2 className="w-3 h-3 text-rose-600 dark:text-rose-500" />
+                <span>Excluir Todos os Votos ({apuracoes.length})</span>
+              </button>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -1969,6 +2012,8 @@ export default function CumprimentoVotosPage() {
           }}
           registeredSectionsKeys={registeredSectionsKeys}
           registeredSectionsInfo={registeredSectionsInfo}
+          onDeleteAllVotes={() => setIsDeleteAllModalOpen(true)}
+          existingVotesCount={apuracoes.length}
         />
       )}
 
@@ -1983,6 +2028,76 @@ export default function CumprimentoVotosPage() {
             showToast(`✓ Seção ${secao} apurada via QR Code: ${votos} votos salvos!`);
           }}
         />
+      )}
+
+      {/* Modal 3: Confirmação de Exclusão de Todos os Votos da Importação */}
+      {isDeleteAllModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface-container-low border border-outline-variant/80 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl text-left space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">
+                    Excluir Votos da Importação
+                  </h3>
+                  <p className="text-[11px] text-on-surface-variant">
+                    Zerar apuração de seções no sistema
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDeleteAllModalOpen(false)}
+                className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-on-surface leading-relaxed">
+                Tem certeza de que deseja excluir permanentemente todos os <strong>{apuracoes.length} votos/apurações de seções</strong> cadastrados através das importações (TSE CSV, QR Code do BU ou digitação em lote)?
+              </p>
+
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold">Esta ação zerará a contagem das urnas:</p>
+                  <p className="text-[11px] text-amber-200/80">
+                    A base de <strong>eleitores cadastrados</strong> e de <strong>lideranças</strong> será preservada intacta. Apenas os boletins de urna apurados serão apagados.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-outline-variant/60">
+              <button
+                type="button"
+                disabled={isDeletingAll}
+                onClick={() => setIsDeleteAllModalOpen(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-outline-variant text-xs font-semibold text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingAll}
+                onClick={handleConfirmDeleteAllVotes}
+                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-rose-900/30 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingAll ? (
+                  <RotateCcw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                <span>{isDeletingAll ? 'Excluindo...' : 'Sim, Excluir Todos'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

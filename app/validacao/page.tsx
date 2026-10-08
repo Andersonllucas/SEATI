@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   UserCheck,
   Phone,
@@ -19,7 +19,8 @@ import {
   X,
   FileSpreadsheet,
   Check,
-  Vote
+  Vote,
+  AlertTriangle
 } from 'lucide-react';
 import {
   useCampaignData,
@@ -130,7 +131,7 @@ const TAGS_OBSERVACOES_RAPIDAS = [
 ];
 
 export default function ValidacaoPage() {
-  const { eleitores, liderancas, registrarValidacao } = useCampaignData();
+  const { eleitores, liderancas, locais, registrarValidacao } = useCampaignData();
   const { currentUser } = useAuth();
   const { currentTenant } = useTenant();
 
@@ -140,6 +141,33 @@ export default function ValidacaoPage() {
   const [tipoFilter, setTipoFilter] = useState<'todos' | TipoValidacao>('todos');
   const [liderancaFilter, setLiderancaFilter] = useState('todas');
   const [bairroFilter, setBairroFilter] = useState('todos');
+  const [pendenciaFilter, setPendenciaFilter] = useState('todas');
+
+  // Lê parâmetros da URL para abrir com filtros ativos (ex: ?pendencia=sem_telefone)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const pendParam = params.get('pendencia');
+      if (pendParam) {
+        setPendenciaFilter(pendParam);
+      }
+    }
+  }, []);
+
+  // Conjunto normalizado de todas as combinações (Zona:Seção) já cadastradas nos locais
+  const registeredPairs = useMemo(() => {
+    const set = new Set<string>();
+    (locais || []).forEach((l) => {
+      const normZ = (l.zona || '').replace(/\D/g, '').replace(/^0+/, '') || '1';
+      const sArr = Array.isArray(l.secoes) ? l.secoes : (l.secoes ? String(l.secoes).split(',') : []);
+      if (l.secao) sArr.push(l.secao);
+      sArr.forEach((s) => {
+        const normS = String(s).replace(/\D/g, '').replace(/^0+/, '');
+        if (normS) set.add(`${normZ}:${normS}`);
+      });
+    });
+    return set;
+  }, [locais]);
 
   // Paginação
   const [currentPage, setCurrentPage] = useState(1);
@@ -260,9 +288,50 @@ export default function ValidacaoPage() {
         }
       }
 
+      // Filtro de Pendências Específicas
+      if (pendenciaFilter !== 'todas') {
+        const hasNoCpf = !e.cpf || !e.cpf.trim() || e.cpf.replace(/\D/g, '').length < 11;
+        const hasNoTitulo = !e.tituloEleitor || !e.tituloEleitor.trim() || e.tituloEleitor.replace(/\D/g, '').length < 5;
+        const hasNoTelefone = !e.telefone || !e.telefone.trim() || e.telefone.replace(/\D/g, '').length < 8;
+        const hasNoZonaSecao = !e.zona || !e.zona.trim() || !e.secao || !e.secao.trim();
+        const hasNoBairro = !e.bairro || !e.bairro.trim();
+        const normZ = (e.zona || '').replace(/\D/g, '').replace(/^0+/, '');
+        const normS = (e.secao || '').replace(/\D/g, '').replace(/^0+/, '');
+        const hasNoLocal = !normZ || !normS || !registeredPairs.has(`${normZ}:${normS}`);
+        const hasNoLideranca =
+          !e.liderancaId ||
+          !e.lideranca ||
+          e.lideranca.trim() === '' ||
+          e.lideranca.trim().toLowerCase() === 'sem liderança' ||
+          e.lideranca.trim().toLowerCase() === 'sem lideranca' ||
+          e.lideranca.trim().toLowerCase() === 'sem liderança definida' ||
+          e.lideranca.trim().toLowerCase() === 'não informada' ||
+          e.lideranca.trim().toLowerCase() === 'nao informada';
+
+        if (pendenciaFilter === 'qualquer') {
+          if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao && !hasNoLocal) return false;
+        } else if (pendenciaFilter === 'sem_titulo') {
+          if (!hasNoTitulo) return false;
+        } else if (pendenciaFilter === 'sem_cpf') {
+          if (!hasNoCpf) return false;
+        } else if (pendenciaFilter === 'sem_telefone') {
+          if (!hasNoTelefone) return false;
+        } else if (pendenciaFilter === 'sem_zona') {
+          if (!hasNoZonaSecao) return false;
+        } else if (pendenciaFilter === 'sem_local') {
+          if (!hasNoLocal) return false;
+        } else if (pendenciaFilter === 'sem_bairro') {
+          if (!hasNoBairro) return false;
+        } else if (pendenciaFilter === 'sem_lideranca') {
+          if (!hasNoLideranca) return false;
+        } else if (pendenciaFilter === 'completos') {
+          if (hasNoCpf || hasNoTitulo || hasNoTelefone || hasNoZonaSecao || hasNoLocal) return false;
+        }
+      }
+
       return true;
     });
-  }, [eleitores, statusFilter, tipoFilter, liderancaFilter, bairroFilter, searchTerm]);
+  }, [eleitores, statusFilter, tipoFilter, liderancaFilter, bairroFilter, pendenciaFilter, searchTerm, registeredPairs]);
 
   // Paginação
   const totalPages = Math.max(1, Math.ceil(filteredEleitores.length / pageSize));
@@ -318,15 +387,21 @@ export default function ValidacaoPage() {
     try {
       const nowIso = new Date().toISOString();
       const ids = Array.from(selectedIds);
+      const BATCH_CHUNK = 20;
 
-      for (const id of ids) {
-        await registrarValidacao(id, {
-          tipo: batchTipo,
-          status: batchStatus,
-          dataHora: nowIso,
-          observacoes: batchObs || `Validação em lote realizada por ${currentUser?.nome || 'Coordenação'}`,
-          operadorNome: currentUser?.nome || currentUser?.email || 'Coordenação'
-        });
+      for (let i = 0; i < ids.length; i += BATCH_CHUNK) {
+        const chunk = ids.slice(i, i + BATCH_CHUNK);
+        await Promise.all(
+          chunk.map((id) =>
+            registrarValidacao(id, {
+              tipo: batchTipo,
+              status: batchStatus,
+              dataHora: nowIso,
+              observacoes: batchObs || `Validação em lote realizada por ${currentUser?.nome || 'Coordenação'}`,
+              operadorNome: currentUser?.nome || currentUser?.email || 'Coordenação'
+            })
+          )
+        );
       }
 
       playSuccessChime();
@@ -370,28 +445,51 @@ export default function ValidacaoPage() {
     handleOpenValidate(eleitor, 'Ligação');
   };
 
-  // Seleção de todos da página
-  const isAllCurrentPageSelected =
-    paginatedEleitores.length > 0 && paginatedEleitores.every((e) => selectedIds.has(e.id));
-  const toggleSelectAll = () => {
+  // Funções de Seleção de Eleitores (mesma lógica avançada da Base de Eleitor)
+  const isAllCurrentPageSelected = useMemo(() => {
+    if (paginatedEleitores.length === 0) return false;
+    return paginatedEleitores.every((e) => selectedIds.has(e.id));
+  }, [paginatedEleitores, selectedIds]);
+
+  const isSomeCurrentPageSelected = useMemo(() => {
+    if (isAllCurrentPageSelected) return false;
+    return paginatedEleitores.some((e) => selectedIds.has(e.id));
+  }, [paginatedEleitores, selectedIds, isAllCurrentPageSelected]);
+
+  const toggleSelectOne = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (isAllCurrentPageSelected) {
-        paginatedEleitores.forEach((e) => next.delete(e.id));
+      if (next.has(id)) {
+        next.delete(id);
       } else {
-        paginatedEleitores.forEach((e) => next.add(e.id));
+        next.add(id);
       }
       return next;
     });
+  }, []);
+
+  const toggleSelectAllCurrentPage = () => {
+    if (isAllCurrentPageSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        paginatedEleitores.forEach((e) => next.delete(e.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        paginatedEleitores.forEach((e) => next.add(e.id));
+        return next;
+      });
+    }
   };
 
-  const toggleSelectOne = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const selectAllFiltered = () => {
+    setSelectedIds(new Set(filteredEleitores.map((e) => e.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
   };
 
   // Exportar Relatório de Validações em Excel
@@ -632,6 +730,32 @@ export default function ValidacaoPage() {
               </select>
             )}
 
+            {/* Filtro por Pendência Cadastral */}
+            <select
+              value={pendenciaFilter}
+              onChange={(e) => {
+                setPendenciaFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={`h-8 border rounded-md px-2 text-xs focus:outline-none focus:border-secondary transition-colors ${
+                pendenciaFilter !== 'todas'
+                  ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                  : 'bg-surface-container-lowest border-outline-variant/50 text-on-surface'
+              }`}
+              title="Filtrar eleitores por tipo de informação cadastral pendente"
+            >
+              <option value="todas">Pendências: Todas</option>
+              <option value="qualquer">⚠️ Qualquer Informação Pendente</option>
+              <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
+              <option value="sem_cpf">📄 Sem CPF (Pendente)</option>
+              <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+              <option value="sem_local">🏫 Sem Local de Votação Cadastrado</option>
+              <option value="sem_telefone">📱 Sem Telefone / WhatsApp</option>
+              <option value="sem_lideranca">👥 Sem Liderança Vinculada</option>
+              <option value="sem_bairro">📍 Sem Bairro</option>
+              <option value="completos">✅ Cadastros Completos (Sem Pendências)</option>
+            </select>
+
             {/* Busca textual */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
@@ -665,32 +789,70 @@ export default function ValidacaoPage() {
           </div>
         </div>
 
-        {/* Barra de Ações em Lote */}
-        {selectedIds.size > 0 && (
-          <div className="px-3.5 py-1.5 bg-primary/10 border-b border-primary/20 flex flex-wrap items-center justify-between gap-2 text-xs text-on-surface animate-fadeIn">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-xs bg-primary text-on-primary px-2.5 py-0.5 rounded-full shadow-2xs">
-                {selectedIds.size} selecionado(s)
-              </span>
-              <span className="text-on-surface-variant text-[11px]">
-                Marcar status ou registrar validação coletiva
+        {/* Banner de Filtro de Pendência Ativo */}
+        {pendenciaFilter !== 'todas' && (
+          <div className="px-3.5 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 text-xs text-amber-950 animate-fadeIn">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>
+                Filtro de Pendências ativo: Exibindo apenas os <strong>{filteredEleitores.length}</strong> eleitor(es) com {
+                  pendenciaFilter === 'qualquer' ? 'qualquer informação pendente' :
+                  pendenciaFilter === 'sem_titulo' ? 'Título de Eleitor não preenchido' :
+                  pendenciaFilter === 'sem_cpf' ? 'CPF não preenchido' :
+                  pendenciaFilter === 'sem_zona' ? 'Zona ou Seção não preenchida' :
+                  pendenciaFilter === 'sem_local' ? 'Local de Votação não cadastrado no sistema' :
+                  pendenciaFilter === 'sem_telefone' ? 'Telefone/WhatsApp não preenchido' :
+                  pendenciaFilter === 'sem_lideranca' ? 'Liderança não vinculada' :
+                  pendenciaFilter === 'sem_bairro' ? 'Bairro não preenchido' :
+                  'cadastro 100% completo (sem pendências)'
+                }.
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPendenciaFilter('todas');
+                setCurrentPage(1);
+              }}
+              className="text-xs font-bold text-amber-800 hover:underline flex items-center gap-1 cursor-pointer ml-1 shrink-0"
+            >
+              <X className="w-3.5 h-3.5" /> Limpar Pendência
+            </button>
+          </div>
+        )}
+
+        {/* Barra de Ações em Lote */}
+        {selectedIds.size > 0 && (
+          <div className="px-3.5 py-2 bg-primary/10 border-b border-primary/20 flex flex-wrap items-center justify-between gap-2.5 text-xs text-on-surface animate-fadeIn">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="flex items-center gap-1.5 font-bold text-xs bg-primary text-on-primary px-2.5 py-1 rounded-full shadow-xs">
+                <Check className="w-3.5 h-3.5 stroke-[3]" /> {selectedIds.size} selecionado{selectedIds.size > 1 ? 's' : ''}
+              </span>
+              {selectedIds.size < filteredEleitores.length && (
+                <button
+                  type="button"
+                  onClick={selectAllFiltered}
+                  className="text-xs text-secondary hover:underline font-semibold cursor-pointer"
+                >
+                  Selecionar todos os {filteredEleitores.length} da busca
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-xs text-on-surface-variant hover:text-on-surface underline cursor-pointer"
+              >
+                Desmarcar todos
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => setIsBatchModalOpen(true)}
-                className="px-3 py-1 bg-primary text-on-primary hover:bg-secondary rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Registrar Validação em Lote
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedIds(new Set())}
-                className="px-2 py-1 text-xs text-on-surface-variant hover:text-on-surface"
-              >
-                Desmarcar
+                Registrar Validação em Lote ({selectedIds.size})
               </button>
             </div>
           </div>
@@ -703,11 +865,20 @@ export default function ValidacaoPage() {
               <tr className="bg-surface-container-low border-b border-outline-variant/60 text-xs text-on-surface-variant uppercase font-semibold">
                 <th className="py-2 px-3 md:py-2.5 md:px-3.5 w-10">
                   <input
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate = isSomeCurrentPageSelected;
+                      }
+                    }}
                     type="checkbox"
                     checked={isAllCurrentPageSelected}
-                    onChange={toggleSelectAll}
+                    onChange={toggleSelectAllCurrentPage}
                     className="rounded border-outline-variant text-secondary focus:ring-secondary w-4 h-4 cursor-pointer"
-                    title="Selecionar todos desta página"
+                    title={
+                      isAllCurrentPageSelected
+                        ? 'Desmarcar todos desta página'
+                        : 'Selecionar todos desta página'
+                    }
                   />
                 </th>
                 <th className="py-2 px-3 md:py-2.5 md:px-3.5">Eleitor & Telefone</th>

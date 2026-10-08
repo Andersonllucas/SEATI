@@ -234,16 +234,13 @@ export default function CadastroExternoCampoPage() {
   const [estadoLider, setEstadoLider] = useState('PI');
   const [metaVotosLider, setMetaVotosLider] = useState('100');
   const [observacoesLider, setObservacoesLider] = useState('');
-  const [senhaAutorizacao, setSenhaAutorizacao] = useState('');
-  const [mostrarSenhaAutorizacao, setMostrarSenhaAutorizacao] = useState(false);
-  const [isSubmittingLider, setIsSubmittingLider] = useState(false);
 
-  // Controle de Bloqueio/Desbloqueio com Senha de Segurança para Lideranças
-  const [isLiderancaUnlocked, setIsLiderancaUnlocked] = useState(false);
-  const [senhaTentativa, setSenhaTentativa] = useState('');
-  const [mostrarSenhaTentativa, setMostrarSenhaTentativa] = useState(false);
-  const [isCheckingPassword, setIsCheckingPassword] = useState(false);
-  const [senhaError, setSenhaError] = useState<string | null>(null);
+  // Modal de Confirmação com Senha de Segurança para Lideranças (solicitada estritamente no ato da confirmação de cada cadastro)
+  const [isConfirmLiderPasswordModalOpen, setIsConfirmLiderPasswordModalOpen] = useState(false);
+  const [senhaConfirmacao, setSenhaConfirmacao] = useState('');
+  const [mostrarSenhaConfirmacao, setMostrarSenhaConfirmacao] = useState(false);
+  const [senhaConfirmError, setSenhaConfirmError] = useState<string | null>(null);
+  const [isConfirmingLider, setIsConfirmingLider] = useState(false);
 
   // Inicializa cidade e estado padrão da campanha
   useEffect(() => {
@@ -368,10 +365,11 @@ export default function CadastroExternoCampoPage() {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   };
 
-  // Referência para focar no nome a cada submissão
+  // Referência para focar no nome a cada submissão e atalho Ctrl+Enter
   const nomeInputRef = useRef<HTMLInputElement>(null);
   const nomeLiderInputRef = useRef<HTMLInputElement>(null);
-  const senhaInputRef = useRef<HTMLInputElement>(null);
+  const eleitorFormRef = useRef<HTMLFormElement>(null);
+  const senhaConfirmInputRef = useRef<HTMLInputElement>(null);
 
   // Link público desta página
   const currentPublicUrl = useMemo(() => {
@@ -535,65 +533,32 @@ export default function CadastroExternoCampoPage() {
     }
   };
 
-  // ==================== DESBLOQUEIO DE ACESSO COM SENHA OBRIGATÓRIA ====================
-  const handleUnlockLideranca = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSenhaError(null);
-    const cleanInput = senhaTentativa.trim();
-
-    if (!cleanInput) {
-      playAlertSound();
-      setSenhaError('Por favor, digite a Senha de Autorização.');
-      return;
-    }
-
-    setIsCheckingPassword(true);
-    try {
-      let expected = configuredPassword;
-      try {
-        const configSnap = await getDoc(doc(getActiveDb(), 'configuracoes', 'geral'));
-        if (configSnap.exists()) {
-          const cfgData = configSnap.data();
-          if (cfgData.senhaCadastroLiderancaCampo) {
-            expected = String(cfgData.senhaCadastroLiderancaCampo).trim();
-            setConfiguredPassword(expected);
+  // Atalho de Teclado Global: Ctrl + Enter para salvar o Eleitor no Banco de Dados
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (activeMainTab === 'eleitor' && !isSubmitting) {
+          e.preventDefault();
+          if (eleitorFormRef.current) {
+            if (typeof eleitorFormRef.current.requestSubmit === 'function') {
+              eleitorFormRef.current.requestSubmit();
+            } else {
+              eleitorFormRef.current.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            }
           }
         }
-      } catch (err) {
-        console.warn('Erro ao consultar senha de liderança:', err);
       }
+    };
 
-      if (cleanInput === expected) {
-        playSuccessSound();
-        setIsLiderancaUnlocked(true);
-        setSenhaAutorizacao(cleanInput);
-        setFeedbackBanner({
-          type: 'success',
-          message: '✓ Acesso autorizado! Formulário de cadastro de liderança desbloqueado.'
-        });
-        setTimeout(() => setFeedbackBanner(null), 3500);
-      } else {
-        playAlertSound();
-        setSenhaError('❌ Senha incorreta! Digite a senha definida pela coordenação em Configurações > Segurança.');
-      }
-    } finally {
-      setIsCheckingPassword(false);
-    }
-  };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [activeMainTab, isSubmitting]);
 
-  // ==================== SUBMISSÃO DA LIDERANÇA (EXIGE SENHA OBRIGATÓRIA) ====================
-  const handleSubmitLideranca = async (e: React.FormEvent) => {
+  // ==================== PRÉ-SUBMISSÃO DA LIDERANÇA ====================
+  // Valida campos e abre modal solicitando a senha no ato da confirmação do cadastro
+  const handlePreSubmitLideranca = (e: React.FormEvent) => {
     e.preventDefault();
     setFeedbackBanner(null);
-
-    if (!isLiderancaUnlocked) {
-      playAlertSound();
-      setFeedbackBanner({
-        type: 'error',
-        message: '❌ É obrigatório desbloquear com a Senha de Autorização antes de cadastrar uma liderança.'
-      });
-      return;
-    }
 
     const trimmedNomeLider = nomeLider.trim();
     if (!trimmedNomeLider || trimmedNomeLider.length < 3) {
@@ -606,50 +571,56 @@ export default function CadastroExternoCampoPage() {
       return;
     }
 
-    const cleanCpf = cpfLider.replace(/\D/g, '');
-    const cleanSenha = senhaAutorizacao.trim();
+    setSenhaConfirmacao('');
+    setSenhaConfirmError(null);
+    setIsConfirmLiderPasswordModalOpen(true);
+    setTimeout(() => {
+      senhaConfirmInputRef.current?.focus();
+    }, 120);
+  };
 
-    // Senha de autorização é estritamente OBRIGATÓRIA para cadastrar liderança em campo
+  // ==================== CONFIRMAÇÃO FINAL COM SENHA OBRIGATÓRIA ====================
+  // A senha é solicitada estritamente no ato da confirmação de cada nova liderança ou sub-liderança
+  const handleConfirmarCadastroLideranca = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSenhaConfirmError(null);
+
+    const cleanSenha = senhaConfirmacao.trim();
     if (!cleanSenha) {
       playAlertSound();
-      setFeedbackBanner({
-        type: 'error',
-        message: '❌ A Senha de Autorização é obrigatória para cadastrar uma liderança política em campo.'
-      });
-      senhaInputRef.current?.focus();
+      setSenhaConfirmError('Por favor, digite a Senha de Autorização.');
+      senhaConfirmInputRef.current?.focus();
       return;
     }
 
-    let activeExpectedPassword = configuredPassword;
+    setIsConfirmingLider(true);
+
     try {
-      const configSnap = await getDoc(doc(getActiveDb(), 'configuracoes', 'geral'));
-      if (configSnap.exists()) {
-        const cfgData = configSnap.data();
-        if (cfgData.senhaCadastroLiderancaCampo) {
-          activeExpectedPassword = String(cfgData.senhaCadastroLiderancaCampo).trim();
-          setConfiguredPassword(activeExpectedPassword);
+      let activeExpectedPassword = configuredPassword;
+      try {
+        const configSnap = await getDoc(doc(getActiveDb(), 'configuracoes', 'geral'));
+        if (configSnap.exists()) {
+          const cfgData = configSnap.data();
+          if (cfgData.senhaCadastroLiderancaCampo) {
+            activeExpectedPassword = String(cfgData.senhaCadastroLiderancaCampo).trim();
+            setConfiguredPassword(activeExpectedPassword);
+          }
         }
+      } catch (cfgErr) {
+        console.warn('Usando senha de cache:', cfgErr);
       }
-    } catch (cfgErr) {
-      console.warn('Usando senha de cache:', cfgErr);
-    }
 
-    if (cleanSenha !== activeExpectedPassword) {
-      playAlertSound();
-      setFeedbackBanner({
-        type: 'error',
-        message: '❌ Senha de autorização incorreta! Solicite a senha correta à coordenação da campanha.'
-      });
-      senhaInputRef.current?.focus();
-      return;
-    }
+      if (cleanSenha !== activeExpectedPassword) {
+        playAlertSound();
+        setSenhaConfirmError('❌ Senha incorreta! Digite a senha definida pela coordenação em Configurações > Segurança.');
+        senhaConfirmInputRef.current?.focus();
+        return;
+      }
 
-    setIsSubmittingLider(true);
-
-    try {
+      // Senha válida! Salva a liderança ou sub-liderança no banco
       const db = getActiveDb();
-
-      // Prepara os dados da liderança
+      const trimmedNomeLider = nomeLider.trim();
+      const cleanCpf = cpfLider.replace(/\D/g, '');
       const parentObj = liderancas.find((l) => l.id === parentLiderId);
       const parentName = tipoLideranca === 'Sub-liderança' ? (parentObj?.nome || '') : '';
 
@@ -678,6 +649,8 @@ export default function CadastroExternoCampoPage() {
 
       // Sucesso!
       playSuccessSound();
+      setIsConfirmLiderPasswordModalOpen(false);
+      setSenhaConfirmacao('');
 
       // Já seleciona esta nova liderança para o cadastro de eleitores
       setSelectedLiderId(docRef.id);
@@ -695,7 +668,7 @@ export default function CadastroExternoCampoPage() {
         }
       });
 
-      // Limpa o formulário de liderança
+      // Limpa os campos do formulário para o próximo cadastro
       setNomeLider('');
       setTelefoneLider('');
       setCpfLider('');
@@ -704,17 +677,13 @@ export default function CadastroExternoCampoPage() {
       setSecaoLider('');
       setBairroLider('');
       setObservacoesLider('');
-      setSenhaAutorizacao('');
       setMetaVotosLider('100');
     } catch (err: any) {
       console.error('Erro ao cadastrar liderança em campo:', err);
       playAlertSound();
-      setFeedbackBanner({
-        type: 'error',
-        message: `Falha ao salvar liderança: ${err.message || 'Verifique a conexão.'}`
-      });
+      setSenhaConfirmError(`Falha ao salvar liderança: ${err.message || 'Verifique a conexão.'}`);
     } finally {
-      setIsSubmittingLider(false);
+      setIsConfirmingLider(false);
     }
   };
 
@@ -830,7 +799,7 @@ export default function CadastroExternoCampoPage() {
           </div>
         )}
 
-        {/* SELETOR DE MODO: ELEITOR (LIVRE) vs LIDERANÇA (COM SENHA) */}
+        {/* SELETOR DE MODO: ELEITOR (LIVRE) vs LIDERANÇA (COM SENHA NA CONFIRMAÇÃO) */}
         <div className="bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800 flex items-center gap-2 shadow-inner">
           <button
             type="button"
@@ -860,7 +829,7 @@ export default function CadastroExternoCampoPage() {
             <Award className="w-4 h-4" />
             <span>Cadastrar Liderança</span>
             <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-black/20 text-white/90 flex items-center gap-1">
-              <Lock className="w-2.5 h-2.5" /> Exige Senha
+              <KeyRound className="w-2.5 h-2.5" /> Senha ao Confirmar
             </span>
           </button>
         </div>
@@ -872,27 +841,37 @@ export default function CadastroExternoCampoPage() {
           <div className="space-y-5 animate-in fade-in duration-150">
             {/* 1. BARRA DE CONTEXTO RÁPIDO DO AGENTE DE CAMPO */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow-md backdrop-blur-xs space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/60 pb-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-700/60 pb-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-secondary inline-block"></span>
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                  <span className="w-2 h-2 rounded-full bg-secondary inline-block shrink-0"></span>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200 whitespace-nowrap">
                     1. Contexto da Ação de Campo
                   </h2>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
                     onClick={() => setIsContextLocked((prev) => !prev)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    className={`h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                       isContextLocked
                         ? 'bg-secondary text-white shadow-xs'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white'
                     }`}
                     title="Quando travado, a liderança e o bairro permanecem preenchidos a cada novo cadastro"
                   >
                     {isContextLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                     <span>{isContextLocked ? 'Valores Fixados' : 'Valores Livres'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveMainTab('lideranca')}
+                    className="h-8 px-3 rounded-lg text-xs font-bold bg-slate-700/80 hover:bg-slate-600 text-slate-200 hover:text-white border border-slate-600/80 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                    title="Abrir formulário de cadastro de nova liderança ou sub-liderança"
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-secondary" />
+                    <span>+ Nova Liderança</span>
                   </button>
                 </div>
               </div>
@@ -900,9 +879,11 @@ export default function CadastroExternoCampoPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
                 {/* Identificação do Agente */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                    Seu Nome (Operador)
-                  </label>
+                  <div className="h-5 flex items-center mb-1">
+                    <label className="text-[11px] font-bold text-slate-300 truncate">
+                      Seu Nome (Operador)
+                    </label>
+                  </div>
                   <input
                     type="text"
                     placeholder="Ex: Lucas / Voluntário"
@@ -913,15 +894,17 @@ export default function CadastroExternoCampoPage() {
                         localStorage.setItem('adti_campo_operador_nome', e.target.value);
                       }
                     }}
-                    className="w-full h-9 bg-slate-900 border border-slate-700 rounded-xl px-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-secondary"
+                    className="w-full h-9 bg-slate-900 border border-slate-700 rounded-xl px-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-colors"
                   />
                 </div>
 
                 {/* Telefone do Agente */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                    Seu WhatsApp / Telefone
-                  </label>
+                  <div className="h-5 flex items-center mb-1">
+                    <label className="text-[11px] font-bold text-slate-300 truncate">
+                      Seu WhatsApp / Telefone
+                    </label>
+                  </div>
                   <input
                     type="text"
                     placeholder="(00) 00000-0000"
@@ -933,23 +916,19 @@ export default function CadastroExternoCampoPage() {
                         localStorage.setItem('adti_campo_operador_telefone', formatted);
                       }
                     }}
-                    className="w-full h-9 bg-slate-900 border border-slate-700 rounded-xl px-3 text-xs text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary"
+                    className="w-full h-9 bg-slate-900 border border-slate-700 rounded-xl px-3 text-xs text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-secondary transition-colors"
                   />
                 </div>
 
                 {/* Liderança Responsável */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-bold text-slate-300">
-                      Liderança Vinculada <span className="text-slate-400 font-normal">(Opcional)</span>
+                  <div className="h-5 flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-300 truncate">
+                      Liderança Vinculada
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setActiveMainTab('lideranca')}
-                      className="text-[10px] text-secondary hover:underline font-semibold"
-                    >
-                      + Nova
-                    </button>
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      (Opcional)
+                    </span>
                   </div>
                   <select
                     value={selectedLiderId || fixedLiderancaId}
@@ -958,7 +937,7 @@ export default function CadastroExternoCampoPage() {
                       if (isContextLocked) setFixedLiderancaId(e.target.value);
                     }}
                     disabled={isLoadingLiderancas}
-                    className="w-full h-9 bg-slate-900 border border-slate-700 rounded-xl px-2.5 text-xs text-white focus:outline-none focus:border-secondary cursor-pointer font-medium"
+                    className="w-full h-9 bg-slate-900 border border-slate-700 rounded-xl px-2.5 text-xs text-white focus:outline-none focus:border-secondary cursor-pointer font-medium transition-colors"
                   >
                     <option value="">Sem Liderança Definida (Opcional)</option>
                     {isLoadingLiderancas ? (
@@ -975,9 +954,11 @@ export default function CadastroExternoCampoPage() {
 
                 {/* Bairro Padrão de Atuação Hoje */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                    Bairro de Atuação Hoje
-                  </label>
+                  <div className="h-5 flex items-center mb-1">
+                    <label className="text-[11px] font-bold text-slate-300 truncate">
+                      Bairro de Atuação Hoje
+                    </label>
+                  </div>
                   <BairroSelector
                     value={bairro || fixedBairro}
                     onChange={(val) => {
@@ -987,7 +968,7 @@ export default function CadastroExternoCampoPage() {
                     bairrosList={registeredBairros}
                     placeholder="Ex: Centro, Ilhotas..."
                     size="sm"
-                    className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 focus:border-secondary"
+                    className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 focus:border-secondary h-9"
                   />
                 </div>
               </div>
@@ -995,6 +976,7 @@ export default function CadastroExternoCampoPage() {
 
             {/* 2. FORMULÁRIO DE CADASTRO CONTÍNUO DO ELEITOR */}
             <form
+              ref={eleitorFormRef}
               onSubmit={handleSubmitEleitor}
               className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4"
             >
@@ -1179,6 +1161,7 @@ export default function CadastroExternoCampoPage() {
                   type="submit"
                   disabled={isSubmitting}
                   className="w-full py-4 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.99] text-white rounded-xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all shadow-xl shadow-emerald-900/30 cursor-pointer disabled:opacity-60"
+                  title="Cadastrar eleitor no banco de dados (Atalho: Ctrl + Enter)"
                 >
                   {isSubmitting ? (
                     <RotateCcw className="w-5 h-5 animate-spin" />
@@ -1186,6 +1169,9 @@ export default function CadastroExternoCampoPage() {
                     <Save className="w-5 h-5" />
                   )}
                   <span>{isSubmitting ? 'Gravando no Banco...' : 'Cadastrar Eleitor no Banco'}</span>
+                  <kbd className="hidden sm:inline-flex items-center text-[11px] bg-black/25 text-emerald-100 border border-emerald-400/40 px-2 py-0.5 rounded font-mono font-bold ml-1.5 shadow-2xs">
+                    Ctrl + Enter
+                  </kbd>
                 </button>
               </div>
             </form>
@@ -1237,88 +1223,12 @@ export default function CadastroExternoCampoPage() {
         )}
 
         {/* ======================================================== */}
-        {/* ABA 2: CADASTRO DE LIDERANÇA / SUB-LIDERANÇA (COM SENHA) */}
+        {/* ABA 2: CADASTRO DE LIDERANÇA / SUB-LIDERANÇA             */}
         {/* ======================================================== */}
-        {activeMainTab === 'lideranca' && !isLiderancaUnlocked && (
-          <div className="space-y-5 animate-in fade-in duration-150">
-            <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl text-center max-w-lg mx-auto space-y-5">
-              <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border-2 border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
-                <Lock className="w-8 h-8" />
-              </div>
-
-              <div className="space-y-1.5">
-                <h2 className="text-lg font-black text-white">
-                  Acesso Restrito: Cadastro de Liderança
-                </h2>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Para cadastrar uma nova liderança ou sub-liderança em campo, digite a <strong>Senha de Autorização</strong> definida pela coordenação em <em>Configurações &gt; Segurança</em>.
-                </p>
-              </div>
-
-              {senhaError && (
-                <div className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-xl text-xs text-rose-200 font-semibold text-left flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <span>{senhaError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleUnlockLideranca} className="space-y-3.5">
-                <div className="relative text-left">
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                    Senha de Autorização de Campo <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={mostrarSenhaTentativa ? 'text' : 'password'}
-                      value={senhaTentativa}
-                      onChange={(e) => {
-                        setSenhaTentativa(e.target.value);
-                        setSenhaError(null);
-                      }}
-                      placeholder="Digite a senha configurada no sistema..."
-                      autoFocus
-                      required
-                      className="w-full h-11 bg-slate-950 border-2 border-slate-700 focus:border-amber-400 rounded-xl pl-3.5 pr-11 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none transition-colors font-bold"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSenhaTentativa(!mostrarSenhaTentativa)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer"
-                      title={mostrarSenhaTentativa ? 'Ocultar Senha' : 'Ver Senha'}
-                    >
-                      {mostrarSenhaTentativa ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isCheckingPassword}
-                  className="w-full py-3.5 px-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 active:scale-[0.99] text-slate-950 font-black rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
-                >
-                  <Unlock className="w-4 h-4" />
-                  <span>{isCheckingPassword ? 'Verificando Senha...' : 'Desbloquear Cadastro de Liderança'}</span>
-                </button>
-              </form>
-
-              <div className="pt-2 border-t border-slate-700/60">
-                <button
-                  type="button"
-                  onClick={() => setActiveMainTab('eleitor')}
-                  className="text-xs text-slate-400 hover:text-white underline cursor-pointer"
-                >
-                  &larr; Voltar para Cadastro de Eleitores
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ABA 2: FORMULÁRIO QUANDO DESBLOQUEADO COM SENHA */}
-        {activeMainTab === 'lideranca' && isLiderancaUnlocked && (
+        {activeMainTab === 'lideranca' && (
           <div className="space-y-5 animate-in fade-in duration-150">
             <form
-              onSubmit={handleSubmitLideranca}
+              onSubmit={handlePreSubmitLideranca}
               className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4"
             >
               {/* Header do Card de Liderança */}
@@ -1332,8 +1242,8 @@ export default function CadastroExternoCampoPage() {
                       <h2 className="text-sm font-bold text-white uppercase tracking-wider">
                         Cadastrar Liderança ou Sub-liderança
                       </h2>
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
-                        <Unlock className="w-2.5 h-2.5" /> Acesso Autorizado
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                        <KeyRound className="w-2.5 h-2.5" /> Senha ao Confirmar
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400">
@@ -1341,20 +1251,6 @@ export default function CadastroExternoCampoPage() {
                     </p>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLiderancaUnlocked(false);
-                    setSenhaTentativa('');
-                    setSenhaAutorizacao('');
-                  }}
-                  className="px-2.5 py-1 text-xs bg-slate-900 hover:bg-slate-950 text-slate-400 hover:text-rose-300 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Bloquear formulário e exigir senha novamente"
-                >
-                  <Lock className="w-3 h-3 text-amber-400" />
-                  <span>Bloquear</span>
-                </button>
               </div>
 
               {/* 1. Escolha do Tipo: Principal vs Sub */}
@@ -1589,60 +1485,20 @@ export default function CadastroExternoCampoPage() {
                 />
               </div>
 
-              {/* ======================================================== */}
-              {/* CAMPO OBRIGATÓRIO: SENHA DE AUTORIZAÇÃO EM CAMPO        */}
-              {/* ======================================================== */}
-              <div className="pt-2 border-t border-slate-700/60">
-                <div className="p-4 bg-amber-950/40 border-2 border-amber-500/50 rounded-2xl space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-extrabold text-amber-200 flex items-center gap-1.5">
-                      <KeyRound className="w-4 h-4 text-amber-400" />
-                      Senha de Autorização de Campo <span className="text-rose-400 font-bold">* (Obrigatória)</span>
-                    </label>
-                    <span className="text-[10px] text-amber-300 font-semibold bg-amber-500/20 px-2 py-0.5 rounded-full">
-                      Exigida pelo Sistema
-                    </span>
-                  </div>
-
-                  <div className="relative">
-                    <input
-                      ref={senhaInputRef}
-                      type={mostrarSenhaAutorizacao ? 'text' : 'password'}
-                      placeholder="Digite a senha de autorização obrigatória..."
-                      required
-                      value={senhaAutorizacao}
-                      onChange={(e) => setSenhaAutorizacao(e.target.value)}
-                      className="w-full h-11 bg-slate-950 border-2 border-amber-500/60 rounded-xl pl-3.5 pr-11 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-amber-400 transition-all font-bold"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSenhaAutorizacao(!mostrarSenhaAutorizacao)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer"
-                      title={mostrarSenhaAutorizacao ? 'Ocultar Senha' : 'Ver Senha'}
-                    >
-                      {mostrarSenhaAutorizacao ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                  <p className="text-[11px] text-amber-200/90 leading-relaxed">
-                    Esta senha de segurança é definida pela coordenação em <strong>Configurações &gt; Segurança</strong>. O cadastro da liderança só será concluído mediante a senha válida.
-                  </p>
-                </div>
-              </div>
-
               {/* Botão de Concluir Cadastro de Liderança */}
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={isSubmittingLider}
+                  disabled={isConfirmingLider}
                   className="w-full py-4 px-6 bg-gradient-to-r from-primary to-secondary hover:brightness-110 active:scale-[0.99] text-white rounded-xl text-base font-extrabold flex items-center justify-center gap-2.5 transition-all shadow-xl shadow-primary/30 cursor-pointer disabled:opacity-60"
+                  title={`Concluir cadastro e solicitar senha de segurança para validar esta ${tipoLideranca}`}
                 >
-                  {isSubmittingLider ? (
+                  {isConfirmingLider ? (
                     <RotateCcw className="w-5 h-5 animate-spin" />
                   ) : (
                     <Save className="w-5 h-5" />
                   )}
-                  <span>{isSubmittingLider ? 'Validando Senha e Salvando...' : `Concluir Cadastro da ${tipoLideranca}`}</span>
+                  <span>{isConfirmingLider ? 'Processando...' : `Concluir Cadastro da ${tipoLideranca}`}</span>
                 </button>
               </div>
             </form>
@@ -1764,6 +1620,109 @@ export default function CadastroExternoCampoPage() {
                 Fechar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO COM SENHA DE AUTORIZAÇÃO PARA LIDERANÇA / SUB-LIDERANÇA */}
+      {isConfirmLiderPasswordModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl text-left space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Confirmação de Segurança
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Autorização de {tipoLideranca} em Campo
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsConfirmLiderPasswordModalOpen(false);
+                  setSenhaConfirmacao('');
+                  setSenhaConfirmError(null);
+                }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Para concluir o cadastro de <strong className="text-white">{tipoLideranca} &ldquo;{nomeLider.trim()}&rdquo;</strong>, digite a <strong>Senha de Autorização</strong> definida pela coordenação em <em>Configurações &gt; Segurança</em>.
+            </p>
+
+            {senhaConfirmError && (
+              <div className="p-3 bg-rose-950/70 border border-rose-500/60 rounded-xl text-xs text-rose-200 font-semibold flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span>{senhaConfirmError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmarCadastroLideranca} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-amber-200 mb-1.5 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  Senha de Autorização de Campo <span className="text-rose-400">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    ref={senhaConfirmInputRef}
+                    type={mostrarSenhaConfirmacao ? 'text' : 'password'}
+                    value={senhaConfirmacao}
+                    onChange={(e) => {
+                      setSenhaConfirmacao(e.target.value);
+                      setSenhaConfirmError(null);
+                    }}
+                    placeholder="Digite a senha configurada no sistema..."
+                    autoFocus
+                    required
+                    className="w-full h-11 bg-slate-950 border-2 border-slate-700 focus:border-amber-400 rounded-xl pl-3.5 pr-11 text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none transition-colors font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMostrarSenhaConfirmacao(!mostrarSenhaConfirmacao)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer"
+                    title={mostrarSenhaConfirmacao ? 'Ocultar Senha' : 'Ver Senha'}
+                  >
+                    {mostrarSenhaConfirmacao ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsConfirmLiderPasswordModalOpen(false);
+                    setSenhaConfirmacao('');
+                    setSenhaConfirmError(null);
+                  }}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-700 text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isConfirmingLider}
+                  className="flex-1 py-2.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 active:scale-[0.99] text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                >
+                  {isConfirmingLider ? (
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  <span>{isConfirmingLider ? 'Validando...' : 'Confirmar Cadastro'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

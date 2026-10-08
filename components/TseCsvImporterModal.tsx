@@ -10,7 +10,8 @@ import {
   Check,
   Building,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { parseTseCsvFileStreaming, FastTseParseSummary } from '@/lib/tseFastStreamParser';
 import { BuTseCsvRow } from '@/lib/tseBuParser';
@@ -23,6 +24,8 @@ interface TseCsvImporterModalProps {
   ) => Promise<void>;
   registeredSectionsKeys?: Set<string>;
   registeredSectionsInfo?: Map<string, { totalCadastrados: number; localNome?: string }>;
+  onDeleteAllVotes?: () => void;
+  existingVotesCount?: number;
 }
 
 export function TseCsvImporterModal({
@@ -30,7 +33,9 @@ export function TseCsvImporterModal({
   onClose,
   onImportBatch,
   registeredSectionsKeys,
-  registeredSectionsInfo
+  registeredSectionsInfo,
+  onDeleteAllVotes,
+  existingVotesCount
 }: TseCsvImporterModalProps) {
   // Número do candidato preenchido ANTES do arquivo
   const [targetNumber, setTargetNumber] = useState<string>(() => {
@@ -247,6 +252,26 @@ export function TseCsvImporterModal({
                 Leitura em lote otimizada
               </span>
             </div>
+
+            {/* Alerta de Votos Existentes com Atalho para Excluir */}
+            {typeof existingVotesCount === 'number' && existingVotesCount > 0 && onDeleteAllVotes && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-center gap-2 text-rose-700 dark:text-rose-300">
+                  <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
+                  <span>
+                    Existem <strong>{existingVotesCount} seções com votos já cadastrados</strong>. Se quiser começar do zero, você pode limpar antes de importar.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onDeleteAllVotes}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1.5 self-start sm:self-center"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Excluir Votos Anteriores</span>
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>

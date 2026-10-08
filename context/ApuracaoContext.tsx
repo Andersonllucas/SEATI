@@ -60,6 +60,7 @@ interface ApuracaoContextType {
   importarLoteApuracao: (
     itens: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string }>
   ) => Promise<{ imported: number }>;
+  limparTodasApuracoes: () => Promise<{ deleted: number }>;
 }
 
 const ApuracaoContext = createContext<ApuracaoContextType | undefined>(undefined);
@@ -238,6 +239,34 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     [currentUser, activeDb, tenantKey]
   );
 
+  // Excluir todos os votos cadastrados / apurações importadas
+  const limparTodasApuracoes = useCallback(async () => {
+    const targetDb = activeDb || getActiveDb();
+    const count = apuracoes.length;
+
+    // Atualização otimista imediata
+    setApuracoes([]);
+    setCachedCollection('apuracao_secoes', [], tenantKey);
+
+    try {
+      const snap = await getDocs(collection(targetDb, 'apuracao_secoes'));
+      const CHUNK_SIZE = 400;
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+        const chunk = docs.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(targetDb);
+        chunk.forEach((d) => {
+          batch.delete(d.ref);
+        });
+        await batch.commit();
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'apuracao_secoes');
+    }
+
+    return { deleted: count };
+  }, [activeDb, apuracoes.length, tenantKey]);
+
   const value = useMemo(
     () => ({
       apuracoes,
@@ -245,9 +274,10 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
       isLoaded,
       salvarApuracaoSecao,
       removerApuracaoSecao,
-      importarLoteApuracao
+      importarLoteApuracao,
+      limparTodasApuracoes
     }),
-    [apuracoes, apuracoesMap, isLoaded, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao]
+    [apuracoes, apuracoesMap, isLoaded, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao, limparTodasApuracoes]
   );
 
   return <ApuracaoContext.Provider value={value}>{children}</ApuracaoContext.Provider>;

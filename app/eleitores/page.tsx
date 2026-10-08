@@ -20,6 +20,8 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Download,
   MessageSquare,
   Phone,
@@ -27,7 +29,8 @@ import {
   FileText,
   FileSpreadsheet,
   Share2,
-  UserCheck
+  UserCheck,
+  SlidersHorizontal
 } from 'lucide-react';
 import {
   collection,
@@ -41,12 +44,22 @@ import { getActiveDb } from '@/lib/firebase';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
-import { useCampaignData, Eleitor, formatTituloUtil } from '@/context/CampaignContext';
+import { useCampaignData, Eleitor, Lideranca, formatTituloUtil } from '@/context/CampaignContext';
 import { exportVotersReal } from '@/lib/importExportUtils';
 import { ESTADOS_BRASIL } from '@/lib/locaisCatalog';
 import { VoterRow } from '@/components/VoterRow';
 import { BairroSelector } from '@/components/BairroSelector';
 import { ShareFieldLinkModal } from '@/components/ShareFieldLinkModal';
+
+// Helper seguro para converter secoes (string | string[] | undefined) em array de strings
+function toSecArray(secoes?: string | string[]): string[] {
+  if (!secoes) return [];
+  if (Array.isArray(secoes)) return secoes.map((s) => String(s).trim()).filter(Boolean);
+  return String(secoes)
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 const STATUS_OPTIONS = [
   {
@@ -207,11 +220,16 @@ export default function Eleitores() {
     }
   }, [actionFeedback]);
 
-  // Filters
+  // Filters (Padrão Completo da Página de Relatórios)
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedLiderancaFilter, setSelectedLiderancaFilter] = useState('todas');
-  const [statusFilter, setStatusFilter] = useState('todos');
-  const [pendenciaFilter, setPendenciaFilter] = useState('todas');
+  const [selectedZona, setSelectedZona] = useState<string>('todas');
+  const [selectedSecao, setSelectedSecao] = useState<string>('todas');
+  const [selectedLiderPrincipalId, setSelectedLiderPrincipalId] = useState<string>('todos');
+  const [selectedSubLiderId, setSelectedSubLiderId] = useState<string>('todos');
+  const [selectedBairro, setSelectedBairro] = useState<string>('todos');
+  const [statusFilter, setStatusFilter] = useState<string>('todos');
+  const [pendenciaFilter, setPendenciaFilter] = useState<string>('todas');
+  const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(true);
   const [isShareFieldModalOpen, setIsShareFieldModalOpen] = useState(false);
 
   // Lê parâmetros da URL para abrir com filtros ativos (ex: ?lideranca=sem_lideranca vindo da importação)
@@ -220,11 +238,30 @@ export default function Eleitores() {
       const params = new URLSearchParams(window.location.search);
       const lidParam = params.get('lideranca');
       const pendParam = params.get('pendencia');
+      const zonaParam = params.get('zona');
+      const secaoParam = params.get('secao');
+      const bairroParam = params.get('bairro');
+      const statusParam = params.get('status');
+
       if (lidParam === 'sem_lideranca') {
-        setSelectedLiderancaFilter('sem_lideranca');
+        setSelectedLiderPrincipalId('sem_lideranca');
+      } else if (lidParam) {
+        setSelectedLiderPrincipalId(lidParam);
       }
       if (pendParam) {
         setPendenciaFilter(pendParam);
+      }
+      if (zonaParam) {
+        setSelectedZona(zonaParam);
+      }
+      if (secaoParam) {
+        setSelectedSecao(secaoParam);
+      }
+      if (bairroParam) {
+        setSelectedBairro(bairroParam);
+      }
+      if (statusParam) {
+        setStatusFilter(statusParam);
       }
     }
   }, []);
@@ -260,19 +297,120 @@ export default function Eleitores() {
     return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [eleitores, liderancas, locais]);
 
-  const liderancasPrincipais = useMemo(
-    () => liderancas.filter((l) => l.tipo === 'Liderança Principal'),
-    [liderancas]
-  );
-  const subLiderancas = useMemo(
-    () => liderancas.filter((l) => l.tipo === 'Sub-liderança'),
-    [liderancas]
-  );
+  // Mapeamentos de Lideranças e Mapa por ID/Nome (Mesmo padrão da página de relatórios)
+  const { liderancasPrincipais, subLiderancas, leaderByIdMap } = useMemo(() => {
+    const principais: Lideranca[] = [];
+    const subs: Lideranca[] = [];
+    const map = new Map<string, Lideranca>();
+
+    liderancas.forEach((l) => {
+      map.set(l.id, l);
+      if (l.nome) map.set(l.nome.trim().toLowerCase(), l);
+
+      if (l.tipo === 'Sub-liderança') {
+        subs.push(l);
+      } else {
+        principais.push(l);
+      }
+    });
+
+    principais.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+    subs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+
+    return {
+      liderancasPrincipais: principais,
+      subLiderancas: subs,
+      leaderByIdMap: map
+    };
+  }, [liderancas]);
+
+  // Sub-lideranças filtradas com base na Liderança Principal selecionada
+  const availableSubLiderancas = useMemo(() => {
+    if (selectedLiderPrincipalId === 'todos' || selectedLiderPrincipalId === 'sem_lideranca') {
+      return subLiderancas;
+    }
+    const selectedPrincipal = leaderByIdMap.get(selectedLiderPrincipalId);
+    if (!selectedPrincipal) return subLiderancas;
+
+    return subLiderancas.filter(
+      (s) =>
+        s.liderancaPaiId === selectedPrincipal.id ||
+        (s.liderancaPaiNome && s.liderancaPaiNome.trim().toLowerCase() === selectedPrincipal.nome.trim().toLowerCase())
+    );
+  }, [selectedLiderPrincipalId, subLiderancas, leaderByIdMap]);
+
+  // Lista única de Zonas Eleitorais disponíveis
+  const availableZonas = useMemo(() => {
+    const set = new Set<string>();
+    eleitores.forEach((e) => {
+      if (e.zona && e.zona.trim()) set.add(e.zona.trim());
+    });
+    (locais || []).forEach((loc) => {
+      if (loc.zona && loc.zona.trim()) set.add(loc.zona.trim());
+    });
+    return Array.from(set).sort((a, b) => Number(a) - Number(b));
+  }, [eleitores, locais]);
+
+  // Lista única de Seções Eleitorais disponíveis (filtrada por Zona se selecionada)
+  const availableSecoes = useMemo(() => {
+    const set = new Set<string>();
+    eleitores.forEach((e) => {
+      if (selectedZona === 'todas' || e.zona?.trim() === selectedZona) {
+        if (e.secao && e.secao.trim()) set.add(e.secao.trim());
+      }
+    });
+    (locais || []).forEach((loc) => {
+      if (selectedZona === 'todas' || loc.zona?.trim() === selectedZona) {
+        toSecArray(loc.secoes).forEach((sec) => {
+          if (sec && String(sec).trim()) set.add(String(sec).trim());
+        });
+      }
+    });
+    return Array.from(set).sort((a, b) => Number(a) - Number(b));
+  }, [eleitores, locais, selectedZona]);
+
+  // Lista única de Bairros disponíveis (para o filtro de bairros)
+  const availableBairros = useMemo(() => {
+    const set = new Set<string>();
+    eleitores.forEach((e) => {
+      if (e.bairro && e.bairro.trim()) set.add(e.bairro.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [eleitores]);
+
   const ativasLiderancasCount = useMemo(
     () => liderancas.filter((l) => l.status === 'Ativa').length,
     [liderancas]
   );
   const totalEleitoresEmConflito = conflictingVoterIds.size;
+
+  // Contador de filtros ativos
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (selectedZona !== 'todas') count++;
+    if (selectedSecao !== 'todas') count++;
+    if (selectedLiderPrincipalId !== 'todos') count++;
+    if (selectedSubLiderId !== 'todos') count++;
+    if (selectedBairro !== 'todos') count++;
+    if (statusFilter !== 'todos') count++;
+    if (pendenciaFilter !== 'todas') count++;
+    if (filterOnlyConflicts) count++;
+    return count;
+  }, [selectedZona, selectedSecao, selectedLiderPrincipalId, selectedSubLiderId, selectedBairro, statusFilter, pendenciaFilter, filterOnlyConflicts]);
+
+  // Limpeza de todos os filtros
+  const handleResetFilters = () => {
+    setSelectedZona('todas');
+    setSelectedSecao('todas');
+    setSelectedLiderPrincipalId('todos');
+    setSelectedSubLiderId('todos');
+    setSelectedBairro('todos');
+    setStatusFilter('todos');
+    setPendenciaFilter('todas');
+    setFilterOnlyConflicts(false);
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
 
   // Conjunto normalizado de todas as combinações (Zona:Seção) já cadastradas nos locais
   const registeredPairs = useMemo(() => {
@@ -656,54 +794,91 @@ export default function Eleitores() {
     }
   };
 
-  // Filter voters based on search, leadership, status, and conflict filter
+  // Filter voters based on all filters (matching Relatórios page)
   const filteredEleitores = useMemo(() => {
     return eleitores.filter((eleitor) => {
       if (filterOnlyConflicts && !conflictingVoterIds.has(eleitor.id)) {
         return false;
       }
 
-      // Busca textual da tabela (NÃO considera Liderança / Articulador pois possui filtro dedicado)
-      const term = searchTerm.trim().toLowerCase();
-      const cleanDigits = term.replace(/\D/g, '');
-      const matchesSearch =
-        !term ||
-        (eleitor.nome?.toLowerCase() || '').includes(term) ||
-        (Boolean(cleanDigits) && (eleitor.cpf || '').replace(/\D/g, '').includes(cleanDigits)) ||
-        (Boolean(cleanDigits) && (eleitor.tituloEleitor || '').replace(/\D/g, '').includes(cleanDigits)) ||
-        (Boolean(cleanDigits) && (eleitor.telefone || '').replace(/\D/g, '').includes(cleanDigits)) ||
-        (eleitor.bairro?.toLowerCase() || '').includes(term) ||
-        (eleitor.zona || '').includes(term) ||
-        (eleitor.secao || '').includes(term);
+      // Filtro Zona
+      if (selectedZona !== 'todas' && eleitor.zona?.trim() !== selectedZona) {
+        return false;
+      }
 
-      const matchesLideranca =
-        selectedLiderancaFilter === 'todas'
-          ? true
-          : selectedLiderancaFilter === 'sem_lideranca'
-          ? !eleitor.liderancaId ||
-            !eleitor.lideranca ||
-            eleitor.lideranca.trim() === '' ||
-            eleitor.lideranca.trim().toLowerCase() === 'sem liderança' ||
-            eleitor.lideranca.trim().toLowerCase() === 'sem lideranca' ||
-            eleitor.lideranca.trim().toLowerCase() === 'não informada' ||
-            eleitor.lideranca.trim().toLowerCase() === 'nao informada'
-          : eleitor.liderancaId === selectedLiderancaFilter ||
-            eleitor.lideranca === selectedLiderancaFilter;
+      // Filtro Seção
+      if (selectedSecao !== 'todas' && eleitor.secao?.trim() !== selectedSecao) {
+        return false;
+      }
 
-      const matchesStatus =
-        statusFilter === 'todos'
-          ? true
-          : statusFilter === 'conflito'
-          ? conflictingVoterIds.has(eleitor.id)
-          : statusFilter === 'Pendente'
-          ? (eleitor.status === 'Pendente de confirmação' || eleitor.status === 'Pendente' || !eleitor.status)
-          : statusFilter === 'Auditado'
-          ? (eleitor.status === 'Auditado' || eleitor.status === 'Auditado e Validado')
-          : (eleitor.status || 'Pendente') === statusFilter;
+      // Identificação da liderança do eleitor
+      const voterLeader = eleitor.liderancaId
+        ? leaderByIdMap.get(eleitor.liderancaId)
+        : leaderByIdMap.get((eleitor.lideranca || '').trim().toLowerCase());
 
-      if (!matchesSearch || !matchesLideranca || !matchesStatus) return false;
+      // Filtro por Liderança Principal
+      if (selectedLiderPrincipalId !== 'todos') {
+        if (selectedLiderPrincipalId === 'sem_lideranca') {
+          const l = (eleitor.lideranca || '').trim().toLowerCase();
+          const hasNoLid =
+            !eleitor.liderancaId ||
+            l === '' ||
+            l === 'sem liderança' ||
+            l === 'sem lideranca' ||
+            l === 'não informada' ||
+            l === 'nao informada' ||
+            l === 'sem liderança definida';
+          if (!hasNoLid) return false;
+        } else {
+          const principalSelected = leaderByIdMap.get(selectedLiderPrincipalId);
+          if (!voterLeader || !principalSelected) return false;
 
-      // Filtro de Pendências Específicas
+          const isDirectPrincipal = voterLeader.id === principalSelected.id;
+          const isSubOfThisPrincipal =
+            voterLeader.tipo === 'Sub-liderança' &&
+            (voterLeader.liderancaPaiId === principalSelected.id ||
+              voterLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase());
+
+          if (!isDirectPrincipal && !isSubOfThisPrincipal) {
+            return false;
+          }
+        }
+      }
+
+      // Filtro por Sub-liderança
+      if (selectedSubLiderId !== 'todos') {
+        if (!voterLeader || voterLeader.id !== selectedSubLiderId) {
+          return false;
+        }
+      }
+
+      // Filtro Bairro
+      if (selectedBairro !== 'todos' && eleitor.bairro?.trim().toLowerCase() !== selectedBairro.trim().toLowerCase()) {
+        return false;
+      }
+
+      // Filtro Status
+      if (statusFilter !== 'todos') {
+        if (statusFilter === 'conflito') {
+          if (!conflictingVoterIds.has(eleitor.id)) return false;
+        } else if (statusFilter === 'conflito_cpf') {
+          if (!conflictingCpfVoterIds.has(eleitor.id)) return false;
+        } else if (statusFilter === 'conflito_titulo') {
+          if (!conflictingTituloVoterIds.has(eleitor.id)) return false;
+        } else if (statusFilter === 'sem_doc') {
+          if (eleitor.cpf || eleitor.tituloEleitor) return false;
+        } else if (statusFilter === 'Pendente') {
+          const s = eleitor.status || 'Pendente';
+          if (s !== 'Pendente' && s !== 'Pendente de confirmação') return false;
+        } else if (statusFilter === 'Auditado') {
+          const s = eleitor.status || '';
+          if (s !== 'Auditado' && s !== 'Auditado e Validado') return false;
+        } else {
+          if ((eleitor.status || 'Pendente') !== statusFilter) return false;
+        }
+      }
+
+      // Filtro Pendência de Informação Cadastral (Título, CPF, Local de Votação, etc.)
       if (pendenciaFilter !== 'todas') {
         const hasNoCpf = !eleitor.cpf || !eleitor.cpf.trim() || eleitor.cpf.replace(/\D/g, '').length < 11;
         const hasNoTitulo = !eleitor.tituloEleitor || !eleitor.tituloEleitor.trim() || eleitor.tituloEleitor.replace(/\D/g, '').length < 5;
@@ -714,14 +889,14 @@ export default function Eleitores() {
         const normS = (eleitor.secao || '').replace(/\D/g, '').replace(/^0+/, '');
         const hasNoLocal = !normZ || !normS || !registeredPairs.has(`${normZ}:${normS}`);
         const hasNoLideranca =
-          !eleitor.liderancaId ||
-          !eleitor.lideranca ||
-          eleitor.lideranca.trim() === '' ||
-          eleitor.lideranca.trim().toLowerCase() === 'sem liderança' ||
-          eleitor.lideranca.trim().toLowerCase() === 'sem lideranca' ||
-          eleitor.lideranca.trim().toLowerCase() === 'sem liderança definida' ||
-          eleitor.lideranca.trim().toLowerCase() === 'não informada' ||
-          eleitor.lideranca.trim().toLowerCase() === 'nao informada';
+          !eleitor.liderancaId &&
+          (!eleitor.lideranca ||
+            eleitor.lideranca.trim() === '' ||
+            eleitor.lideranca.trim().toLowerCase() === 'sem liderança' ||
+            eleitor.lideranca.trim().toLowerCase() === 'sem lideranca' ||
+            eleitor.lideranca.trim().toLowerCase() === 'sem liderança definida' ||
+            eleitor.lideranca.trim().toLowerCase() === 'não informada' ||
+            eleitor.lideranca.trim().toLowerCase() === 'nao informada');
 
         if (pendenciaFilter === 'qualquer') {
           if (!hasNoCpf && !hasNoTitulo && !hasNoTelefone && !hasNoZonaSecao && !hasNoLocal) return false;
@@ -744,17 +919,41 @@ export default function Eleitores() {
         }
       }
 
+      // Busca por texto na tabela (NÃO considera Liderança pois há filtros dedicados de liderança principal e sub-liderança)
+      if (searchTerm.trim()) {
+        const term = searchTerm.trim().toLowerCase();
+        const cleanDigits = term.replace(/\D/g, '');
+        const matchesNome = (eleitor.nome?.toLowerCase() || '').includes(term);
+        const matchesCpf = cleanDigits ? (eleitor.cpf || '').replace(/\D/g, '').includes(cleanDigits) : false;
+        const matchesTitulo = cleanDigits ? (eleitor.tituloEleitor || '').replace(/\D/g, '').includes(cleanDigits) : false;
+        const matchesTel = cleanDigits ? (eleitor.telefone || '').replace(/\D/g, '').includes(cleanDigits) : false;
+        const matchesBairro = (eleitor.bairro?.toLowerCase() || '').includes(term);
+        const matchesZona = (eleitor.zona || '').includes(term);
+        const matchesSecao = (eleitor.secao || '').includes(term);
+
+        if (!matchesNome && !matchesCpf && !matchesTitulo && !matchesTel && !matchesBairro && !matchesZona && !matchesSecao) {
+          return false;
+        }
+      }
+
       return true;
     });
   }, [
     eleitores,
     searchTerm,
-    selectedLiderancaFilter,
+    selectedZona,
+    selectedSecao,
+    selectedLiderPrincipalId,
+    selectedSubLiderId,
+    selectedBairro,
     statusFilter,
     pendenciaFilter,
     registeredPairs,
     filterOnlyConflicts,
-    conflictingVoterIds
+    conflictingVoterIds,
+    conflictingCpfVoterIds,
+    conflictingTituloVoterIds,
+    leaderByIdMap
   ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEleitores.length / pageSize));
@@ -1121,7 +1320,7 @@ export default function Eleitores() {
 
       {/* Table Container */}
       <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/60 shadow-sm overflow-hidden flex flex-col flex-1">
-        {/* Toolbar - Compacta em Linha Única */}
+        {/* Toolbar - Compacta com Busca, Toggle de Filtros, Limpar e Paginação */}
         <div className="px-3.5 py-2 bg-surface border-b border-outline-variant/50 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
             <h2 className="text-xs md:text-sm text-on-surface font-bold">Listagem Geral</h2>
@@ -1131,95 +1330,54 @@ export default function Eleitores() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Filter by Leadership */}
-            <select
-              value={selectedLiderancaFilter}
-              onChange={(e) => {
-                setSelectedLiderancaFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary max-w-[170px]"
-            >
-              <option value="todas">Todas as Lideranças</option>
-              <option value="sem_lideranca">⚠️ Apenas Sem Liderança</option>
-              {liderancasPrincipais.length > 0 && (
-                <optgroup label="Lideranças Principais">
-                  {liderancasPrincipais.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.nome}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {subLiderancas.length > 0 && (
-                <optgroup label="Sub-lideranças">
-                  {subLiderancas.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.nome} (Sub de {l.liderancaPaiNome || 'Coordenação'})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-
-            {/* Filter by Status/Conflict */}
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
-            >
-              <option value="todos">Todos os Status</option>
-              <option value="conflito">⚠️ Apenas com Conflito de CPF</option>
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.title}
-                </option>
-              ))}
-            </select>
-
-            {/* Filter by Pendência Cadastral */}
-            <select
-              value={pendenciaFilter}
-              onChange={(e) => {
-                setPendenciaFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className={`h-8 border rounded-md px-2 text-xs focus:outline-none focus:border-secondary transition-colors ${
-                pendenciaFilter !== 'todas'
-                  ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
-                  : 'bg-surface-container-lowest border-outline-variant/50 text-on-surface'
-              }`}
-              title="Filtrar eleitores por tipo de informação cadastral pendente"
-            >
-              <option value="todas">Sem filtro de pendência</option>
-              <option value="qualquer">⚠️ Qualquer Informação Pendente</option>
-              <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
-              <option value="sem_cpf">📄 Sem CPF (Pendente)</option>
-              <option value="sem_zona">🗳️ Sem Zona / Seção</option>
-              <option value="sem_local">🏫 Sem Local de Votação Cadastrado</option>
-              <option value="sem_telefone">📱 Sem Telefone / WhatsApp</option>
-              <option value="sem_lideranca">👥 Sem Liderança Vinculada</option>
-              <option value="sem_bairro">📍 Sem Bairro</option>
-              <option value="completos">✅ Cadastros Completos (Sem Pendências)</option>
-            </select>
-
             {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
               <input
                 type="text"
-                placeholder="Buscar eleitor, CPF, zona..."
+                placeholder="Buscar eleitor, CPF, título, tel, bairro, zona..."
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-40 sm:w-52 h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md pl-8 pr-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                className="w-48 sm:w-64 h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md pl-8 pr-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary"
               />
             </div>
+
+            {/* Botão de Toggle de Filtros Avançados */}
+            <button
+              type="button"
+              onClick={() => setIsFiltersOpen((prev) => !prev)}
+              className={`h-8 px-2.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                isFiltersOpen || activeFiltersCount > 0
+                  ? 'bg-secondary/15 text-secondary border-secondary/35'
+                  : 'bg-surface-container-lowest hover:bg-surface-container text-on-surface border-outline-variant/60'
+              }`}
+              title="Exibir ou ocultar filtros avançados (Zona, Seção, Líder, Sub-líder, Bairro, Status, Pendência)"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-secondary" />
+              <span>Filtros</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-secondary text-on-secondary text-[10px] flex items-center justify-center font-black">
+                  {activeFiltersCount}
+                </span>
+              )}
+              {isFiltersOpen ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
+            </button>
+
+            {/* Botão de Limpar Filtros quando ativo */}
+            {(activeFiltersCount > 0 || searchTerm.trim()) && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="h-8 px-2 text-xs text-error hover:bg-error/10 border border-error/30 rounded-md font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                title="Limpar todos os filtros aplicados"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Limpar</span>
+              </button>
+            )}
 
             {/* Seletor de registros por página */}
             <select
@@ -1228,7 +1386,7 @@ export default function Eleitores() {
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface-variant focus:outline-none"
+              className="h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface-variant focus:outline-none"
               title="Quantidade de eleitores exibidos por página"
             >
               <option value={15}>15 por pág.</option>
@@ -1239,18 +1397,201 @@ export default function Eleitores() {
           </div>
         </div>
 
+        {/* Linha de Filtros Avançados Expansíveis (Todos os filtros da página de Relatórios) */}
+        {isFiltersOpen && (
+          <div className="p-3 bg-surface-container-low border-b border-outline-variant/40 animate-fadeIn space-y-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+              {/* 1. FILTRO ZONA */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Zona
+                </label>
+                <select
+                  value={selectedZona}
+                  onChange={(e) => {
+                    setSelectedZona(e.target.value);
+                    setSelectedSecao('todas');
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todas">Todas as Zonas ({availableZonas.length})</option>
+                  {availableZonas.map((z) => (
+                    <option key={z} value={z}>
+                      Zona {z}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 2. FILTRO SEÇÃO */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Seção
+                </label>
+                <select
+                  value={selectedSecao}
+                  onChange={(e) => {
+                    setSelectedSecao(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todas">Todas as Seções ({availableSecoes.length})</option>
+                  {availableSecoes.map((s) => (
+                    <option key={s} value={s}>
+                      Seção {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 3. FILTRO LIDERANÇA PRINCIPAL */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Líder Principal
+                </label>
+                <select
+                  value={selectedLiderPrincipalId}
+                  onChange={(e) => {
+                    setSelectedLiderPrincipalId(e.target.value);
+                    setSelectedSubLiderId('todos');
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todos os Líderes</option>
+                  <option value="sem_lideranca">⚠️ Apenas Sem Liderança</option>
+                  {liderancasPrincipais.map((lp) => (
+                    <option key={lp.id} value={lp.id}>
+                      {lp.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 4. FILTRO SUB-LIDERANÇA */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Sub-líder
+                </label>
+                <select
+                  value={selectedSubLiderId}
+                  onChange={(e) => {
+                    setSelectedSubLiderId(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todas as Sub-lideranças ({availableSubLiderancas.length})</option>
+                  {availableSubLiderancas.map((sub) => (
+                    <option key={sub.id} value={sub.id}>
+                      {sub.nome} {sub.liderancaPaiNome ? `(Sub de ${sub.liderancaPaiNome})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 5. FILTRO BAIRRO */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Bairro
+                </label>
+                <select
+                  value={selectedBairro}
+                  onChange={(e) => {
+                    setSelectedBairro(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todos os Bairros ({availableBairros.length})</option>
+                  {availableBairros.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 6. FILTRO STATUS */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Status
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
+                >
+                  <option value="todos">Todos os Status</option>
+                  <option value="conflito">⚠️ Todos os Conflitos / Duplicidades</option>
+                  <option value="conflito_cpf">⚠️ Apenas Conflitos de CPF</option>
+                  <option value="conflito_titulo">⚠️ Apenas Duplicidades de Título</option>
+                  <option value="sem_doc">📄 Sem Documentação (CPF/Título)</option>
+                  {STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 7. FILTRO PENDÊNCIA CADASTRAL */}
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase mb-0.5">
+                  Pendência
+                </label>
+                <select
+                  value={pendenciaFilter}
+                  onChange={(e) => {
+                    setPendenciaFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className={`w-full h-8 border rounded-md px-2 text-xs focus:outline-none focus:border-secondary transition-colors ${
+                    pendenciaFilter !== 'todas'
+                      ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                      : 'bg-surface-container-lowest border border-outline-variant/60 text-on-surface'
+                  }`}
+                >
+                  <option value="todas">Todas as Situações</option>
+                  <option value="qualquer">⚠️ Qualquer Pendência</option>
+                  <option value="sem_titulo">🎫 Sem Título de Eleitor</option>
+                  <option value="sem_cpf">📄 Sem CPF (Pendente)</option>
+                  <option value="sem_zona">🗳️ Sem Zona / Seção</option>
+                  <option value="sem_local">🏫 Sem Local de Votação Cadastrado</option>
+                  <option value="sem_telefone">📱 Sem Telefone / WhatsApp</option>
+                  <option value="sem_lideranca">👥 Sem Liderança Vinculada</option>
+                  <option value="sem_bairro">📍 Sem Bairro</option>
+                  <option value="completos">✅ Cadastros 100% Completos</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Conflict Filter Banner if active */}
-        {filterOnlyConflicts && (
+        {(filterOnlyConflicts || statusFilter.startsWith('conflito')) && (
           <div className="px-4 py-2.5 bg-error-container/40 border-b border-error/30 flex items-center justify-between gap-3 text-xs text-on-surface">
             <div className="flex items-center gap-2 font-medium">
               <AlertTriangle className="w-4 h-4 text-error shrink-0" />
               <span>
-                Filtro ativo: Exibindo apenas os <strong>{filteredEleitores.length}</strong> eleitores com <strong>conflito de CPF</strong>.
+                Filtro ativo: Exibindo apenas os <strong>{filteredEleitores.length}</strong> eleitores com {
+                  statusFilter === 'conflito_titulo'
+                    ? 'duplicidade de Título'
+                    : statusFilter === 'conflito_cpf'
+                    ? 'conflito de CPF'
+                    : 'duplicidades / conflitos de documentos'
+                }.
               </span>
             </div>
             <button
               onClick={() => {
                 setFilterOnlyConflicts(false);
+                if (statusFilter.startsWith('conflito')) setStatusFilter('todos');
                 setCurrentPage(1);
               }}
               className="text-xs font-bold text-error hover:underline flex items-center gap-1 cursor-pointer"
@@ -1261,7 +1602,7 @@ export default function Eleitores() {
         )}
 
         {/* Liderança Filter Banner if active (Sem Liderança) */}
-        {selectedLiderancaFilter === 'sem_lideranca' && (
+        {selectedLiderPrincipalId === 'sem_lideranca' && (
           <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 flex items-center justify-between gap-3 text-xs text-amber-950 dark:text-amber-200">
             <div className="flex items-center gap-2 font-medium">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -1271,7 +1612,7 @@ export default function Eleitores() {
             </div>
             <button
               onClick={() => {
-                setSelectedLiderancaFilter('todas');
+                setSelectedLiderPrincipalId('todos');
                 setCurrentPage(1);
               }}
               className="text-xs font-bold text-amber-700 hover:underline flex items-center gap-1 cursor-pointer"
