@@ -23,7 +23,8 @@ import {
   Camera,
   Trash2,
   RotateCcw,
-  Printer
+  Printer,
+  EyeOff
 } from 'lucide-react';
 import {
   useCampaignData,
@@ -36,7 +37,6 @@ import {
 } from '@/context/CampaignContext';
 import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/context/AuthContext';
-import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { TseCsvImporterModal } from '@/components/TseCsvImporterModal';
 import { BuQrCodeScannerModal } from '@/components/BuQrCodeScannerModal';
@@ -132,7 +132,7 @@ export default function CumprimentoVotosPage() {
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printReportType, setPrintReportType] = useState<'secoes' | 'liderancas' | 'lideranca_individual'>('secoes');
   const [printSelectedLideranca, setPrintSelectedLideranca] = useState<LiderancaDesempenho | null>(null);
-  const [printScope, setPrintScope] = useState<'todas' | 'apenas_apuradas' | 'apenas_quebras'>('todas');
+  const [printScope, setPrintScope] = useState<'todas' | 'apenas_apuradas' | 'apenas_quebras' | 'com_votos' | 'sem_votos'>('todas');
 
   const campaignDisplayName =
     currentTenant?.nome || (subdomain && subdomain !== 'demo' ? `Campanha ${subdomain}` : 'Campanha Eleitoral 2026');
@@ -152,6 +152,8 @@ export default function CumprimentoVotosPage() {
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
   const [statusApuracaoFilter, setStatusApuracaoFilter] = useState<'todos' | 'apuradas' | 'pendentes' | 'superaram' | 'abaixo'>('todos');
+  const [votoPresencaFilter, setVotoPresencaFilter] = useState<'todos' | 'com_votos' | 'sem_votos'>('todos');
+  const [ocultarSemCadastro, setOcultarSemCadastro] = useState(false);
   const [zonaFilter, setZonaFilter] = useState('todas');
   const [bairroFilter, setBairroFilter] = useState('todos');
   const [liderancaFilter, setLiderancaFilter] = useState('todas');
@@ -408,6 +410,25 @@ export default function CumprimentoVotosPage() {
   // Seções pendentes que possuem eleitores cadastrados na base da campanha
   const secoesPendentesBase = useMemo(() => {
     return secoesAgrupadas.filter((s) => !s.isApurada && s.totalCadastrados > 0);
+  }, [secoesAgrupadas]);
+
+  // Contagem de seções com votos vs sem votos
+  const contadoresVotos = useMemo(() => {
+    let comVotos = 0;
+    let semVotos = 0;
+    secoesAgrupadas.forEach((s) => {
+      const v = typeof s.votosApurados === 'number' ? s.votosApurados : 0;
+      if (v > 0) comVotos++;
+      else semVotos++;
+    });
+    return { comVotos, semVotos };
+  }, [secoesAgrupadas]);
+
+  // Contagem de seções que tiveram votos apurados mas não possuem eleitores cadastrados
+  const secoesSemCadastroCount = useMemo(() => {
+    return secoesAgrupadas.filter(
+      (s) => s.totalCadastrados === 0 && (typeof s.votosApurados === 'number' ? s.votosApurados > 0 : false)
+    ).length;
   }, [secoesAgrupadas]);
 
   // Encerra todas as seções pendentes da base registrando 0 votos para fechar a apuração definitiva
@@ -713,6 +734,21 @@ export default function CumprimentoVotosPage() {
       if (statusApuracaoFilter === 'superaram' && (!item.isApurada || item.teveVotosSuficientes !== true)) return false;
       if (statusApuracaoFilter === 'abaixo' && (!item.isApurada || item.teveVotosSuficientes !== false)) return false;
 
+      // Filtro Presença de Votos (Tiveram Votos vs Não Tiveram Votos)
+      if (votoPresencaFilter === 'com_votos') {
+        const votos = typeof item.votosApurados === 'number' ? item.votosApurados : 0;
+        if (votos <= 0) return false;
+      }
+      if (votoPresencaFilter === 'sem_votos') {
+        const votos = typeof item.votosApurados === 'number' ? item.votosApurados : 0;
+        if (votos > 0) return false;
+      }
+
+      // Ocultar seções que tiveram votos apurados mas não possuem eleitores cadastrados
+      if (ocultarSemCadastro && item.totalCadastrados === 0) {
+        return false;
+      }
+
       // Filtro Zona
       if (zonaFilter !== 'todas' && item.zona !== zonaFilter) return false;
 
@@ -742,7 +778,7 @@ export default function CumprimentoVotosPage() {
 
       return true;
     });
-  }, [secoesAgrupadas, statusApuracaoFilter, zonaFilter, bairroFilter, liderancaFilter, searchTerm]);
+  }, [secoesAgrupadas, statusApuracaoFilter, votoPresencaFilter, ocultarSemCadastro, zonaFilter, bairroFilter, liderancaFilter, searchTerm]);
 
   // Paginação
   const totalPages = Math.max(1, Math.ceil(filteredSecoes.length / pageSize));
@@ -759,6 +795,12 @@ export default function CumprimentoVotosPage() {
     }
     if (printScope === 'apenas_quebras') {
       return filteredSecoes.filter((s) => s.isApurada && s.teveVotosSuficientes === false);
+    }
+    if (printScope === 'com_votos') {
+      return filteredSecoes.filter((s) => (typeof s.votosApurados === 'number' ? s.votosApurados : 0) > 0);
+    }
+    if (printScope === 'sem_votos') {
+      return filteredSecoes.filter((s) => (typeof s.votosApurados === 'number' ? s.votosApurados : 0) <= 0);
     }
     return filteredSecoes;
   }, [filteredSecoes, printScope]);
@@ -784,12 +826,18 @@ export default function CumprimentoVotosPage() {
       };
       parts.push(`Status: ${labels[statusApuracaoFilter] || statusApuracaoFilter}`);
     }
+    if (votoPresencaFilter !== 'todos') {
+      parts.push(votoPresencaFilter === 'com_votos' ? 'Apenas com Votos' : 'Apenas sem Votos');
+    }
+    if (ocultarSemCadastro) {
+      parts.push('Apenas Seções com Cadastro na Base');
+    }
     if (zonaFilter !== 'todas') parts.push(`Zona: ${zonaFilter}`);
     if (bairroFilter !== 'todos') parts.push(`Bairro: ${bairroFilter}`);
     if (liderancaFilter !== 'todas') parts.push(`Liderança: ${liderancaFilter}`);
     if (searchTerm.trim()) parts.push(`Busca: "${searchTerm.trim()}"`);
     return parts.length > 0 ? parts.join(' • ') : 'Listagem Geral (Sem Filtros)';
-  }, [statusApuracaoFilter, zonaFilter, bairroFilter, liderancaFilter, searchTerm]);
+  }, [statusApuracaoFilter, votoPresencaFilter, ocultarSemCadastro, zonaFilter, bairroFilter, liderancaFilter, searchTerm]);
 
   // Manipulação de Edição Inline de Votos
   const handleVoteInputChange = (key: string, value: string) => {
@@ -885,7 +933,11 @@ export default function CumprimentoVotosPage() {
 
   // Exportar Relatório Geral de Cumprimento em Excel
   const handleExportExcel = () => {
-    const rows = secoesAgrupadas.map((s, idx) => ({
+    const dataToExport = ocultarSemCadastro
+      ? secoesAgrupadas.filter((s) => s.totalCadastrados > 0)
+      : secoesAgrupadas;
+
+    const rows = dataToExport.map((s, idx) => ({
       '#': idx + 1,
       'Zona': s.zona,
       'Seção': s.secao,
@@ -952,7 +1004,7 @@ export default function CumprimentoVotosPage() {
             title="Importar arquivo CSV oficial do TSE com todos os Boletins de Urna"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Importar CSV do TSE</span>
+            <span>Importar CSV</span>
           </button>
 
           <button
@@ -962,7 +1014,7 @@ export default function CumprimentoVotosPage() {
             title="Escanear o QR Code impresso no papel do Boletim de Urna com a câmera do celular"
           >
             <Camera className="w-3.5 h-3.5 text-secondary-container" />
-            <span>Escanear QR Code do BU</span>
+            <span>Escanear BU</span>
           </button>
 
           {/* Botão para Encerrar Seções Pendentes com 0 Votos (Apuração Final Definitiva) */}
@@ -1013,17 +1065,8 @@ export default function CumprimentoVotosPage() {
             title="Excluir permanentemente todos os votos cadastrados da importação e zerar a contagem de urnas"
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-500" />
-            <span>Excluir Votos da Importação ({apuracoes.length})</span>
+            <span>Excluir votos</span>
           </button>
-
-          <Link
-            href="/eleitores"
-            className="px-2.5 py-1.5 border border-outline-variant bg-surface hover:bg-surface-container text-on-surface rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap shrink-0"
-            title="Voltar para a Base de Eleitores"
-          >
-            <Users className="w-3.5 h-3.5 text-secondary" />
-            <span>Base</span>
-          </Link>
         </div>
       </div>
 
@@ -1210,6 +1253,56 @@ export default function CumprimentoVotosPage() {
                 <option value="superaram">🟢 Superaram Meta (≥100%)</option>
                 <option value="abaixo">🔴 Críticas / Abaixo (&lt;75%)</option>
               </select>
+
+              {/* Filtro Presença de Votos (Tiveram Votos / Não Tiveram) */}
+              <select
+                value={votoPresencaFilter}
+                onChange={(e) => {
+                  setVotoPresencaFilter(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary font-medium"
+                title="Filtrar seções por presença de votos"
+              >
+                <option value="todos">Votos: Todos</option>
+                <option value="com_votos">🟢 Tiveram Votos ({contadoresVotos.comVotos})</option>
+                <option value="sem_votos">⚪ Não Tiveram Votos ({contadoresVotos.semVotos})</option>
+              </select>
+
+              {/* Caixa / Botão para Ocultar Seções sem Eleitor Cadastrado */}
+              <button
+                type="button"
+                onClick={() => {
+                  setOcultarSemCadastro((prev) => !prev);
+                  setCurrentPage(1);
+                }}
+                className={`h-8 px-2.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border select-none ${
+                  ocultarSemCadastro
+                    ? 'bg-amber-500/15 border-amber-500/60 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30'
+                    : 'bg-surface-container-lowest border-outline-variant/60 text-on-surface hover:bg-surface-container hover:border-outline-variant'
+                }`}
+                title="Ocultar seções que tiveram votos apurados no TSE mas não possuem nenhum eleitor cadastrado na sua base"
+              >
+                <input
+                  type="checkbox"
+                  checked={ocultarSemCadastro}
+                  onChange={() => {}}
+                  className="rounded w-3.5 h-3.5 accent-amber-600 pointer-events-none"
+                />
+                <EyeOff className={`w-3.5 h-3.5 ${ocultarSemCadastro ? 'text-amber-600 dark:text-amber-400' : 'text-on-surface-variant'}`} />
+                <span className="whitespace-nowrap">
+                  {ocultarSemCadastro ? 'Ocultando sem cadastro' : 'Ocultar sem cadastro'}
+                </span>
+                {secoesSemCadastroCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    ocultarSemCadastro
+                      ? 'bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200'
+                      : 'bg-surface-container text-on-surface-variant'
+                  }`}>
+                    {secoesSemCadastroCount}
+                  </span>
+                )}
+              </button>
 
               {/* Filtro Zona */}
               {zonasDisponiveis.length > 0 && (
@@ -2401,6 +2494,8 @@ export default function CumprimentoVotosPage() {
                   className="h-8 bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-2 text-xs text-on-surface font-medium focus:outline-none"
                 >
                   <option value="todas">Todos os registros filtrados</option>
+                  <option value="com_votos">Apenas Seções que Tiveram Votos</option>
+                  <option value="sem_votos">Apenas Seções que Não Tiveram Votos</option>
                   <option value="apenas_apuradas">Apenas Seções Apuradas</option>
                   <option value="apenas_quebras">Apenas com Quebra / Críticas</option>
                 </select>
@@ -2483,7 +2578,7 @@ export default function CumprimentoVotosPage() {
                 </div>
                 {printScope !== 'todas' && (
                   <span className="font-semibold text-slate-800">
-                    • Escopo: {printScope === 'apenas_apuradas' ? 'Apenas Seções Apuradas' : 'Apenas com Quebra de Votos'}
+                    • Escopo: {printScope === 'com_votos' ? 'Apenas Seções que Tiveram Votos' : printScope === 'sem_votos' ? 'Apenas Seções que Não Tiveram Votos' : printScope === 'apenas_apuradas' ? 'Apenas Seções Apuradas' : 'Apenas com Quebra de Votos'}
                   </span>
                 )}
               </div>
