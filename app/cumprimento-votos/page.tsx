@@ -67,6 +67,8 @@ interface SecaoAgrupada {
   cumprimentoPct: number; // % sobre cadastrados
   cumprimentoConfirmadosPct: number; // % sobre confirmados
   saldo: number; // votosApurados - totalCadastrados
+  teveVotosSuficientes?: boolean; // votosApurados >= totalCadastrados
+  situacao: 'Meta Cumprida' | 'Quebra de Votos' | 'Aguardando Urna' | 'Sem Cadastros';
   liderancasCount: number;
   liderancasMap: Map<string, { nome: string; count: number }>;
   boletimUrna?: string;
@@ -75,17 +77,41 @@ interface SecaoAgrupada {
   apuradoPor?: string;
 }
 
+interface LiderancaSecaoDetalhe {
+  key: string;
+  zona: string;
+  secao: string;
+  localNome: string;
+  bairro: string;
+  eleitoresLideranca: number;
+  totalEleitoresSecao: number;
+  votosApurados?: number;
+  isApurada: boolean;
+  teveVotosSuficientes: boolean | null;
+  votosValidados: number;
+  statusSecao: 'Meta Cumprida' | 'Quebra de Votos' | 'Aguardando Urna';
+  saldoSecao: number;
+  eleitores: Eleitor[];
+}
+
 interface LiderancaDesempenho {
   id: string;
   nome: string;
   tipo?: string;
   liderancaPaiNome?: string;
   totalEleitoresPrometidos: number;
+  eleitoresEmSecoesApuradas: number;
   secoesAtuadas: number;
+  secoesApuradas: number;
+  secoesCumpridas: number;
+  secoesComQuebra: number;
+  votosValidadosTotal: number;
   votosApuradosTotalSecoes: number;
   saldoEstimado: number;
   cumprimentoMedioPct: number;
-  classificacao: 'Alta Fidelidade' | 'Dentro da Meta' | 'Abaixo da Meta' | 'Sem Apuração';
+  cumprimentoGlobalPct: number;
+  classificacao: 'Meta Cumprida' | 'Cumprimento Parcial' | 'Quebra Grave' | 'Aguardando Urna';
+  detalhesSecoes: LiderancaSecaoDetalhe[];
 }
 
 export default function CumprimentoVotosPage() {
@@ -112,6 +138,9 @@ export default function CumprimentoVotosPage() {
 
   // Modal de Detalhes da Seção
   const [selectedSecao, setSelectedSecao] = useState<SecaoAgrupada | null>(null);
+
+  // Modal de Auditoria Detalhada da Liderança
+  const [selectedLiderancaAudit, setSelectedLiderancaAudit] = useState<LiderancaDesempenho | null>(null);
 
   // Modais de Importação
   const [isTseModalOpen, setIsTseModalOpen] = useState(false);
@@ -250,11 +279,20 @@ export default function CumprimentoVotosPage() {
           item.totalConfirmados > 0
             ? Math.round((apuracao.votosApurados / item.totalConfirmados) * 100)
             : item.cumprimentoPct;
+
+        item.teveVotosSuficientes = item.totalCadastrados > 0 ? (apuracao.votosApurados >= item.totalCadastrados) : true;
+        item.situacao = item.totalCadastrados === 0
+          ? 'Sem Cadastros'
+          : apuracao.votosApurados >= item.totalCadastrados
+          ? 'Meta Cumprida'
+          : 'Quebra de Votos';
       } else {
         item.isApurada = false;
         item.votosApurados = undefined;
         item.cumprimentoPct = 0;
         item.saldo = -item.totalCadastrados;
+        item.teveVotosSuficientes = false;
+        item.situacao = 'Aguardando Urna';
       }
 
       result.push(item);
@@ -293,6 +331,21 @@ export default function CumprimentoVotosPage() {
     return set;
   }, [secoesAgrupadas]);
 
+  const registeredSectionsInfo = useMemo(() => {
+    const map = new Map<string, { totalCadastrados: number; localNome?: string }>();
+    secoesAgrupadas.forEach((s) => {
+      if (s.totalCadastrados > 0) {
+        const zNorm = normalizeZona(s.zona);
+        const sNorm = normalizeSecao(s.secao);
+        map.set(`z${zNorm}_s${sNorm}`, {
+          totalCadastrados: s.totalCadastrados,
+          localNome: s.localNome
+        });
+      }
+    });
+    return map;
+  }, [secoesAgrupadas]);
+
   const bairrosDisponiveis = useMemo(() => {
     const set = new Set<string>();
     secoesAgrupadas.forEach((s) => {
@@ -301,93 +354,132 @@ export default function CumprimentoVotosPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [secoesAgrupadas]);
 
-  // Estatísticas Globais de Cumprimento
+  // Estatísticas Globais de Cumprimento Real (Isolado na Base de Eleitores Cadastrados)
   const stats = useMemo(() => {
-    let totalCadastrados = 0;
+    let totalEleitoresCadastrados = 0;
     let totalConfirmados = 0;
-    let totalVotosApurados = 0;
-    let secoesApuradasCount = 0;
-    let secoesSuperaramCount = 0;
-    let secoesAbaixoCount = 0;
+
+    // Métricas isoladas das seções com eleitores cadastrados
+    let secoesComEleitoresCount = 0;
+    let secoesCadastradasApuradasCount = 0;
+    let eleitoresEmSecoesApuradas = 0;
+    let votosEmSecoesCadastradas = 0;
+    let secoesCadastradasCumpridasCount = 0;
+    let secoesCadastradasQuebradasCount = 0;
+
+    // Métricas gerais de todas as seções (incluindo avulsas sem cadastro)
+    let totalSecoesGerais = secoesAgrupadas.length;
+    let totalSecoesApuradasGerais = 0;
+    let totalVotosApuradosGerais = 0;
 
     secoesAgrupadas.forEach((s) => {
-      totalCadastrados += s.totalCadastrados;
-      totalConfirmados += s.totalConfirmados;
+      const temEleitores = s.totalCadastrados > 0;
+
+      if (temEleitores) {
+        secoesComEleitoresCount++;
+        totalEleitoresCadastrados += s.totalCadastrados;
+        totalConfirmados += s.totalConfirmados;
+
+        if (s.isApurada && typeof s.votosApurados === 'number') {
+          secoesCadastradasApuradasCount++;
+          eleitoresEmSecoesApuradas += s.totalCadastrados;
+          votosEmSecoesCadastradas += s.votosApurados;
+
+          if (s.votosApurados >= s.totalCadastrados) {
+            secoesCadastradasCumpridasCount++;
+          } else {
+            secoesCadastradasQuebradasCount++;
+          }
+        }
+      }
 
       if (s.isApurada && typeof s.votosApurados === 'number') {
-        secoesApuradasCount++;
-        totalVotosApurados += s.votosApurados;
-
-        if (s.cumprimentoPct >= 100) {
-          secoesSuperaramCount++;
-        } else if (s.cumprimentoPct < 75) {
-          secoesAbaixoCount++;
-        }
+        totalSecoesApuradasGerais++;
+        totalVotosApuradosGerais += s.votosApurados;
       }
     });
 
-    const totalSecoes = secoesAgrupadas.length;
-    const taxaCobertura = totalSecoes > 0 ? Math.round((secoesApuradasCount / totalSecoes) * 100) : 0;
-    const taxaCumprimentoGlobal =
-      totalCadastrados > 0 && secoesApuradasCount > 0
-        ? Math.round((totalVotosApurados / totalCadastrados) * 100)
-        : 0;
+    const taxaCoberturaBase = secoesComEleitoresCount > 0
+      ? Math.round((secoesCadastradasApuradasCount / secoesComEleitoresCount) * 100)
+      : 0;
 
-    const saldoGlobal = totalVotosApurados - totalCadastrados;
+    // Cumprimento Real Isolado da Base (votos apurados nas seções cadastradas / eleitores nessas mesmas seções)
+    const taxaCumprimentoReal = eleitoresEmSecoesApuradas > 0
+      ? Math.round((votosEmSecoesCadastradas / eleitoresEmSecoesApuradas) * 100)
+      : 0;
+
+    const saldoRealIsolado = votosEmSecoesCadastradas - eleitoresEmSecoesApuradas;
+
+    const taxaCumprimentoBaseTotal = totalEleitoresCadastrados > 0
+      ? Math.round((votosEmSecoesCadastradas / totalEleitoresCadastrados) * 100)
+      : 0;
 
     return {
-      totalSecoes,
-      secoesApuradasCount,
-      taxaCobertura,
-      totalCadastrados,
+      totalEleitoresCadastrados,
       totalConfirmados,
-      totalVotosApurados,
-      taxaCumprimentoGlobal,
-      saldoGlobal,
-      secoesSuperaramCount,
-      secoesAbaixoCount
+      secoesComEleitoresCount,
+      secoesCadastradasApuradasCount,
+      taxaCoberturaBase,
+      eleitoresEmSecoesApuradas,
+      votosEmSecoesCadastradas,
+      taxaCumprimentoReal,
+      saldoRealIsolado,
+      taxaCumprimentoBaseTotal,
+      secoesCadastradasCumpridasCount,
+      secoesCadastradasQuebradasCount,
+      totalSecoesGerais,
+      totalSecoesApuradasGerais,
+      totalVotosApuradosGerais
     };
   }, [secoesAgrupadas]);
 
-  // Desempenho por Liderança (Cruzamento de Votos com Articuladores)
+  // Desempenho por Liderança (Cruzamento de Votos com Eleitores Cadastrados de Cada Liderança)
   const desempenhoLiderancas = useMemo(() => {
+    // Mapa auxiliar de seções indexadas por key para consulta O(1)
+    const secoesMap = new Map<string, SecaoAgrupada>();
+    secoesAgrupadas.forEach((s) => secoesMap.set(s.key, s));
+
     const map = new Map<string, {
       lider: Lideranca | { id: string; nome: string };
       totalPrometidos: number;
-      secoesKeys: Set<string>;
+      eleitoresPorSecao: Map<string, Eleitor[]>;
     }>();
 
-    // Registra lideranças cadastradas
+    // 1. Registra lideranças cadastradas no sistema
     liderancas.forEach((l) => {
       map.set(l.id, {
         lider: l,
         totalPrometidos: 0,
-        secoesKeys: new Set()
+        eleitoresPorSecao: new Map()
       });
       map.set(l.nome.trim().toLowerCase(), {
         lider: l,
         totalPrometidos: 0,
-        secoesKeys: new Set()
+        eleitoresPorSecao: new Map()
       });
     });
 
-    // Soma eleitores de cada liderança
+    // 2. Mapeia eleitores agrupados por liderança e seção eleitoral
     eleitores.forEach((e) => {
       const lidId = e.liderancaId || e.lideranca?.trim().toLowerCase() || 'sem_lider';
       if (!map.has(lidId)) {
         map.set(lidId, {
           lider: { id: lidId, nome: e.lideranca || 'Sem Liderança Definida' },
           totalPrometidos: 0,
-          secoesKeys: new Set()
+          eleitoresPorSecao: new Map()
         });
       }
       const entry = map.get(lidId)!;
       entry.totalPrometidos++;
+
       const secKey = makeSecaoKey(e.zona, e.secao);
-      entry.secoesKeys.add(secKey);
+      if (!entry.eleitoresPorSecao.has(secKey)) {
+        entry.eleitoresPorSecao.set(secKey, []);
+      }
+      entry.eleitoresPorSecao.get(secKey)!.push(e);
     });
 
-    // Mapeia seções e votos apurados
+    // 3. Processa o cruzamento exato de votos com os eleitores cadastrados
     const list: LiderancaDesempenho[] = [];
     const processedIds = new Set<string>();
 
@@ -396,27 +488,91 @@ export default function CumprimentoVotosPage() {
       if (processedIds.has(id) || entry.totalPrometidos === 0) return;
       processedIds.add(id);
 
-      let votosApuradosSecoes = 0;
-      let secoesApuradasDestaLider = 0;
+      let eleitoresEmSecoesApuradas = 0;
+      let votosValidadosTotal = 0;
+      let votosApuradosTotalSecoes = 0;
+      let secoesApuradas = 0;
+      let secoesCumpridas = 0;
+      let secoesComQuebra = 0;
+      const detalhesSecoes: LiderancaSecaoDetalhe[] = [];
 
-      entry.secoesKeys.forEach((secKey) => {
-        const ap = apuracoesMap.get(secKey);
-        if (ap) {
-          secoesApuradasDestaLider++;
-          votosApuradosSecoes += ap.votosApurados;
+      entry.eleitoresPorSecao.forEach((eleitoresDaLideranca, secKey) => {
+        const secaoInfo = secoesMap.get(secKey);
+        const countLid = eleitoresDaLideranca.length;
+        const totalSecao = secaoInfo?.totalCadastrados || countLid;
+        const isApurada = !!secaoInfo?.isApurada;
+        const votosApurados = secaoInfo?.votosApurados;
+
+        let statusSecao: LiderancaSecaoDetalhe['statusSecao'] = 'Aguardando Urna';
+        let votosValidados = 0;
+        let teveVotosSuficientes: boolean | null = null;
+        let saldoSecao = -countLid;
+
+        if (isApurada && typeof votosApurados === 'number') {
+          secoesApuradas++;
+          eleitoresEmSecoesApuradas += countLid;
+          votosApuradosTotalSecoes += votosApurados;
+
+          if (votosApurados >= totalSecao) {
+            // A seção teve votos suficientes para cumprir a quantidade de eleitores cadastrados!
+            teveVotosSuficientes = true;
+            statusSecao = 'Meta Cumprida';
+            secoesCumpridas++;
+            votosValidados = countLid; // Liderança atingiu 100% de seus eleitores
+            saldoSecao = 0;
+          } else {
+            // Houve quebra de votos na seção
+            teveVotosSuficientes = false;
+            statusSecao = 'Quebra de Votos';
+            secoesComQuebra++;
+            const proporcao = totalSecao > 0 ? countLid / totalSecao : 0;
+            votosValidados = Math.min(countLid, Math.round(votosApurados * proporcao));
+            saldoSecao = votosValidados - countLid;
+          }
+
+          votosValidadosTotal += votosValidados;
         }
+
+        detalhesSecoes.push({
+          key: secKey,
+          zona: secaoInfo?.zona || eleitoresDaLideranca[0]?.zona || 'Sem Zona',
+          secao: secaoInfo?.secao || eleitoresDaLideranca[0]?.secao || 'Sem Seção',
+          localNome: secaoInfo?.localNome || 'Local não cadastrado',
+          bairro: secaoInfo?.bairro || eleitoresDaLideranca[0]?.bairro || 'Centro',
+          eleitoresLideranca: countLid,
+          totalEleitoresSecao: totalSecao,
+          votosApurados,
+          isApurada,
+          teveVotosSuficientes,
+          votosValidados,
+          statusSecao,
+          saldoSecao,
+          eleitores: eleitoresDaLideranca
+        });
+      });
+
+      // Ordena as seções por status (quebra primeiro para auditoria rápida, depois cumpridas, depois pendentes)
+      detalhesSecoes.sort((a, b) => {
+        if (a.isApurada && !b.isApurada) return -1;
+        if (!a.isApurada && b.isApurada) return 1;
+        return a.saldoSecao - b.saldoSecao;
       });
 
       const taxa =
-        entry.totalPrometidos > 0 && secoesApuradasDestaLider > 0
-          ? Math.round((votosApuradosSecoes / entry.totalPrometidos) * 100)
+        eleitoresEmSecoesApuradas > 0
+          ? Math.round((votosValidadosTotal / eleitoresEmSecoesApuradas) * 100)
           : 0;
 
-      let classificacao: LiderancaDesempenho['classificacao'] = 'Sem Apuração';
-      if (secoesApuradasDestaLider > 0) {
-        if (taxa >= 100) classificacao = 'Alta Fidelidade';
-        else if (taxa >= 75) classificacao = 'Dentro da Meta';
-        else classificacao = 'Abaixo da Meta';
+      const taxaTotalGeral =
+        entry.totalPrometidos > 0
+          ? Math.round((votosValidadosTotal / entry.totalPrometidos) * 100)
+          : 0;
+
+      let classificacao: LiderancaDesempenho['classificacao'] = 'Aguardando Urna';
+      if (secoesApuradas > 0) {
+        if (taxa >= 100) classificacao = 'Meta Cumprida';
+        else if (taxa >= 75) classificacao = 'Cumprimento Parcial';
+        else classificacao = 'Quebra Grave';
       }
 
       list.push({
@@ -425,17 +581,24 @@ export default function CumprimentoVotosPage() {
         tipo: (entry.lider as any).tipo,
         liderancaPaiNome: (entry.lider as any).liderancaPaiNome,
         totalEleitoresPrometidos: entry.totalPrometidos,
-        secoesAtuadas: entry.secoesKeys.size,
-        votosApuradosTotalSecoes: votosApuradosSecoes,
-        saldoEstimado: votosApuradosSecoes - entry.totalPrometidos,
+        eleitoresEmSecoesApuradas,
+        secoesAtuadas: entry.eleitoresPorSecao.size,
+        secoesApuradas,
+        secoesCumpridas,
+        secoesComQuebra,
+        votosValidadosTotal,
+        votosApuradosTotalSecoes,
+        saldoEstimado: votosValidadosTotal - eleitoresEmSecoesApuradas,
         cumprimentoMedioPct: taxa,
-        classificacao
+        cumprimentoGlobalPct: taxaTotalGeral,
+        classificacao,
+        detalhesSecoes
       });
     });
 
     list.sort((a, b) => b.totalEleitoresPrometidos - a.totalEleitoresPrometidos);
     return list;
-  }, [liderancas, eleitores, apuracoesMap]);
+  }, [liderancas, eleitores, secoesAgrupadas]);
 
   // Filtragem de Seções
   const filteredSecoes = useMemo(() => {
@@ -443,8 +606,8 @@ export default function CumprimentoVotosPage() {
       // Filtro Status de Apuração
       if (statusApuracaoFilter === 'apuradas' && !item.isApurada) return false;
       if (statusApuracaoFilter === 'pendentes' && item.isApurada) return false;
-      if (statusApuracaoFilter === 'superaram' && (!item.isApurada || item.cumprimentoPct < 100)) return false;
-      if (statusApuracaoFilter === 'abaixo' && (!item.isApurada || item.cumprimentoPct >= 75)) return false;
+      if (statusApuracaoFilter === 'superaram' && (!item.isApurada || item.teveVotosSuficientes !== true)) return false;
+      if (statusApuracaoFilter === 'abaixo' && (!item.isApurada || item.teveVotosSuficientes !== false)) return false;
 
       // Filtro Zona
       if (zonaFilter !== 'todas' && item.zona !== zonaFilter) return false;
@@ -690,67 +853,83 @@ export default function CumprimentoVotosPage() {
         </div>
       </div>
 
-      {/* Metrics Cards Compactos (Padrão de Alta Densidade) */}
+      {/* Metrics Cards Compactos (Cruzamento Real da Base Cadastrada) */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 shrink-0">
-        {/* Card 1: Votos Cadastrados */}
+        {/* Card 1: Eleitores Cadastrados no Sistema */}
         <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-outline-variant/60 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
-              Votos Cadastrados
+              Eleitores Cadastrados
             </p>
             <div className="flex items-baseline gap-1.5 mt-0.5">
-              <h3 className="text-lg md:text-xl font-black text-on-surface">{stats.totalCadastrados}</h3>
-              <span className="text-[11px] text-on-surface-variant">prometidos</span>
+              <h3 className="text-lg md:text-xl font-black text-on-surface">{stats.totalEleitoresCadastrados}</h3>
+              <span className="text-[11px] text-on-surface-variant font-medium">prometidos</span>
             </div>
+            <p className="text-[10px] text-on-surface-variant/80 mt-0.5 font-medium">
+              em {stats.secoesComEleitoresCount} seções da base
+            </p>
           </div>
           <div className="p-1.5 bg-surface-container rounded-lg text-secondary">
             <Users className="w-4 h-4" />
           </div>
         </div>
 
-        {/* Card 2: Votos Reais Apurados */}
+        {/* Card 2: Votos Reais na Base */}
         <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-secondary/40 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-secondary uppercase tracking-wider">
-              Votos Reais Apurados
+              Votos Reais na Base
             </p>
             <div className="flex items-baseline gap-1.5 mt-0.5">
-              <h3 className="text-lg md:text-xl font-black text-secondary">{stats.totalVotosApurados}</h3>
+              <h3 className="text-lg md:text-xl font-black text-secondary">{stats.votosEmSecoesCadastradas}</h3>
               <span className="text-[11px] text-on-surface-variant font-medium">nas urnas</span>
             </div>
+            <p className="text-[10px] text-on-surface-variant/80 mt-0.5 font-medium">
+              {stats.secoesCadastradasApuradasCount} seções apuradas
+            </p>
           </div>
           <div className="p-1.5 bg-secondary/10 rounded-lg text-secondary">
             <Vote className="w-4 h-4" />
           </div>
         </div>
 
-        {/* Card 3: Taxa de Cumprimento Geral */}
-        <div className={`px-3.5 py-2 rounded-xl border shadow-xs flex items-center justify-between ${
-          stats.taxaCumprimentoGlobal >= 100
+        {/* Card 3: CUMPRIMENTO REAL DE VOTO (Isolado somente nos Eleitores Cadastrados) */}
+        <div className={`px-3.5 py-2 rounded-xl border shadow-xs flex items-center justify-between col-span-2 sm:col-span-1 ${
+          stats.taxaCumprimentoReal >= 100
             ? 'border-emerald-300 bg-emerald-50/50'
-            : stats.taxaCumprimentoGlobal >= 75
+            : stats.taxaCumprimentoReal >= 75
             ? 'border-sky-300 bg-sky-50/50'
-            : stats.secoesApuradasCount > 0
+            : stats.secoesCadastradasApuradasCount > 0
             ? 'border-amber-300 bg-amber-50/50'
             : 'border-outline-variant/60 bg-surface-container-lowest'
         }`}>
           <div>
-            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider flex items-center gap-1">
-              Cumprimento Real
-            </p>
-            <div className="flex items-baseline gap-1.5 mt-0.5">
-              <h3 className={`text-lg md:text-xl font-black ${
-                stats.taxaCumprimentoGlobal >= 100 ? 'text-emerald-700' : 'text-primary'
-              }`}>
-                {stats.taxaCumprimentoGlobal}%
-              </h3>
-              <span className="text-[11px] font-semibold text-on-surface-variant">
-                {stats.saldoGlobal >= 0 ? `+${stats.saldoGlobal} saldo` : `${stats.saldoGlobal} saldo`}
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] font-black uppercase tracking-wider text-on-surface">
+                Cumprimento Real
+              </p>
+              <span className="text-[9px] bg-secondary/15 text-secondary px-1.5 py-0.5 rounded font-bold uppercase">
+                Base
               </span>
             </div>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <h3 className={`text-lg md:text-xl font-black ${
+                stats.taxaCumprimentoReal >= 100 ? 'text-emerald-700' : stats.taxaCumprimentoReal >= 75 ? 'text-sky-700' : 'text-primary'
+              }`}>
+                {stats.taxaCumprimentoReal}%
+              </h3>
+              <span className={`text-[11px] font-bold ${
+                stats.saldoRealIsolado >= 0 ? 'text-emerald-700' : 'text-rose-700'
+              }`}>
+                {stats.saldoRealIsolado >= 0 ? `+${stats.saldoRealIsolado}` : stats.saldoRealIsolado} saldo
+              </span>
+            </div>
+            <p className="text-[10px] text-on-surface-variant mt-0.5">
+              {stats.votosEmSecoesCadastradas} votos / {stats.eleitoresEmSecoesApuradas} cadastrados
+            </p>
           </div>
           <div className="p-1.5 bg-surface-container rounded-lg">
-            {stats.taxaCumprimentoGlobal >= 100 ? (
+            {stats.taxaCumprimentoReal >= 100 ? (
               <TrendingUp className="w-4 h-4 text-emerald-600" />
             ) : (
               <TrendingDown className="w-4 h-4 text-amber-600" />
@@ -758,7 +937,7 @@ export default function CumprimentoVotosPage() {
           </div>
         </div>
 
-        {/* Card 4: Cobertura da Apuração */}
+        {/* Card 4: Cobertura das Seções Cadastradas */}
         <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-outline-variant/60 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
@@ -766,28 +945,31 @@ export default function CumprimentoVotosPage() {
             </p>
             <div className="flex items-baseline gap-1.5 mt-0.5">
               <h3 className="text-lg md:text-xl font-black text-on-surface">
-                {stats.secoesApuradasCount} / {stats.totalSecoes}
+                {stats.secoesCadastradasApuradasCount} / {stats.secoesComEleitoresCount}
               </h3>
-              <span className="text-[11px] text-on-surface-variant">({stats.taxaCobertura}%)</span>
+              <span className="text-[11px] text-on-surface-variant">({stats.taxaCoberturaBase}%)</span>
             </div>
+            <p className="text-[10px] text-on-surface-variant/80 mt-0.5 font-medium">
+              da base de eleitores
+            </p>
           </div>
           <div className="p-1.5 bg-surface-container rounded-lg text-secondary">
             <CheckCircle2 className="w-4 h-4" />
           </div>
         </div>
 
-        {/* Card 5: Balanço de Fidelidade */}
+        {/* Card 5: Balanço das Seções Cadastradas */}
         <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-outline-variant/60 shadow-xs flex items-center justify-between col-span-2 sm:col-span-1">
           <div>
             <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
-              Desempenho Seções
+              Balanço das Seções
             </p>
-            <div className="flex items-center gap-2 mt-1 text-xs">
-              <span className="text-emerald-700 font-bold flex items-center gap-0.5">
-                <Check className="w-3 h-3" /> {stats.secoesSuperaramCount} superaram
+            <div className="flex flex-col gap-0.5 mt-1 text-xs">
+              <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px]">
+                <Check className="w-3 h-3" /> {stats.secoesCadastradasCumpridasCount} cumpriram meta
               </span>
-              <span className="text-rose-700 font-bold flex items-center gap-0.5">
-                <AlertTriangle className="w-3 h-3" /> {stats.secoesAbaixoCount} abaixo
+              <span className="text-rose-700 font-bold flex items-center gap-1 text-[11px]">
+                <AlertTriangle className="w-3 h-3" /> {stats.secoesCadastradasQuebradasCount} com quebra de votos
               </span>
             </div>
           </div>
@@ -956,13 +1138,14 @@ export default function CumprimentoVotosPage() {
                   </th>
                   <th className="py-2 px-3 md:py-2.5 md:px-3.5">Cumprimento (%)</th>
                   <th className="py-2 px-3 md:py-2.5 md:px-3.5 text-center">Saldo</th>
+                  <th className="py-2 px-3 md:py-2.5 md:px-3.5 text-center">Situação (Urna vs Base)</th>
                   <th className="py-2 px-3 md:py-2.5 md:px-3.5 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/30 text-sm">
                 {filteredSecoes.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-12 text-on-surface-variant">
+                    <td colSpan={9} className="text-center py-12 text-on-surface-variant">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Vote className="w-8 h-8 text-outline-variant" />
                         <p className="font-semibold text-on-surface">Nenhuma seção encontrada com os filtros</p>
@@ -1074,7 +1257,7 @@ export default function CumprimentoVotosPage() {
                                 }`}>
                                   {secao.cumprimentoPct}%
                                 </span>
-                                <span className="text-[10px] text-on-surface-variant">
+                                <span className="text-[10px] text-on-surface-variant font-medium">
                                   {secao.cumprimentoPct >= 100 ? 'Superou' : secao.cumprimentoPct >= 75 ? 'Na meta' : 'Abaixo'}
                                 </span>
                               </div>
@@ -1115,15 +1298,36 @@ export default function CumprimentoVotosPage() {
                           )}
                         </td>
 
+                        {/* Situação Cruzada: Urna vs Base Cadastrada */}
+                        <td className="py-1.5 px-3 md:py-2 md:px-3.5 text-center">
+                          {!secao.isApurada ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-on-surface-variant/70">
+                              <Clock className="w-3 h-3 text-amber-500" /> Aguardando Urna
+                            </span>
+                          ) : secao.totalCadastrados === 0 ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full">
+                              <Vote className="w-3 h-3" /> Votos Espontâneos
+                            </span>
+                          ) : secao.teveVotosSuficientes ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full" title={`A urna registrou ${secao.votosApurados} votos, cobrindo os ${secao.totalCadastrados} eleitores cadastrados`}>
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Meta Cumprida
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 px-2.5 py-0.5 rounded-full" title={`A urna registrou ${secao.votosApurados} votos, faltando ${Math.abs(secao.saldo)} votos para os ${secao.totalCadastrados} prometidos`}>
+                              <AlertTriangle className="w-3 h-3 text-rose-600" /> Quebra de Votos (-{Math.abs(secao.saldo)})
+                            </span>
+                          )}
+                        </td>
+
                         {/* Ações */}
                         <td className="py-1.5 px-3 md:py-2 md:px-3.5 text-right">
                           <button
                             type="button"
                             onClick={() => setSelectedSecao(secao)}
                             className="px-2.5 py-1 text-xs font-semibold text-secondary hover:underline bg-surface-container hover:bg-surface-container-high rounded transition-colors cursor-pointer"
-                            title="Ver eleitores e lideranças desta seção"
+                            title="Auditar cruzamento de eleitores e lideranças desta seção"
                           >
-                            Detalhes ({secao.totalCadastrados})
+                            Auditar Seção ({secao.totalCadastrados})
                           </button>
                         </td>
                       </tr>
@@ -1184,15 +1388,18 @@ export default function CumprimentoVotosPage() {
           </div>
 
           <div className="overflow-x-auto flex-1 custom-scrollbar">
-            <table className="w-full text-left border-collapse min-w-[950px]">
+            <table className="w-full text-left border-collapse min-w-[1100px]">
               <thead>
                 <tr className="bg-surface-container-low border-b border-outline-variant/60 text-xs text-on-surface-variant uppercase font-semibold">
                   <th className="py-2.5 px-4">Liderança / Articulador</th>
-                  <th className="py-2.5 px-4 text-center">Eleitores Prometidos</th>
+                  <th className="py-2.5 px-4 text-center">Eleitores Cadastrados</th>
                   <th className="py-2.5 px-4 text-center">Seções de Atuação</th>
-                  <th className="py-2.5 px-4 text-center">Votos Apurados nas Seções</th>
-                  <th className="py-2.5 px-4">Cumprimento Estimado (%)</th>
-                  <th className="py-2.5 px-4 text-center">Classificação de Fidelidade</th>
+                  <th className="py-2.5 px-4 text-center">Votos Validados / Cumpridos</th>
+                  <th className="py-2.5 px-4">Cumprimento Real (%)</th>
+                  <th className="py-2.5 px-4 text-center">Saldo Real</th>
+                  <th className="py-2.5 px-4 text-center">Balanço das Seções</th>
+                  <th className="py-2.5 px-4 text-center">Situação</th>
+                  <th className="py-2.5 px-4 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/30 text-sm">
@@ -1213,31 +1420,49 @@ export default function CumprimentoVotosPage() {
                       <span className="font-bold text-xs text-on-surface">
                         {item.totalEleitoresPrometidos}
                       </span>
-                    </td>
-
-                    <td className="py-2.5 px-4 text-center">
-                      <span className="text-xs font-mono font-medium text-on-surface">
-                        {item.secoesAtuadas} {item.secoesAtuadas === 1 ? 'seção' : 'seções'}
+                      <span className="text-[10px] text-on-surface-variant block">
+                        ({item.eleitoresEmSecoesApuradas} apurados)
                       </span>
                     </td>
 
                     <td className="py-2.5 px-4 text-center">
-                      <span className="font-bold text-xs text-secondary">
-                        {item.votosApuradosTotalSecoes}
+                      <span className="text-xs font-mono font-bold text-on-surface">
+                        {item.secoesApuradas} / {item.secoesAtuadas}
+                      </span>
+                      <span className="text-[10px] text-on-surface-variant block">
+                        {item.secoesApuradas === item.secoesAtuadas ? '100% apuradas' : 'seções apuradas'}
+                      </span>
+                    </td>
+
+                    <td className="py-2.5 px-4 text-center">
+                      <span className="font-bold text-xs text-secondary font-mono">
+                        {item.votosValidadosTotal}
+                      </span>
+                      <span className="text-[10px] text-on-surface-variant block">
+                        de {item.eleitoresEmSecoesApuradas} esperados
                       </span>
                     </td>
 
                     <td className="py-2.5 px-4">
-                      {item.classificacao !== 'Sem Apuração' ? (
+                      {item.classificacao !== 'Aguardando Urna' ? (
                         <div className="w-full max-w-[140px]">
                           <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="font-black text-xs text-primary">
+                            <span className={`font-black text-xs ${
+                              item.cumprimentoMedioPct >= 100
+                                ? 'text-emerald-700'
+                                : item.cumprimentoMedioPct >= 75
+                                ? 'text-sky-700'
+                                : 'text-rose-700'
+                            }`}>
                               {item.cumprimentoMedioPct}%
+                            </span>
+                            <span className="text-[10px] text-on-surface-variant font-medium">
+                              {item.cumprimentoMedioPct >= 100 ? 'Superou' : item.cumprimentoMedioPct >= 75 ? 'Na meta' : 'Quebra'}
                             </span>
                           </div>
                           <div className="h-1.5 bg-surface-container rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${
+                              className={`h-full rounded-full transition-all ${
                                 item.cumprimentoMedioPct >= 100
                                   ? 'bg-emerald-600'
                                   : item.cumprimentoMedioPct >= 75
@@ -1249,20 +1474,50 @@ export default function CumprimentoVotosPage() {
                           </div>
                         </div>
                       ) : (
-                        <span className="text-xs text-on-surface-variant/60 italic">Seções não apuradas</span>
+                        <span className="text-xs text-on-surface-variant/60 italic flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-500" /> Aguardando Urnas
+                        </span>
                       )}
                     </td>
 
                     <td className="py-2.5 px-4 text-center">
-                      {item.classificacao === 'Alta Fidelidade' ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Alta Fidelidade
+                      {item.secoesApuradas > 0 ? (
+                        <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded-full ${
+                          item.saldoEstimado > 0
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : item.saldoEstimado === 0
+                            ? 'bg-sky-100 text-sky-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {item.saldoEstimado > 0 ? `+${item.saldoEstimado}` : item.saldoEstimado}
                         </span>
-                      ) : item.classificacao === 'Dentro da Meta' ? (
+                      ) : (
+                        <span className="text-on-surface-variant text-xs">-</span>
+                      )}
+                    </td>
+
+                    <td className="py-2.5 px-4 text-center">
+                      <div className="flex items-center justify-center gap-1.5 text-xs">
+                        <span className="text-emerald-700 font-bold" title={`${item.secoesCumpridas} seções cumpriram a meta`}>
+                          {item.secoesCumpridas} ✓
+                        </span>
+                        <span className="text-on-surface-variant/40">/</span>
+                        <span className="text-rose-700 font-bold" title={`${item.secoesComQuebra} seções com quebra de votos`}>
+                          {item.secoesComQuebra} ✗
+                        </span>
+                      </div>
+                    </td>
+
+                    <td className="py-2.5 px-4 text-center">
+                      {item.classificacao === 'Meta Cumprida' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Meta Cumprida
+                        </span>
+                      ) : item.classificacao === 'Cumprimento Parcial' ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800">
                           <Check className="w-3 h-3 text-sky-600" /> Dentro da Meta
                         </span>
-                      ) : item.classificacao === 'Abaixo da Meta' ? (
+                      ) : item.classificacao === 'Quebra Grave' ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800">
                           <AlertTriangle className="w-3 h-3 text-rose-600" /> Quebra de Votos
                         </span>
@@ -1271,6 +1526,17 @@ export default function CumprimentoVotosPage() {
                           <Clock className="w-3 h-3 text-amber-500" /> Aguardando Urnas
                         </span>
                       )}
+                    </td>
+
+                    <td className="py-2.5 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLiderancaAudit(item)}
+                        className="px-2.5 py-1 text-xs font-semibold text-secondary hover:underline bg-surface-container hover:bg-surface-container-high rounded transition-colors cursor-pointer"
+                        title="Ver auditoria detalhada de cada seção desta liderança"
+                      >
+                        Auditar Liderança
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -1304,6 +1570,51 @@ export default function CumprimentoVotosPage() {
             </div>
 
             <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+              {/* Alerta de Cruzamento Urna vs Base Cadastrada */}
+              {selectedSecao.isApurada ? (
+                selectedSecao.totalCadastrados === 0 ? (
+                  <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 flex items-start gap-2.5">
+                    <Vote className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Votos Espontâneos da Urna</p>
+                      <p className="text-[11px] text-sky-800 mt-0.5">
+                        Esta seção não possuía eleitores cadastrados previamente no sistema, mas o candidato obteve <strong>{selectedSecao.votosApurados} votos</strong> válidos na apuração.
+                      </p>
+                    </div>
+                  </div>
+                ) : selectedSecao.teveVotosSuficientes ? (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-emerald-950">✓ Meta Cumprida: Votos de Acordo com os Eleitores Cadastrados</p>
+                      <p className="text-[11px] text-emerald-800 mt-0.5">
+                        A urna registrou <strong>{selectedSecao.votosApurados} votos</strong>, quantidade suficiente para honrar os <strong>{selectedSecao.totalCadastrados} eleitores cadastrados</strong> pelas lideranças nesta seção (saldo positivo de +{selectedSecao.saldo} votos).
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-rose-950">⚠️ Quebra de Votos: Urna Abaixo dos Eleitores Cadastrados</p>
+                      <p className="text-[11px] text-rose-800 mt-0.5">
+                        A urna registrou apenas <strong>{selectedSecao.votosApurados} votos</strong>, faltando <strong>{Math.abs(selectedSecao.saldo)} votos</strong> para honrar a meta dos <strong>{selectedSecao.totalCadastrados} eleitores prometidos</strong> pelas lideranças nesta seção.
+                      </p>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-950">Aguardando Apuração da Urna</p>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      Há {selectedSecao.totalCadastrados} eleitores cadastrados nesta seção aguardando importação do Boletim de Urna (TSE ou QR Code).
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Resumo da Seção */}
               <div className="grid grid-cols-3 gap-2 p-3 bg-surface-container rounded-xl text-xs">
                 <div>
@@ -1333,18 +1644,43 @@ export default function CumprimentoVotosPage() {
               {/* Lideranças com eleitores nesta seção */}
               <div>
                 <h4 className="text-xs font-bold text-on-surface uppercase tracking-wider mb-2">
-                  Lideranças com Votos Nesta Seção ({selectedSecao.liderancasMap.size})
+                  Lideranças com Eleitores Nesta Seção ({selectedSecao.liderancasMap.size})
                 </h4>
-                <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
-                  {Array.from(selectedSecao.liderancasMap.values()).map((lid, i) => (
-                    <div
-                      key={i}
-                      className="px-3 py-2 bg-surface-container-low rounded-lg text-xs flex items-center justify-between"
-                    >
-                      <span className="font-semibold text-on-surface">{lid.nome}</span>
-                      <span className="font-bold text-primary font-mono">{lid.count} eleitores</span>
-                    </div>
-                  ))}
+                <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                  {Array.from(selectedSecao.liderancasMap.values()).map((lid, i) => {
+                    const pctDaSecao = selectedSecao.totalCadastrados > 0
+                      ? Math.round((lid.count / selectedSecao.totalCadastrados) * 100)
+                      : 0;
+                    const votosLidSecao = selectedSecao.isApurada && typeof selectedSecao.votosApurados === 'number'
+                      ? selectedSecao.teveVotosSuficientes
+                        ? lid.count
+                        : Math.min(lid.count, Math.round((lid.count / Math.max(1, selectedSecao.totalCadastrados)) * selectedSecao.votosApurados))
+                      : null;
+
+                    return (
+                      <div
+                        key={i}
+                        className="px-3 py-2 bg-surface-container-low rounded-lg text-xs flex items-center justify-between"
+                      >
+                        <div>
+                          <span className="font-semibold text-on-surface block">{lid.nome}</span>
+                          <span className="text-[10px] text-on-surface-variant">
+                            {pctDaSecao}% dos eleitores cadastrados desta seção
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-primary font-mono block">{lid.count} prometidos</span>
+                          {votosLidSecao !== null && (
+                            <span className={`text-[10px] font-bold ${
+                              selectedSecao.teveVotosSuficientes ? 'text-emerald-700' : 'text-rose-700'
+                            }`}>
+                              {votosLidSecao} validados ({selectedSecao.teveVotosSuficientes ? '100%' : `${Math.round((votosLidSecao / lid.count) * 100)}%`})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1397,6 +1733,163 @@ export default function CumprimentoVotosPage() {
                 className="px-4 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-bold ml-auto"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE AUDITORIA DETALHADA DA LIDERANÇA */}
+      {selectedLiderancaAudit && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm md:text-base font-bold text-on-surface flex items-center gap-2">
+                  <Award className="w-4 h-4 text-primary" />
+                  Auditoria de Eficácia: {selectedLiderancaAudit.nome}
+                </h3>
+                <p className="text-xs text-on-surface-variant font-medium mt-0.5">
+                  {selectedLiderancaAudit.tipo || 'Liderança'} {selectedLiderancaAudit.liderancaPaiNome ? `• Articulador Superior: ${selectedLiderancaAudit.liderancaPaiNome}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedLiderancaAudit(null)}
+                className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+              {/* Cards de Resumo da Liderança */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="p-3 bg-surface-container rounded-xl text-xs">
+                  <p className="text-on-surface-variant text-[11px] font-bold uppercase">Cadastrados</p>
+                  <p className="text-lg font-black text-on-surface mt-0.5">
+                    {selectedLiderancaAudit.totalEleitoresPrometidos}
+                  </p>
+                  <p className="text-[10px] text-on-surface-variant font-medium">eleitores prometidos</p>
+                </div>
+                <div className="p-3 bg-surface-container rounded-xl text-xs">
+                  <p className="text-on-surface-variant text-[11px] font-bold uppercase">Seções Apuradas</p>
+                  <p className="text-lg font-black text-on-surface mt-0.5">
+                    {selectedLiderancaAudit.secoesApuradas} / {selectedLiderancaAudit.secoesAtuadas}
+                  </p>
+                  <p className="text-[10px] text-on-surface-variant font-medium">
+                    {selectedLiderancaAudit.eleitoresEmSecoesApuradas} eleitores avaliados
+                  </p>
+                </div>
+                <div className="p-3 bg-surface-container rounded-xl text-xs">
+                  <p className="text-secondary text-[11px] font-bold uppercase">Votos Validados</p>
+                  <p className="text-lg font-black text-secondary mt-0.5">
+                    {selectedLiderancaAudit.votosValidadosTotal}
+                  </p>
+                  <p className="text-[10px] text-on-surface-variant font-medium">atribuídos pelas urnas</p>
+                </div>
+                <div className={`p-3 rounded-xl border text-xs ${
+                  selectedLiderancaAudit.cumprimentoMedioPct >= 100
+                    ? 'border-emerald-300 bg-emerald-50/50'
+                    : selectedLiderancaAudit.cumprimentoMedioPct >= 75
+                    ? 'border-sky-300 bg-sky-50/50'
+                    : selectedLiderancaAudit.secoesApuradas > 0
+                    ? 'border-rose-300 bg-rose-50/50'
+                    : 'border-outline-variant/60 bg-surface-container'
+                }`}>
+                  <p className="text-[11px] font-bold uppercase text-on-surface">Cumprimento Real</p>
+                  <p className={`text-lg font-black mt-0.5 ${
+                    selectedLiderancaAudit.cumprimentoMedioPct >= 100 ? 'text-emerald-700' : selectedLiderancaAudit.cumprimentoMedioPct >= 75 ? 'text-sky-700' : 'text-rose-700'
+                  }`}>
+                    {selectedLiderancaAudit.secoesApuradas > 0 ? `${selectedLiderancaAudit.cumprimentoMedioPct}%` : 'Pendente'}
+                  </p>
+                  <p className="text-[10px] font-bold text-on-surface-variant">
+                    {selectedLiderancaAudit.secoesApuradas > 0 ? `${selectedLiderancaAudit.saldoEstimado >= 0 ? '+' : ''}${selectedLiderancaAudit.saldoEstimado} saldo` : 'aguardando urnas'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tabela de Seções de Atuação */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-on-surface uppercase tracking-wider">
+                    Detalhamento por Seção Eleitoral ({selectedLiderancaAudit.detalhesSecoes.length})
+                  </h4>
+                  <span className="text-[11px] text-on-surface-variant font-medium">
+                    {selectedLiderancaAudit.secoesCumpridas} cumpridas • {selectedLiderancaAudit.secoesComQuebra} com quebra
+                  </span>
+                </div>
+
+                <div className="border border-outline-variant/60 rounded-xl overflow-hidden max-h-72 overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-surface-container-low text-on-surface-variant text-[11px] font-semibold sticky top-0 border-b border-outline-variant/50">
+                      <tr>
+                        <th className="py-2 px-3">Zona / Seção</th>
+                        <th className="py-2 px-3">Local de Votação</th>
+                        <th className="py-2 px-3 text-center">Prometidos</th>
+                        <th className="py-2 px-3 text-center">Total Seção</th>
+                        <th className="py-2 px-3 text-center">Urna (BU)</th>
+                        <th className="py-2 px-3 text-center">Validados</th>
+                        <th className="py-2 px-3 text-center">Situação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30">
+                      {selectedLiderancaAudit.detalhesSecoes.map((sec) => (
+                        <tr key={sec.key} className="hover:bg-surface-container-low transition-colors">
+                          <td className="py-2 px-3 font-mono font-bold text-on-surface">
+                            Seção {sec.secao} <span className="text-[10px] text-on-surface-variant font-normal block">{sec.zona}</span>
+                          </td>
+                          <td className="py-2 px-3 max-w-[200px] truncate" title={sec.localNome}>
+                            <p className="font-medium text-on-surface truncate">{sec.localNome}</p>
+                            <p className="text-[10px] text-on-surface-variant">{sec.bairro}</p>
+                          </td>
+                          <td className="py-2 px-3 text-center font-bold text-primary font-mono">
+                            {sec.eleitoresLideranca}
+                          </td>
+                          <td className="py-2 px-3 text-center text-on-surface-variant font-mono">
+                            {sec.totalEleitoresSecao}
+                          </td>
+                          <td className="py-2 px-3 text-center font-bold text-secondary font-mono">
+                            {sec.isApurada ? sec.votosApurados : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-center font-bold font-mono">
+                            {sec.isApurada ? (
+                              <span className={sec.teveVotosSuficientes ? 'text-emerald-700' : 'text-rose-700'}>
+                                {sec.votosValidados}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {!sec.isApurada ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-on-surface-variant">
+                                <Clock className="w-3 h-3 text-amber-500" /> Aguardando
+                              </span>
+                            ) : sec.teveVotosSuficientes ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Cumprida
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-full" title={`Faltaram ${Math.abs(sec.saldoSecao)} votos para a cota prometida`}>
+                                <AlertTriangle className="w-3 h-3 text-rose-600" /> Quebra ({sec.saldoSecao})
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 bg-surface border-t border-outline-variant/60 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedLiderancaAudit(null)}
+                className="px-4 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-bold cursor-pointer"
+              >
+                Fechar Auditoria
               </button>
             </div>
           </div>
@@ -1475,6 +1968,7 @@ export default function CumprimentoVotosPage() {
             showToast(`✓ ${items.length} seções do TSE importadas com sucesso!`);
           }}
           registeredSectionsKeys={registeredSectionsKeys}
+          registeredSectionsInfo={registeredSectionsInfo}
         />
       )}
 

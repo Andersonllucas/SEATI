@@ -21,14 +21,16 @@ interface TseCsvImporterModalProps {
   onImportBatch: (
     items: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string }>
   ) => Promise<void>;
-  registeredSectionsKeys: Set<string>;
+  registeredSectionsKeys?: Set<string>;
+  registeredSectionsInfo?: Map<string, { totalCadastrados: number; localNome?: string }>;
 }
 
 export function TseCsvImporterModal({
   isOpen,
   onClose,
   onImportBatch,
-  registeredSectionsKeys
+  registeredSectionsKeys,
+  registeredSectionsInfo
 }: TseCsvImporterModalProps) {
   // Número do candidato preenchido ANTES do arquivo
   const [targetNumber, setTargetNumber] = useState<string>(() => {
@@ -128,24 +130,44 @@ export function TseCsvImporterModal({
 
     let totalVotos = 0;
     let matchingRegistered = 0;
+    let votosEmSecoesCadastradas = 0;
+    let eleitoresCadastradosCruzados = 0;
 
     preparedRows.forEach((r) => {
       totalVotos += r.votos;
       const keyZ = String(parseInt(r.zona.replace(/\D/g, '') || '0', 10));
       const keyS = String(parseInt(r.secao.replace(/\D/g, '') || '0', 10));
       const secKey = `z${keyZ}_s${keyS}`;
-      if (registeredSectionsKeys.has(secKey)) {
+      
+      const info = registeredSectionsInfo?.get(secKey);
+      const isKeyMatch = registeredSectionsKeys?.has(secKey);
+
+      if (info || isKeyMatch) {
         matchingRegistered++;
+        votosEmSecoesCadastradas += r.votos;
+        if (info) {
+          eleitoresCadastradosCruzados += info.totalCadastrados;
+        }
       }
     });
+
+    const totalBasesCadastradas = registeredSectionsInfo?.size || registeredSectionsKeys?.size || 0;
+    const taxaMatch = Math.round((matchingRegistered / Math.max(1, totalBasesCadastradas)) * 100);
+    const taxaCumprimentoBase = eleitoresCadastradosCruzados > 0
+      ? Math.round((votosEmSecoesCadastradas / eleitoresCadastradosCruzados) * 100)
+      : 0;
 
     return {
       totalSecoes: preparedRows.length,
       totalVotos,
       matchingRegistered,
-      taxaMatch: Math.round((matchingRegistered / Math.max(1, registeredSectionsKeys.size)) * 100)
+      totalBasesCadastradas,
+      taxaMatch,
+      votosEmSecoesCadastradas,
+      eleitoresCadastradosCruzados,
+      taxaCumprimentoBase
     };
-  }, [preparedRows, registeredSectionsKeys]);
+  }, [preparedRows, registeredSectionsKeys, registeredSectionsInfo]);
 
   // Confirmar e Importar
   const handleConfirmImport = async () => {
@@ -455,23 +477,57 @@ export function TseCsvImporterModal({
                     </div>
                   </div>
 
-                  {/* Cards de Métricas */}
+                  {/* Cards de Métricas Cruzadas */}
                   {stats && (
-                    <div className="grid grid-cols-3 gap-2 p-3 bg-surface-container rounded-xl text-xs">
-                      <div>
-                        <p className="text-[10px] text-on-surface-variant uppercase font-bold">Seções no Arquivo</p>
-                        <p className="text-sm sm:text-base font-black text-on-surface mt-0.5">{stats.totalSecoes} seções</p>
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-3 gap-2 p-3 bg-surface-container rounded-xl text-xs">
+                        <div>
+                          <p className="text-[10px] text-on-surface-variant uppercase font-bold">Seções no Arquivo</p>
+                          <p className="text-sm sm:text-base font-black text-on-surface mt-0.5">{stats.totalSecoes} seções</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-secondary uppercase font-bold">Total Votos Arquivo</p>
+                          <p className="text-sm sm:text-base font-black text-secondary mt-0.5">{stats.totalVotos.toLocaleString('pt-BR')} votos</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-emerald-700 uppercase font-bold">Cruzamento com a Base</p>
+                          <p className="text-sm sm:text-base font-black text-emerald-700 mt-0.5">
+                            {stats.matchingRegistered} seções ({stats.taxaMatch}%)
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[10px] text-secondary uppercase font-bold">Total Votos</p>
-                        <p className="text-sm sm:text-base font-black text-secondary mt-0.5">{stats.totalVotos.toLocaleString('pt-BR')} votos</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-emerald-700 uppercase font-bold">Cruzamento com a Base</p>
-                        <p className="text-sm sm:text-base font-black text-emerald-700 mt-0.5">
-                          {stats.matchingRegistered} seções ({stats.taxaMatch}%)
-                        </p>
-                      </div>
+
+                      {stats.eleitoresCadastradosCruzados > 0 && (
+                        <div className="grid grid-cols-3 gap-2 p-3 bg-emerald-500/10 border border-emerald-500/25 rounded-xl text-xs">
+                          <div>
+                            <p className="text-[10px] text-emerald-900 uppercase font-bold">Eleitores na Sua Base</p>
+                            <p className="text-sm sm:text-base font-black text-emerald-950 mt-0.5">
+                              {stats.eleitoresCadastradosCruzados.toLocaleString('pt-BR')} eleitores
+                            </p>
+                            <p className="text-[10px] text-emerald-800">nas seções encontradas</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-emerald-900 uppercase font-bold">Votos Reais nas Seções</p>
+                            <p className="text-sm sm:text-base font-black text-emerald-950 mt-0.5">
+                              {stats.votosEmSecoesCadastradas.toLocaleString('pt-BR')} votos
+                            </p>
+                            <p className="text-[10px] text-emerald-800">apurados nessas seções</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-emerald-900 uppercase font-bold">Cumprimento da Base</p>
+                            <p className={`text-sm sm:text-base font-black mt-0.5 ${
+                              stats.taxaCumprimentoBase >= 100 ? 'text-emerald-700' : 'text-amber-700'
+                            }`}>
+                              {stats.taxaCumprimentoBase}%
+                            </p>
+                            <p className="text-[10px] text-emerald-800">
+                              {stats.votosEmSecoesCadastradas >= stats.eleitoresCadastradosCruzados
+                                ? `+${stats.votosEmSecoesCadastradas - stats.eleitoresCadastradosCruzados} votos saldo`
+                                : `${stats.votosEmSecoesCadastradas - stats.eleitoresCadastradosCruzados} votos saldo`}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
