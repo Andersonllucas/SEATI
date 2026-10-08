@@ -181,6 +181,10 @@ export default function CumprimentoVotosPage() {
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
+  // Modal de Encerramento de Seções Pendentes com 0 Votos
+  const [isClosePendingModalOpen, setIsClosePendingModalOpen] = useState(false);
+  const [isClosingPending, setIsClosingPending] = useState(false);
+
   // Toast Feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -400,6 +404,33 @@ export default function CumprimentoVotosPage() {
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [secoesAgrupadas]);
+
+  // Seções pendentes que possuem eleitores cadastrados na base da campanha
+  const secoesPendentesBase = useMemo(() => {
+    return secoesAgrupadas.filter((s) => !s.isApurada && s.totalCadastrados > 0);
+  }, [secoesAgrupadas]);
+
+  // Encerra todas as seções pendentes da base registrando 0 votos para fechar a apuração definitiva
+  const handleConfirmClosePending = async () => {
+    if (secoesPendentesBase.length === 0) return;
+    setIsClosingPending(true);
+    try {
+      const itens = secoesPendentesBase.map((s) => ({
+        zona: s.zona,
+        secao: s.secao,
+        votosApurados: 0,
+        boletimUrna: 'Apuração Final Definitiva (0 Votos)'
+      }));
+      await importarLoteApuracao(itens);
+      showToast(`✓ ${itens.length} seções pendentes foram encerradas com 0 votos com sucesso!`);
+      setIsClosePendingModalOpen(false);
+    } catch (err: any) {
+      console.error('Erro ao encerrar seções pendentes:', err);
+      showToast('Erro ao encerrar seções pendentes.');
+    } finally {
+      setIsClosingPending(false);
+    }
+  };
 
   // Estatísticas Globais de Cumprimento Real (Isolado na Base de Eleitores Cadastrados)
   const stats = useMemo(() => {
@@ -933,6 +964,19 @@ export default function CumprimentoVotosPage() {
             <Camera className="w-3.5 h-3.5 text-secondary-container" />
             <span>Escanear QR Code do BU</span>
           </button>
+
+          {/* Botão para Encerrar Seções Pendentes com 0 Votos (Apuração Final Definitiva) */}
+          {secoesPendentesBase.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsClosePendingModalOpen(true)}
+              className="px-2.5 py-1.5 border border-amber-400 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/80 text-amber-900 dark:text-amber-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+              title="Marcar todas as seções que ainda estão como Aguardando com 0 votos para fechar a apuração definitiva"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
+              <span>Encerrar Pendentes (0 Votos) ({secoesPendentesBase.length})</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -2203,6 +2247,86 @@ export default function CumprimentoVotosPage() {
                   <Trash2 className="w-4 h-4" />
                 )}
                 <span>{isDeletingAll ? 'Excluindo...' : 'Sim, Excluir Todos'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE ENCERRAMENTO DE SEÇÕES PENDENTES COM 0 VOTOS (APURAÇÃO DEFINITIVA) */}
+      {isClosePendingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-xl">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">
+                    Encerrar Seções Pendentes com 0 Votos
+                  </h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Fechar apuração definitiva das seções sem votos
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsClosePendingModalOpen(false)}
+                className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-surface-container-low rounded-xl border border-outline-variant/60 text-xs text-on-surface space-y-2">
+              <p>
+                O sistema detectou que você possui <strong className="text-amber-700 dark:text-amber-400 font-bold">{secoesPendentesBase.length} seções da sua base</strong> com o status <em>"Aguardando Urna"</em>.
+              </p>
+              <p className="text-on-surface-variant">
+                Como o arquivo que você importou já é o <strong>final e definitivo</strong>, isso significa que nessas seções restantes o seu candidato não recebeu votos (0 votos nas urnas).
+              </p>
+              <div className="p-2.5 bg-surface-container rounded-lg font-medium text-[11px] text-on-surface-variant">
+                Ao confirmar, o sistema registrará <strong>0 votos</strong> em cada uma dessas {secoesPendentesBase.length} seções, atualizando o status para <strong>Quebra de Votos</strong> e concluindo 100% da apuração da sua base.
+              </div>
+            </div>
+
+            {/* Lista prévia com barra de rolagem */}
+            <div className="max-h-40 overflow-y-auto border border-outline-variant/60 rounded-xl divide-y divide-outline-variant/40 bg-surface text-xs">
+              {secoesPendentesBase.map((s) => (
+                <div key={s.key} className="px-3 py-1.5 flex items-center justify-between text-[11px]">
+                  <div>
+                    <span className="font-bold text-primary">Seção {s.secao}</span> • <span className="text-on-surface-variant">Zona {s.zona}</span>
+                    <span className="text-[10px] text-on-surface-variant block">{s.localNome} ({s.bairro})</span>
+                  </div>
+                  <span className="font-semibold text-rose-700">
+                    {s.totalCadastrados} cadastrados → 0 votos
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 pt-1 border-t border-outline-variant/60">
+              <button
+                type="button"
+                onClick={() => setIsClosePendingModalOpen(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-outline-variant text-xs font-semibold text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isClosingPending}
+                onClick={handleConfirmClosePending}
+                className="flex-1 py-2.5 px-4 bg-amber-600 hover:bg-amber-500 active:scale-[0.99] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-amber-900/30 cursor-pointer disabled:opacity-50"
+              >
+                {isClosingPending ? (
+                  <RotateCcw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>{isClosingPending ? 'Encerrando...' : `Confirmar 0 Votos (${secoesPendentesBase.length})`}</span>
               </button>
             </div>
           </div>
