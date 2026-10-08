@@ -965,7 +965,7 @@ export default function CumprimentoVotosPage() {
   };
 
   return (
-    <div className={`p-3 md:p-4 space-y-3 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative ${isPrintModalOpen ? 'print:hidden' : ''}`}>
+    <div className="p-3 md:p-4 space-y-3 max-w-[1600px] mx-auto flex-1 h-full flex flex-col relative">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed top-4 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-fadeIn border border-white/10">
@@ -2428,8 +2428,8 @@ export default function CumprimentoVotosPage() {
 
       {/* MODAL DE IMPRESSÃO PROFISSIONAL DE RELATÓRIO */}
       {isPrintModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-xs animate-fadeIn overflow-y-auto print:fixed print:inset-0 print:p-0 print:bg-white print:overflow-visible print:z-[9999]">
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-5xl w-full shadow-2xl flex flex-col max-h-[95vh] my-auto print:border-none print:shadow-none print:max-w-none print:max-h-none print:p-0 print:m-0 print:rounded-none print:w-full print:h-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-xs animate-fadeIn overflow-y-auto print:static print:inset-auto print:p-0 print:bg-transparent print:overflow-visible print:z-auto">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-5xl w-full shadow-2xl flex flex-col max-h-[95vh] my-auto print:border-none print:shadow-none print:max-w-none print:max-h-none print:p-0 print:m-0 print:rounded-none print:w-full print:h-auto print:static print:bg-transparent">
             {/* Top Bar do Modal (não visível na impressão física) */}
             <div className="no-print px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2.5">
@@ -2942,6 +2942,41 @@ export default function CumprimentoVotosPage() {
           </div>
         </div>
       )}
+      {/* Regras CSS globais para impressão física limpa (A4) sem páginas em branco */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #printable-report-area,
+          #printable-report-area * {
+            visibility: visible;
+          }
+          #printable-report-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 10px !important;
+            background: white !important;
+            color: #0f172a !important;
+            box-shadow: none !important;
+            border: none !important;
+            overflow: visible !important;
+            display: block !important;
+            height: auto !important;
+            min-height: auto !important;
+          }
+          .no-print,
+          header,
+          aside,
+          nav,
+          button {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
