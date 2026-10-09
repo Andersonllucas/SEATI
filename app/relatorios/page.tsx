@@ -464,9 +464,127 @@ export default function RelatoriosPage() {
     setCurrentPage(1);
   };
 
-  // DISPARO DE IMPRESSÃO VIA NAVEGADOR
+  // DISPARO DE IMPRESSÃO VIA NAVEGADOR (PAGINADA, COMPLETA E SEM CORTE)
   const handlePrint = () => {
-    window.print();
+    const reportElem = document.getElementById('printable-relatorio-area');
+    if (!reportElem) {
+      window.print();
+      return;
+    }
+
+    let printIframe = document.getElementById('relatorio-print-iframe') as HTMLIFrameElement;
+    if (!printIframe) {
+      printIframe = document.createElement('iframe');
+      printIframe.id = 'relatorio-print-iframe';
+      printIframe.style.position = 'fixed';
+      printIframe.style.right = '0';
+      printIframe.style.bottom = '0';
+      printIframe.style.width = '0';
+      printIframe.style.height = '0';
+      printIframe.style.border = '0';
+      printIframe.style.visibility = 'hidden';
+      document.body.appendChild(printIframe);
+    }
+
+    const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
+    if (!doc) {
+      window.print();
+      return;
+    }
+
+    const styleTags = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+      .map((node) => node.outerHTML)
+      .join('\n');
+
+    const isPortrait = reportMode === 'folha_fiscal';
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>${reportTitle} - ${campaignDisplayName}</title>
+        ${styleTags}
+        <style>
+          @page {
+            size: ${isPortrait ? 'A4 portrait' : 'A4 landscape'};
+            margin: 8mm 6mm;
+          }
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+          }
+          #printable-relatorio-area {
+            display: block !important;
+            visibility: visible !important;
+            width: 100% !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            overflow: visible !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            font-size: 7.5pt !important;
+          }
+          thead {
+            display: table-header-group !important;
+          }
+          tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          th {
+            background-color: #001428 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            padding: 4px 5px !important;
+            border: 1px solid #64748b !important;
+            font-size: 7.5pt !important;
+          }
+          td {
+            padding: 3px 5px !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #0f172a !important;
+            font-size: 7pt !important;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="printable-relatorio-area">
+          ${reportElem.innerHTML}
+        </div>
+      </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        printIframe.contentWindow?.focus();
+        printIframe.contentWindow?.print();
+      } catch (err) {
+        console.error('Falha na impressão isolada, tentando nativo:', err);
+        window.print();
+      }
+    }, 250);
   };
 
   // EXPORTAÇÃO PDF VIA JSPDF
@@ -576,36 +694,12 @@ export default function RelatoriosPage() {
   return (
     <div className={`w-full max-w-[1920px] mx-auto p-2.5 sm:p-4 flex-1 h-full flex flex-col relative ${isFocusMode ? 'space-y-2' : 'space-y-3'}`}>
       {/* ========================================================
-          CABEÇALHO OFICIAL DE IMPRESSÃO (VISÍVEL APENAS NO PRINT)
+          INTERFACE INTERATIVA DE TELA (OCULTA NA IMPRESSÃO)
           ======================================================== */}
-      <div className="hidden print-only mb-6 pb-4 border-b-2 border-slate-900">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold uppercase tracking-tight text-slate-950">
-              {campaignDisplayName}
-            </h1>
-            <h2 className="text-sm font-semibold text-slate-800 mt-0.5">
-              {reportTitle}
-            </h2>
-          </div>
-          <div className="text-right text-[10px] text-slate-600 font-mono">
-            <p>Emissão: {new Date().toLocaleString('pt-BR')}</p>
-            <p>Operador: {currentUser?.nome || 'Coordenação de Campanha'}</p>
-            <p>Total Listado: {sortedEleitores.length} eleitor(es)</p>
-          </div>
-        </div>
-        <div className="mt-3 p-2 bg-slate-100 rounded text-[10px] text-slate-700">
-          <span className="font-bold">Filtros Aplicados: </span>
-          <span>{activeFiltersSummary}</span>
-        </div>
-      </div>
-
-      {/* ========================================================
-          TOPO INSTITUCIONAL DA TELA (OCULTO NA IMPRESSÃO)
-          ======================================================== */}
-      {isFocusMode ? (
-        /* Barra Ultra-Compacta em Modo Foco (Máxima Área Útil para a Tabela) */
-        <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl px-3 py-2 flex items-center justify-between gap-3 shadow-xs shrink-0 no-print">
+      <div className="no-print flex-1 flex flex-col min-h-0 space-y-2.5">
+        {isFocusMode ? (
+          /* Barra Ultra-Compacta em Modo Foco (Máxima Área Útil para a Tabela) */
+          <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl px-3 py-2 flex items-center justify-between gap-3 shadow-xs shrink-0 no-print">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[10px] font-black uppercase tracking-wider text-secondary bg-secondary/15 px-2 py-0.5 rounded-full shrink-0">
               Modo Expandido
@@ -1539,12 +1633,297 @@ export default function RelatoriosPage() {
         )}
       </div>
 
+      {/* Fim do Bloco de Interface de Tela */}
+      </div>
+
       {/* ========================================================
-          RODAPÉ OFICIAL DE IMPRESSÃO (VISÍVEL APENAS NO PRINT)
+          DOCUMENTO COMPLETO OFICIAL PARA IMPRESSÃO FÍSICA (A4)
+          Visível apenas na impressão ou capturado pelo iframe print
+          Contém TODOS os {sortedEleitores.length} registros sem corte e sem scrollbar
           ======================================================== */}
-      <div className="hidden print-only mt-8 pt-4 border-t border-slate-400 text-[10px] text-slate-500 flex justify-between">
-        <span>Sistema de Gestão Eleitoral SEATI • Documento Oficial de Campanha</span>
-        <span>Folha impressa para uso interno e controle de fiscais</span>
+      <div id="printable-relatorio-area" className="hidden print:block w-full">
+        {/* Cabeçalho Timbrado Oficial */}
+        <div className="mb-4 pb-3 border-b-2 border-slate-900 flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black tracking-widest uppercase bg-slate-900 text-white px-2 py-0.5 rounded">
+                SEATI ELEITORAL
+              </span>
+              <span className="text-[11px] font-bold text-slate-600">
+                Central de Relatórios Oficiais
+              </span>
+            </div>
+            <h1 className="text-lg font-black uppercase tracking-tight text-slate-950 mt-1">
+              {campaignDisplayName}
+            </h1>
+            <h2 className="text-xs font-bold text-slate-800">
+              {reportTitle}
+            </h2>
+          </div>
+          <div className="text-right text-[10px] text-slate-600 font-mono shrink-0">
+            <p>Emissão: <strong>{new Date().toLocaleString('pt-BR')}</strong></p>
+            <p>Operador: <strong>{currentUser?.nome || 'Coordenação de Campanha'}</strong></p>
+            <p className="mt-0.5">
+              Total Listado: <strong>{sortedEleitores.length} eleitor(es)</strong>
+            </p>
+          </div>
+        </div>
+
+        {/* Faixa de Filtros Aplicados */}
+        <div className="mb-3 p-2 bg-slate-100 rounded border border-slate-200 text-[10px] text-slate-700">
+          <span className="font-bold text-slate-900">Filtros Aplicados: </span>
+          <span>{activeFiltersSummary}</span>
+        </div>
+
+        {/* Tabela Completa de Todos os Registros Filtrados (Sem Paginação e Sem Scrollbar) */}
+        <table className="w-full text-left text-[10px] border-collapse">
+          <thead>
+            <tr className="bg-slate-900 text-white font-bold">
+              <th className="py-2 px-2 text-center w-8">#</th>
+              {reportMode === 'zona_secao' ? (
+                <>
+                  <th className="py-2 px-2 text-center w-14">Zona</th>
+                  <th className="py-2 px-2 text-center w-14">Seção</th>
+                  <th className="py-2 px-2">Local de Votação (Colégio)</th>
+                  <th className="py-2 px-2">Nome do Eleitor</th>
+                  <th className="py-2 px-2">CPF</th>
+                  <th className="py-2 px-2">Título</th>
+                  <th className="py-2 px-2">Telefone</th>
+                  <th className="py-2 px-2">Bairro</th>
+                  <th className="py-2 px-2">Liderança</th>
+                  <th className="py-2 px-2 text-center w-20">Status</th>
+                </>
+              ) : reportMode === 'lider_sublider' ? (
+                <>
+                  <th className="py-2 px-2">Liderança Principal</th>
+                  <th className="py-2 px-2">Sub-liderança</th>
+                  <th className="py-2 px-2">Nome do Eleitor</th>
+                  <th className="py-2 px-2">CPF</th>
+                  <th className="py-2 px-2">Telefone</th>
+                  <th className="py-2 px-2">Bairro</th>
+                  <th className="py-2 px-2 text-center w-20">Zona / Seção</th>
+                  <th className="py-2 px-2 text-center w-20">Status</th>
+                  <th className="py-2 px-2 text-center w-20">Auditoria</th>
+                </>
+              ) : reportMode === 'folha_fiscal' ? (
+                <>
+                  <th className="py-2 px-2">Nome do Eleitor</th>
+                  <th className="py-2 px-2">Título Eleitoral</th>
+                  <th className="py-2 px-2 text-center w-24">Zona / Seção</th>
+                  <th className="py-2 px-2">Bairro</th>
+                  <th className="py-2 px-2">Telefone</th>
+                  <th className="py-2 px-2">Liderança</th>
+                  <th className="py-2 px-2 text-center w-32">Visto / Assinatura</th>
+                </>
+              ) : (
+                <>
+                  <th className="py-2 px-2">Nome do Eleitor</th>
+                  <th className="py-2 px-2">CPF</th>
+                  <th className="py-2 px-2">Título</th>
+                  <th className="py-2 px-2">Telefone</th>
+                  <th className="py-2 px-2 text-center w-20">Zona / Seção</th>
+                  <th className="py-2 px-2">Bairro</th>
+                  <th className="py-2 px-2">Liderança Vinculada</th>
+                  <th className="py-2 px-2 text-center w-20">Status</th>
+                  <th className="py-2 px-2 text-center w-20">Auditoria</th>
+                </>
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {sortedEleitores.length === 0 ? (
+              <tr>
+                <td colSpan={11} className="py-8 text-center text-slate-500">
+                  Nenhum eleitor encontrado com os filtros aplicados.
+                </td>
+              </tr>
+            ) : (
+              sortedEleitores.map((eleitor, index) => {
+                const isCpfConflict = conflictingCpfVoterIds.has(eleitor.id);
+                const isTituloConflict = conflictingTituloVoterIds.has(eleitor.id);
+                const hasNoDoc = !eleitor.cpf && !eleitor.tituloEleitor;
+                const liderObj = eleitor.liderancaId
+                  ? leaderByIdMap.get(eleitor.liderancaId)
+                  : leaderByIdMap.get((eleitor.lideranca || '').trim().toLowerCase());
+
+                const isSub = liderObj?.tipo === 'Sub-liderança';
+                const principalLeaderName = isSub
+                  ? liderObj.liderancaPaiNome || '-'
+                  : liderObj?.nome || eleitor.lideranca || 'Sem Liderança';
+                const subLeaderName = isSub ? liderObj.nome : '-';
+
+                const zNorm = (eleitor.zona || '').padStart(3, '0');
+                const sNorm = (eleitor.secao || '').padStart(4, '0');
+                const colegio = localPorZonaSecao.get(`${zNorm}-${sNorm}`) || '-';
+
+                return (
+                  <tr
+                    key={`print-${eleitor.id}`}
+                    className={index % 2 === 1 ? 'bg-slate-50' : 'bg-white'}
+                  >
+                    <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-600">
+                      {index + 1}
+                    </td>
+
+                    {reportMode === 'zona_secao' ? (
+                      <>
+                        <td className="py-1.5 px-2 text-center font-bold font-mono">
+                          {eleitor.zona || '-'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center font-bold font-mono">
+                          {eleitor.secao || '-'}
+                        </td>
+                        <td className="py-1.5 px-2 font-medium">
+                          {colegio}
+                        </td>
+                        <td className="py-1.5 px-2 font-semibold text-slate-900">
+                          {eleitor.nome}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono">
+                          {formatCpf(eleitor.cpf)}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono">
+                          {eleitor.tituloEleitor ? formatTituloUtil(eleitor.tituloEleitor) : '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.telefone || '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.bairro || '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {principalLeaderName}
+                          {subLeaderName !== '-' && (
+                            <span className="text-slate-500 text-[9px] block">Sub: {subLeaderName}</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-2 text-center font-semibold">
+                          {eleitor.status || 'Validado'}
+                        </td>
+                      </>
+                    ) : reportMode === 'lider_sublider' ? (
+                      <>
+                        <td className="py-1.5 px-2 font-bold text-slate-900">
+                          {principalLeaderName}
+                        </td>
+                        <td className="py-1.5 px-2 font-semibold">
+                          {subLeaderName}
+                        </td>
+                        <td className="py-1.5 px-2 font-semibold">
+                          {eleitor.nome}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono">
+                          {formatCpf(eleitor.cpf)}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.telefone || '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.bairro || '-'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center font-mono">
+                          {eleitor.zona ? `${eleitor.zona} / ${eleitor.secao}` : '-'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center font-semibold">
+                          {eleitor.status || 'Validado'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center">
+                          {isCpfConflict && isTituloConflict ? (
+                            <span className="font-bold text-rose-700">DUPLO CONFLITO</span>
+                          ) : isCpfConflict ? (
+                            <span className="font-bold text-rose-700">CPF DUPLICADO</span>
+                          ) : isTituloConflict ? (
+                            <span className="font-bold text-amber-700">TÍTULO DUPLICADO</span>
+                          ) : hasNoDoc ? (
+                            <span className="text-slate-500">SEM DOC</span>
+                          ) : (
+                            <span className="font-bold text-emerald-700">✓ ÍNTEGRO</span>
+                          )}
+                        </td>
+                      </>
+                    ) : reportMode === 'folha_fiscal' ? (
+                      <>
+                        <td className="py-1.5 px-2 font-bold text-slate-900">
+                          {eleitor.nome}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono">
+                          {eleitor.tituloEleitor ? formatTituloUtil(eleitor.tituloEleitor) : '-'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center font-mono font-bold">
+                          {eleitor.zona ? `Z: ${eleitor.zona} / S: ${eleitor.secao}` : '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.bairro || '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.telefone || '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {principalLeaderName}
+                          {subLeaderName !== '-' && <span className="text-slate-500 text-[9px] block">Sub: {subLeaderName}</span>}
+                        </td>
+                        <td className="py-1.5 px-2 text-center">
+                          <div className="h-5 border-b border-dashed border-slate-400 flex items-center justify-center text-[9px] text-slate-400">
+                            [   ] Votou
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-1.5 px-2 font-semibold text-slate-900">
+                          {eleitor.nome}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono">
+                          {formatCpf(eleitor.cpf)}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono">
+                          {eleitor.tituloEleitor ? formatTituloUtil(eleitor.tituloEleitor) : '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.telefone || '-'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center font-mono">
+                          {eleitor.zona ? `${eleitor.zona} / ${eleitor.secao}` : '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          {eleitor.bairro || '-'}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <span className="font-semibold">{principalLeaderName}</span>
+                          {subLeaderName !== '-' && (
+                            <span className="text-slate-500 text-[9px] block">Sub: {subLeaderName}</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-2 text-center font-semibold">
+                          {eleitor.status || 'Validado'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center">
+                          {isCpfConflict && isTituloConflict ? (
+                            <span className="font-bold text-rose-700">DUPLO CONFLITO</span>
+                          ) : isCpfConflict ? (
+                            <span className="font-bold text-rose-700">CPF DUPLICADO</span>
+                          ) : isTituloConflict ? (
+                            <span className="font-bold text-amber-700">TÍTULO DUPLICADO</span>
+                          ) : hasNoDoc ? (
+                            <span className="text-slate-500">SEM DOC</span>
+                          ) : (
+                            <span className="font-bold text-emerald-700">✓ ÍNTEGRO</span>
+                          )}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+
+        {/* Rodapé Oficial da Impressão */}
+        <div className="mt-6 pt-3 border-t-2 border-slate-800 text-[9px] text-slate-600 flex justify-between items-center break-inside-avoid">
+          <span>Sistema de Gestão Eleitoral SEATI • Documento Oficial de Campanha</span>
+          <span>Folha impressa para uso interno e controle de coordenação/fiscais</span>
+        </div>
       </div>
     </div>
   );

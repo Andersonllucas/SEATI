@@ -160,8 +160,9 @@ h1, h2, h3, h4, h5, h6, .font-display {
     padding: 0 !important;
   }
 
-  /* Garante que se houver um elemento com id printable-report-area, ele seja exibido com clareza e quebras corretas */
-  #printable-report-area {
+  /* Garante que elementos de relatório para impressão sejam exibidos com clareza e quebras corretas */
+  #printable-report-area,
+  #printable-relatorio-area {
     display: block !important;
     position: static !important;
     width: 100% !important;
