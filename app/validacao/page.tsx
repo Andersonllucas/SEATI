@@ -25,6 +25,7 @@ import {
 import {
   useCampaignData,
   Eleitor,
+  Lideranca,
   TipoValidacao,
   StatusValidacao
 } from '@/context/CampaignContext';
@@ -140,8 +141,51 @@ export default function ValidacaoPage() {
   const [statusFilter, setStatusFilter] = useState<'todos' | StatusValidacao | 'sem_validacao'>('todos');
   const [tipoFilter, setTipoFilter] = useState<'todos' | TipoValidacao>('todos');
   const [liderancaFilter, setLiderancaFilter] = useState('todas');
+  const [subLiderancaFilter, setSubLiderancaFilter] = useState('todos');
   const [bairroFilter, setBairroFilter] = useState('todos');
   const [pendenciaFilter, setPendenciaFilter] = useState('todas');
+
+  // Mapeamentos de Lideranças Principais e Sub-lideranças
+  const { liderancasPrincipais, subLiderancas, leaderByIdMap } = useMemo(() => {
+    const principais: Lideranca[] = [];
+    const subs: Lideranca[] = [];
+    const map = new Map<string, Lideranca>();
+
+    (liderancas || []).forEach((l) => {
+      map.set(l.id, l);
+      if (l.nome) map.set(l.nome.trim().toLowerCase(), l);
+
+      if (l.tipo === 'Sub-liderança') {
+        subs.push(l);
+      } else {
+        principais.push(l);
+      }
+    });
+
+    principais.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+    subs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+
+    return {
+      liderancasPrincipais: principais,
+      subLiderancas: subs,
+      leaderByIdMap: map
+    };
+  }, [liderancas]);
+
+  // Sub-lideranças dinamicamente vinculadas à Liderança Principal selecionada
+  const availableSubLiderancas = useMemo(() => {
+    if (liderancaFilter === 'todas' || liderancaFilter === 'sem_lideranca') {
+      return subLiderancas;
+    }
+    const selectedPrincipal = leaderByIdMap.get(liderancaFilter);
+    if (!selectedPrincipal) return subLiderancas;
+
+    return subLiderancas.filter(
+      (s) =>
+        s.liderancaPaiId === selectedPrincipal.id ||
+        (s.liderancaPaiNome && s.liderancaPaiNome.trim().toLowerCase() === selectedPrincipal.nome.trim().toLowerCase())
+    );
+  }, [liderancaFilter, subLiderancas, leaderByIdMap]);
 
   // Lê parâmetros da URL para abrir com filtros ativos (ex: ?pendencia=sem_telefone)
   useEffect(() => {
@@ -263,9 +307,85 @@ export default function ValidacaoPage() {
         if (e.tipoValidacao !== tipoFilter) return false;
       }
 
-      // Filtro Liderança
+      // Identificação da liderança do eleitor
+      const voterLeader = e.liderancaId
+        ? leaderByIdMap.get(e.liderancaId)
+        : leaderByIdMap.get((e.lideranca || '').trim().toLowerCase());
+
+      const rawSubId = (e as any).subLiderancaId;
+      const rawSubName = (e as any).subLideranca ? String((e as any).subLideranca).trim().toLowerCase() : '';
+      const voterSubLeader = rawSubId
+        ? leaderByIdMap.get(rawSubId)
+        : rawSubName ? leaderByIdMap.get(rawSubName) : undefined;
+
+      const hasSubLeader =
+        (voterLeader && voterLeader.tipo === 'Sub-liderança') ||
+        Boolean(voterSubLeader) ||
+        Boolean(rawSubId) ||
+        Boolean(rawSubName && rawSubName !== 'sem sub-liderança' && rawSubName !== 'sem sub liderança');
+
+      // Filtro por Liderança Principal
       if (liderancaFilter !== 'todas') {
-        if (e.liderancaId !== liderancaFilter && e.lideranca !== liderancaFilter) return false;
+        if (liderancaFilter === 'sem_lideranca') {
+          const l = (e.lideranca || '').trim().toLowerCase();
+          const hasNoLid =
+            !e.liderancaId ||
+            l === '' ||
+            l === 'sem liderança' ||
+            l === 'sem lideranca' ||
+            l === 'não informada' ||
+            l === 'nao informada' ||
+            l === 'sem liderança definida';
+          if (!hasNoLid) return false;
+        } else {
+          const principalSelected = leaderByIdMap.get(liderancaFilter);
+          if (!principalSelected) return false;
+
+          const isDirectPrincipal =
+            (voterLeader && (voterLeader.id === principalSelected.id || voterLeader.nome?.trim().toLowerCase() === principalSelected.nome?.trim().toLowerCase())) ||
+            (!voterLeader && (e.lideranca || '').trim().toLowerCase() === principalSelected.nome?.trim().toLowerCase());
+
+          const isSubOfThisPrincipal =
+            (voterLeader &&
+              voterLeader.tipo === 'Sub-liderança' &&
+              (voterLeader.liderancaPaiId === principalSelected.id ||
+                voterLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase())) ||
+            (voterSubLeader &&
+              (voterSubLeader.liderancaPaiId === principalSelected.id ||
+                voterSubLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase()));
+
+          if (!isDirectPrincipal && !isSubOfThisPrincipal) {
+            return false;
+          }
+        }
+      }
+
+      // Filtro por Sub-liderança
+      if (subLiderancaFilter !== 'todos') {
+        if (subLiderancaFilter === 'apenas_lideranca') {
+          // Exibe SOMENTE quem está ligado diretamente à liderança principal (sem nenhuma sub-liderança)
+          if (hasSubLeader) {
+            return false;
+          }
+          if (liderancaFilter === 'todas') {
+            if (!voterLeader || voterLeader.tipo === 'Sub-liderança') {
+              return false;
+            }
+          }
+        } else {
+          const targetSub = leaderByIdMap.get(subLiderancaFilter);
+          const targetSubName = targetSub?.nome?.trim().toLowerCase() || '';
+
+          const matchesSub =
+            (voterLeader && (voterLeader.id === subLiderancaFilter || (targetSubName && voterLeader.nome?.trim().toLowerCase() === targetSubName))) ||
+            (voterSubLeader && (voterSubLeader.id === subLiderancaFilter || (targetSubName && voterSubLeader.nome?.trim().toLowerCase() === targetSubName))) ||
+            rawSubId === subLiderancaFilter ||
+            (targetSubName && rawSubName === targetSubName);
+
+          if (!matchesSub) {
+            return false;
+          }
+        }
       }
 
       // Filtro Bairro
@@ -331,7 +451,7 @@ export default function ValidacaoPage() {
 
       return true;
     });
-  }, [eleitores, statusFilter, tipoFilter, liderancaFilter, bairroFilter, pendenciaFilter, searchTerm, registeredPairs]);
+  }, [eleitores, statusFilter, tipoFilter, liderancaFilter, subLiderancaFilter, bairroFilter, pendenciaFilter, searchTerm, registeredPairs, leaderByIdMap]);
 
   // Paginação
   const totalPages = Math.max(1, Math.ceil(filteredEleitores.length / pageSize));
@@ -694,19 +814,39 @@ export default function ValidacaoPage() {
               <option value="Mensagem">💬 Por Mensagem</option>
             </select>
 
-            {/* Filtro Liderança */}
+            {/* Filtro Líder Principal */}
             <select
               value={liderancaFilter}
               onChange={(e) => {
                 setLiderancaFilter(e.target.value);
+                setSubLiderancaFilter('todos');
                 setCurrentPage(1);
               }}
               className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary max-w-[150px]"
             >
-              <option value="todas">Todas Lideranças</option>
-              {liderancas.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.nome}
+              <option value="todas">Todos os Líderes</option>
+              <option value="sem_lideranca">⚠️ Apenas Sem Liderança</option>
+              {liderancasPrincipais.map((lp) => (
+                <option key={lp.id} value={lp.id}>
+                  {lp.nome}
+                </option>
+              ))}
+            </select>
+
+            {/* Filtro Sub-líder */}
+            <select
+              value={subLiderancaFilter}
+              onChange={(e) => {
+                setSubLiderancaFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="h-8 bg-surface-container-lowest border border-outline-variant/50 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary max-w-[160px]"
+            >
+              <option value="todos">Todas Sub-lideranças ({availableSubLiderancas.length})</option>
+              <option value="apenas_lideranca">Apenas Liderança</option>
+              {availableSubLiderancas.map((sub) => (
+                <option key={sub.id} value={sub.id}>
+                  {sub.nome} {sub.liderancaPaiNome ? `(Sub de ${sub.liderancaPaiNome})` : ''}
                 </option>
               ))}
             </select>
@@ -908,6 +1048,11 @@ export default function ValidacaoPage() {
                   const isSelected = selectedIds.has(eleitor.id);
                   const statusVal = eleitor.statusValidacao || 'Pendente';
                   const hasPhone = !!eleitor.telefone && eleitor.telefone.replace(/\D/g, '').length >= 10;
+                  const voterLeader = eleitor.liderancaId
+                    ? leaderByIdMap.get(eleitor.liderancaId)
+                    : eleitor.lideranca
+                    ? leaderByIdMap.get(eleitor.lideranca.trim().toLowerCase())
+                    : undefined;
 
                   return (
                     <tr
@@ -991,6 +1136,11 @@ export default function ValidacaoPage() {
                         <span className="text-xs font-medium text-on-surface block truncate max-w-[140px]">
                           {eleitor.lideranca || '-'}
                         </span>
+                        {((eleitor as any).subLideranca || (voterLeader && voterLeader.tipo === 'Sub-liderança')) && (
+                          <span className="text-[10px] text-secondary font-medium block truncate max-w-[140px]">
+                            Sub: {(eleitor as any).subLideranca || (voterLeader?.tipo === 'Sub-liderança' ? voterLeader?.nome : '')}
+                          </span>
+                        )}
                         <span className="text-[10px] text-on-surface-variant">
                           Z: {eleitor.zona || '-'} / S: {eleitor.secao || '-'}
                         </span>

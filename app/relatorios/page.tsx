@@ -232,6 +232,18 @@ export default function RelatoriosPage() {
         ? leaderByIdMap.get(e.liderancaId)
         : leaderByIdMap.get((e.lideranca || '').trim().toLowerCase());
 
+      const rawSubId = (e as any).subLiderancaId;
+      const rawSubName = (e as any).subLideranca ? String((e as any).subLideranca).trim().toLowerCase() : '';
+      const voterSubLeader = rawSubId
+        ? leaderByIdMap.get(rawSubId)
+        : rawSubName ? leaderByIdMap.get(rawSubName) : undefined;
+
+      const hasSubLeader =
+        (voterLeader && voterLeader.tipo === 'Sub-liderança') ||
+        Boolean(voterSubLeader) ||
+        Boolean(rawSubId) ||
+        Boolean(rawSubName && rawSubName !== 'sem sub-liderança' && rawSubName !== 'sem sub liderança');
+
       // Filtro por Liderança Principal
       if (selectedLiderPrincipalId !== 'todos') {
         if (selectedLiderPrincipalId === 'sem_lideranca') {
@@ -240,13 +252,20 @@ export default function RelatoriosPage() {
           if (!hasNoLid) return false;
         } else {
           const principalSelected = leaderByIdMap.get(selectedLiderPrincipalId);
-          if (!voterLeader || !principalSelected) return false;
+          if (!principalSelected) return false;
 
-          const isDirectPrincipal = voterLeader.id === principalSelected.id;
+          const isDirectPrincipal =
+            (voterLeader && (voterLeader.id === principalSelected.id || voterLeader.nome?.trim().toLowerCase() === principalSelected.nome?.trim().toLowerCase())) ||
+            (!voterLeader && (e.lideranca || '').trim().toLowerCase() === principalSelected.nome?.trim().toLowerCase());
+
           const isSubOfThisPrincipal =
-            voterLeader.tipo === 'Sub-liderança' &&
-            (voterLeader.liderancaPaiId === principalSelected.id ||
-              voterLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase());
+            (voterLeader &&
+              voterLeader.tipo === 'Sub-liderança' &&
+              (voterLeader.liderancaPaiId === principalSelected.id ||
+                voterLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase())) ||
+            (voterSubLeader &&
+              (voterSubLeader.liderancaPaiId === principalSelected.id ||
+                voterSubLeader.liderancaPaiNome?.trim().toLowerCase() === principalSelected.nome.trim().toLowerCase()));
 
           if (!isDirectPrincipal && !isSubOfThisPrincipal) {
             return false;
@@ -256,8 +275,29 @@ export default function RelatoriosPage() {
 
       // Filtro por Sub-liderança
       if (selectedSubLiderId !== 'todos') {
-        if (!voterLeader || voterLeader.id !== selectedSubLiderId) {
-          return false;
+        if (selectedSubLiderId === 'apenas_lideranca') {
+          // Exibe SOMENTE quem está ligado diretamente à liderança principal (sem nenhuma sub-liderança)
+          if (hasSubLeader) {
+            return false;
+          }
+          if (selectedLiderPrincipalId === 'todos') {
+            if (!voterLeader || voterLeader.tipo === 'Sub-liderança') {
+              return false;
+            }
+          }
+        } else {
+          const targetSub = leaderByIdMap.get(selectedSubLiderId);
+          const targetSubName = targetSub?.nome?.trim().toLowerCase() || '';
+
+          const matchesSub =
+            (voterLeader && (voterLeader.id === selectedSubLiderId || (targetSubName && voterLeader.nome?.trim().toLowerCase() === targetSubName))) ||
+            (voterSubLeader && (voterSubLeader.id === selectedSubLiderId || (targetSubName && voterSubLeader.nome?.trim().toLowerCase() === targetSubName))) ||
+            rawSubId === selectedSubLiderId ||
+            (targetSubName && rawSubName === targetSubName);
+
+          if (!matchesSub) {
+            return false;
+          }
         }
       }
 
@@ -399,8 +439,12 @@ export default function RelatoriosPage() {
       if (p) parts.push(`Líder: ${p.nome}`);
     }
     if (selectedSubLiderId !== 'todos') {
-      const s = leaderByIdMap.get(selectedSubLiderId);
-      if (s) parts.push(`Sub-líder: ${s.nome}`);
+      if (selectedSubLiderId === 'apenas_lideranca') {
+        parts.push('Sub-líder: Apenas Liderança');
+      } else {
+        const s = leaderByIdMap.get(selectedSubLiderId);
+        if (s) parts.push(`Sub-líder: ${s.nome}`);
+      }
     }
     if (selectedBairro !== 'todos') parts.push(`Bairro: ${selectedBairro}`);
     if (selectedStatus !== 'todos') {
@@ -1125,6 +1169,7 @@ export default function RelatoriosPage() {
                   className="w-full h-8 bg-surface border border-outline-variant/60 rounded-md px-2 text-xs text-on-surface focus:outline-none focus:border-secondary"
                 >
                   <option value="todos">Todas as Sub-lideranças ({availableSubLiderancas.length})</option>
+                  <option value="apenas_lideranca">Apenas Liderança</option>
                   {availableSubLiderancas.map((sub) => (
                     <option key={sub.id} value={sub.id}>
                       {sub.nome} {sub.liderancaPaiNome ? `(Sub de ${sub.liderancaPaiNome})` : ''}

@@ -2517,7 +2517,7 @@ export default function CumprimentoVotosPage() {
 
             <div className="p-3.5 bg-surface-container-low rounded-xl border border-outline-variant/60 text-xs text-on-surface space-y-2">
               <p>
-                O sistema detectou que você possui <strong className="text-amber-700 dark:text-amber-400 font-bold">{secoesPendentesBase.length} seções da sua base</strong> com o status <em>"Aguardando Urna"</em>.
+                O sistema detectou que você possui <strong className="text-amber-700 dark:text-amber-400 font-bold">{secoesPendentesBase.length} seções da sua base</strong> com o status <em>&quot;Aguardando Urna&quot;</em>.
               </p>
               <p className="text-on-surface-variant">
                 Como o arquivo que você importou já é o <strong>final e definitivo</strong>, isso significa que nessas seções restantes o seu candidato não recebeu votos (0 votos nas urnas).

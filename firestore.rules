@@ -43,6 +43,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Coleção de Apuração de Seções e Votos
+    match /apuracao_secoes/{document=**} {
+      allow read, write: if true;
+    }
+
     // Coleção Central de Registro de Clientes (Multi-tenant)
     match /clientes_registry/{clienteId=**} {
       allow read, write: if true;

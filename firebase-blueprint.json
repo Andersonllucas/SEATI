@@ -350,6 +350,51 @@
           "description": "Data da última atualização"
         }
       ]
+    },
+    {
+      "name": "apuracao_secoes",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "description": "ID composto da seção no formato z{zona}_s{secao}"
+        },
+        {
+          "name": "zona",
+          "type": "string",
+          "description": "Número da Zona Eleitoral normalizada"
+        },
+        {
+          "name": "secao",
+          "type": "string",
+          "description": "Número da Seção Eleitoral normalizada"
+        },
+        {
+          "name": "votosApurados",
+          "type": "number",
+          "description": "Quantidade total de votos apurados na seção"
+        },
+        {
+          "name": "dataApuracao",
+          "type": "string",
+          "description": "Data e hora da apuração no formato ISO"
+        },
+        {
+          "name": "apuradoPor",
+          "type": "string",
+          "description": "Nome ou identificação de quem realizou a apuração"
+        },
+        {
+          "name": "boletimUrna",
+          "type": "string",
+          "description": "Identificação ou nome do Boletim de Urna (BU) / TSE"
+        },
+        {
+          "name": "observacoes",
+          "type": "string",
+          "description": "Observações complementares da apuração"
+        }
+      ]
     }
   ],
   "roles": [

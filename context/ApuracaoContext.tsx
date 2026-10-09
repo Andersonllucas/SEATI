@@ -7,12 +7,13 @@ import {
   onSnapshot,
   setDoc,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  getDocs
 } from 'firebase/firestore';
 import { getActiveDb } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
-import { handleFirestoreError, OperationType } from '@/lib/firestoreErrors';
+import { handleFirestoreError, OperationType, isCircuitBroken } from '@/lib/firestoreErrors';
 import { getCachedCollection, setCachedCollection } from '@/lib/firestoreCache';
 
 export interface ApuracaoSecao {
@@ -66,21 +67,45 @@ interface ApuracaoContextType {
 const ApuracaoContext = createContext<ApuracaoContextType | undefined>(undefined);
 
 export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
-  const { currentUser } = useAuth();
-  const { currentTenant, subdomain, activeDb } = useTenant();
+  const { currentUser, isAuthReady } = useAuth();
+  const { currentTenant, subdomain, isLoadingTenant, activeDb, tenantVersion } = useTenant();
   const tenantKey = subdomain || currentTenant?.subdominio || 'central';
 
+  const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias de persistência local
+
   const [apuracoes, setApuracoes] = useState<ApuracaoSecao[]>(() => {
-    const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', undefined, tenantKey);
+    const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', CACHE_TTL_MS, tenantKey);
     return cached?.data || [];
   });
   const [isLoaded, setIsLoaded] = useState(() => {
-    const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', undefined, tenantKey);
+    const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', CACHE_TTL_MS, tenantKey);
     return !!cached?.data;
   });
 
-  // Snapshot em tempo real com Firestore
+  // Atualiza cache seletivo se o tenant ou versão mudar
   useEffect(() => {
+    const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', CACHE_TTL_MS, tenantKey);
+    if (cached?.data) {
+      setApuracoes(cached.data);
+      setIsLoaded(true);
+    }
+  }, [tenantKey, tenantVersion]);
+
+  // Snapshot em tempo real com Firestore ativo
+  useEffect(() => {
+    if (!isAuthReady || isLoadingTenant) {
+      return;
+    }
+
+    if (isCircuitBroken('apuracao_secoes', tenantKey)) {
+      const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', CACHE_TTL_MS, tenantKey);
+      if (cached?.data) {
+        setApuracoes(cached.data);
+        setIsLoaded(true);
+      }
+      return;
+    }
+
     const targetDb = activeDb || getActiveDb();
     const colRef = collection(targetDb, 'apuracao_secoes');
 
@@ -107,13 +132,17 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         setIsLoaded(true);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'apuracao_secoes');
+        handleFirestoreError(error, OperationType.LIST, 'apuracao_secoes', tenantKey);
+        const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', CACHE_TTL_MS, tenantKey);
+        if (cached?.data && cached.data.length > 0) {
+          setApuracoes(cached.data);
+        }
         setIsLoaded(true);
       }
     );
 
     return () => unsubscribe();
-  }, [activeDb, tenantKey]);
+  }, [isAuthReady, isLoadingTenant, activeDb, tenantKey]);
 
   // Mapa rápido indexado por chave normalizada
   const apuracoesMap = useMemo(() => {
@@ -140,13 +169,13 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
 
       const docPayload: ApuracaoSecao = {
         id: key,
-        zona: zona.trim(),
-        secao: secao.trim(),
-        votosApurados: Math.max(0, votosApurados),
+        zona: String(zona || '').trim(),
+        secao: String(secao || '').trim(),
+        votosApurados: Number.isFinite(votosApurados) ? Math.max(0, Math.round(votosApurados)) : 0,
         dataApuracao: nowIso,
         apuradoPor: operador,
-        boletimUrna: extras?.boletimUrna?.trim() || '',
-        observacoes: extras?.observacoes?.trim() || ''
+        boletimUrna: extras?.boletimUrna ? String(extras.boletimUrna).trim() : '',
+        observacoes: extras?.observacoes ? String(extras.observacoes).trim() : ''
       };
 
       // Atualização otimista
@@ -161,7 +190,9 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         const targetDb = activeDb || getActiveDb();
         await setDoc(doc(targetDb, 'apuracao_secoes', key), docPayload);
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `apuracao_secoes/${key}`);
+        console.error(`[ApuracaoContext] Erro ao gravar seção ${key} no Firestore:`, err);
+        handleFirestoreError(err, OperationType.UPDATE, `apuracao_secoes/${key}`, tenantKey);
+        throw err;
       }
     },
     [currentUser, activeDb, tenantKey]
@@ -183,15 +214,16 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         const targetDb = activeDb || getActiveDb();
         await deleteDoc(doc(targetDb, 'apuracao_secoes', key));
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `apuracao_secoes/${key}`);
+        handleFirestoreError(err, OperationType.DELETE, `apuracao_secoes/${key}`, tenantKey);
+        throw err;
       }
     },
     [activeDb, tenantKey]
   );
 
-  // Importar lote de apurações
+  // Importar lote de apurações com gravação real e atômica no Firestore
   const importarLoteApuracao = useCallback(
-    async (itens: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string }>) => {
+    async (itens: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string; observacoes?: string }>) => {
       const operador = currentUser?.nome || currentUser?.email || 'Coordenação';
       const nowIso = new Date().toISOString();
 
@@ -199,17 +231,17 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         const key = makeSecaoKey(item.zona, item.secao);
         return {
           id: key,
-          zona: item.zona.trim(),
-          secao: item.secao.trim(),
-          votosApurados: Math.max(0, item.votosApurados),
+          zona: String(item.zona || '').trim(),
+          secao: String(item.secao || '').trim(),
+          votosApurados: Number.isFinite(item.votosApurados) ? Math.max(0, Math.round(item.votosApurados)) : 0,
           dataApuracao: nowIso,
           apuradoPor: operador,
-          boletimUrna: item.boletimUrna || '',
-          observacoes: 'Importação em lote pós-eleição'
+          boletimUrna: item.boletimUrna ? String(item.boletimUrna).trim() : '',
+          observacoes: item.observacoes ? String(item.observacoes).trim() : 'Importação em lote pós-eleição'
         };
       });
 
-      // Atualização otimista
+      // Atualização otimista local
       setApuracoes((prev) => {
         const map = new Map<string, ApuracaoSecao>();
         prev.forEach((p) => map.set(p.id, p));
@@ -231,7 +263,9 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
           await batch.commit();
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, 'apuracao_secoes');
+        console.error('[ApuracaoContext] Erro ao persistir lote no Firestore:', err);
+        handleFirestoreError(err, OperationType.UPDATE, 'apuracao_secoes', tenantKey);
+        throw err;
       }
 
       return { imported: newDocs.length };
@@ -261,7 +295,8 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         await batch.commit();
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'apuracao_secoes');
+      handleFirestoreError(err, OperationType.DELETE, 'apuracao_secoes', tenantKey);
+      throw err;
     }
 
     return { deleted: count };
