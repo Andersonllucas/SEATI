@@ -20,22 +20,18 @@ service cloud.firestore {
     }
 
     // Coleção de Usuários
-    match /usuarios/{userId} {
+    match /usuarios/{document=**} {
       allow read, write: if true;
     }
 
     // Coleção de Configurações
-    match /configuracoes/{configId} {
-      allow read, write: if true;
-    }
-    match /configuracoes/{configId}/{document=**} {
+    match /configuracoes/{document=**} {
       allow read, write: if true;
     }
 
     // Coleção de Logs de Auditoria
     match /logs_auditoria/{document=**} {
-      allow read, create: if true;
-      allow update, delete: if false;
+      allow read, write: if true;
     }
 
     // Coleção de Histórico de Importações

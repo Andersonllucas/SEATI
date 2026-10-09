@@ -13,7 +13,7 @@ import {
 import { getActiveDb } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
-import { handleFirestoreError, OperationType, isCircuitBroken } from '@/lib/firestoreErrors';
+import { handleFirestoreError, OperationType, isCircuitBroken, resetCircuitBreaker } from '@/lib/firestoreErrors';
 import { getCachedCollection, setCachedCollection } from '@/lib/firestoreCache';
 
 export interface ApuracaoSecao {
@@ -189,6 +189,7 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
       try {
         const targetDb = activeDb || getActiveDb();
         await setDoc(doc(targetDb, 'apuracao_secoes', key), docPayload);
+        resetCircuitBreaker('apuracao_secoes', tenantKey);
       } catch (err) {
         console.error(`[ApuracaoContext] Erro ao gravar seção ${key} no Firestore:`, err);
         handleFirestoreError(err, OperationType.UPDATE, `apuracao_secoes/${key}`, tenantKey);
@@ -262,6 +263,7 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
           });
           await batch.commit();
         }
+        resetCircuitBreaker('apuracao_secoes', tenantKey);
       } catch (err) {
         console.error('[ApuracaoContext] Erro ao persistir lote no Firestore:', err);
         handleFirestoreError(err, OperationType.UPDATE, 'apuracao_secoes', tenantKey);
@@ -294,6 +296,7 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         });
         await batch.commit();
       }
+      resetCircuitBreaker('apuracao_secoes', tenantKey);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'apuracao_secoes', tenantKey);
       throw err;
