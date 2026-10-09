@@ -24,7 +24,9 @@ import {
   Trash2,
   RotateCcw,
   Printer,
-  EyeOff
+  EyeOff,
+  Download,
+  Loader2
 } from 'lucide-react';
 import {
   useCampaignData,
@@ -40,6 +42,7 @@ import { useAuth } from '@/context/AuthContext';
 import * as XLSX from 'xlsx';
 import { TseCsvImporterModal } from '@/components/TseCsvImporterModal';
 import { BuQrCodeScannerModal } from '@/components/BuQrCodeScannerModal';
+import { exportCumprimentoPDF } from '@/lib/cumprimentoPdfExport';
 
 // Som sutil de confirmação de voto lançado
 function playVoteChime() {
@@ -58,7 +61,7 @@ function playVoteChime() {
   } catch {}
 }
 
-interface SecaoAgrupada {
+export interface SecaoAgrupada {
   key: string;
   zona: string;
   secao: string;
@@ -82,7 +85,7 @@ interface SecaoAgrupada {
   apuradoPor?: string;
 }
 
-interface LiderancaSecaoDetalhe {
+export interface LiderancaSecaoDetalhe {
   key: string;
   zona: string;
   secao: string;
@@ -99,7 +102,7 @@ interface LiderancaSecaoDetalhe {
   eleitores: Eleitor[];
 }
 
-interface LiderancaDesempenho {
+export interface LiderancaDesempenho {
   id: string;
   nome: string;
   tipo?: string;
@@ -145,8 +148,147 @@ export default function CumprimentoVotosPage() {
     setIsPrintModalOpen(true);
   };
 
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+
   const handleTriggerPrint = () => {
-    window.print();
+    const reportElem = document.getElementById('printable-report-area');
+    if (!reportElem) {
+      window.print();
+      return;
+    }
+
+    // Cria ou reutiliza iframe invisível para impressão limpa sem falha de tela em branco
+    let printIframe = document.getElementById('report-print-iframe') as HTMLIFrameElement;
+    if (!printIframe) {
+      printIframe = document.createElement('iframe');
+      printIframe.id = 'report-print-iframe';
+      printIframe.style.position = 'fixed';
+      printIframe.style.right = '0';
+      printIframe.style.bottom = '0';
+      printIframe.style.width = '0';
+      printIframe.style.height = '0';
+      printIframe.style.border = '0';
+      printIframe.style.visibility = 'hidden';
+      document.body.appendChild(printIframe);
+    }
+
+    const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
+    if (!doc) {
+      window.print();
+      return;
+    }
+
+    // Coleta estilos da aplicação para herdar fontes e estilizações
+    const styleTags = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+      .map((node) => node.outerHTML)
+      .join('\n');
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Relatório - Cumprimento de Votos</title>
+        ${styleTags}
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 8mm 8mm;
+          }
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+          }
+          #printable-report-area {
+            display: block !important;
+            visibility: visible !important;
+            width: 100% !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            overflow: visible !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            font-size: 8pt !important;
+          }
+          thead {
+            display: table-header-group !important;
+          }
+          tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          th {
+            background-color: #001428 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            padding: 4px 6px !important;
+            border: 1px solid #94a3b8 !important;
+          }
+          td {
+            padding: 3.5px 6px !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #0f172a !important;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="printable-report-area">
+          ${reportElem.innerHTML}
+        </div>
+      </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        printIframe.contentWindow?.focus();
+        printIframe.contentWindow?.print();
+      } catch (err) {
+        console.error('Falha na impressão isolada, tentando nativo:', err);
+        window.print();
+      }
+    }, 200);
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      setIsExportingPDF(true);
+      await exportCumprimentoPDF({
+        campaignDisplayName,
+        reportType: printReportType,
+        printScope,
+        filtersText: activeFiltersSummaryText,
+        userName: currentUser?.nome || 'Coordenação',
+        stats,
+        secoesList: printSecoesList,
+        liderancasList: printLiderancasList,
+        selectedLideranca: printSelectedLideranca
+      });
+    } catch (err) {
+      console.error('Erro ao gerar PDF do relatório:', err);
+    } finally {
+      setIsExportingPDF(false);
+    }
   };
 
   // Filtros
@@ -2428,8 +2570,8 @@ export default function CumprimentoVotosPage() {
 
       {/* MODAL DE IMPRESSÃO PROFISSIONAL DE RELATÓRIO */}
       {isPrintModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-xs animate-fadeIn overflow-y-auto print:static print:inset-auto print:p-0 print:bg-transparent print:overflow-visible print:z-auto">
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-5xl w-full shadow-2xl flex flex-col max-h-[95vh] my-auto print:border-none print:shadow-none print:max-w-none print:max-h-none print:p-0 print:m-0 print:rounded-none print:w-full print:h-auto print:static print:bg-transparent">
+        <div className="print-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/75 backdrop-blur-xs animate-fadeIn overflow-y-auto print:static print:inset-auto print:p-0 print:bg-white print:overflow-visible print:z-auto">
+          <div className="print-modal-card bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-5xl w-full shadow-2xl flex flex-col max-h-[95vh] my-auto print:border-none print:shadow-none print:max-w-none print:max-h-none print:p-0 print:m-0 print:rounded-none print:w-full print:h-auto print:static print:bg-transparent">
             {/* Top Bar do Modal (não visível na impressão física) */}
             <div className="no-print px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2.5">
@@ -2500,15 +2642,31 @@ export default function CumprimentoVotosPage() {
                   <option value="apenas_quebras">Apenas com Quebra / Críticas</option>
                 </select>
 
-                {/* Botão de Disparo Direto */}
+                {/* Botão de Disparo de Impressão Direta A4 */}
                 <button
                   type="button"
                   onClick={handleTriggerPrint}
                   className="px-4 py-1.5 bg-primary hover:bg-secondary text-on-primary rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                  title="Imprimir folha A4 ou salvar como PDF"
+                  title="Imprimir folha A4 em modo direto"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>Imprimir Agora (Ctrl + P)</span>
+                </button>
+
+                {/* Botão de Download PDF Direto */}
+                <button
+                  type="button"
+                  disabled={isExportingPDF}
+                  onClick={handleDownloadPDF}
+                  className="px-3.5 py-1.5 bg-surface-container-highest hover:bg-surface-container-high text-on-surface border border-outline-variant/80 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  title="Baixar arquivo PDF formatado para folha A4"
+                >
+                  {isExportingPDF ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-primary" />
+                  )}
+                  <span>{isExportingPDF ? 'Gerando...' : 'Baixar PDF'}</span>
                 </button>
 
                 <button
@@ -2945,35 +3103,59 @@ export default function CumprimentoVotosPage() {
       {/* Regras CSS globais para impressão física limpa (A4) sem páginas em branco */}
       <style jsx global>{`
         @media print {
-          body * {
-            visibility: hidden;
+          /* Desativa elementos de layout externo quando em modo impressão */
+          aside,
+          header,
+          nav,
+          .no-print,
+          [data-no-print="true"],
+          button,
+          .toast-container {
+            display: none !important;
           }
-          #printable-report-area,
-          #printable-report-area * {
-            visibility: visible;
-          }
-          #printable-report-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
+
+          .print-modal-overlay {
+            position: static !important;
+            inset: auto !important;
+            background: #ffffff !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            padding: 0 !important;
             margin: 0 !important;
-            padding: 10px !important;
-            background: white !important;
-            color: #0f172a !important;
-            box-shadow: none !important;
-            border: none !important;
-            overflow: visible !important;
-            display: block !important;
+            width: 100% !important;
             height: auto !important;
             min-height: auto !important;
+            overflow: visible !important;
+            display: block !important;
+            z-index: auto !important;
           }
-          .no-print,
-          header,
-          aside,
-          nav,
-          button {
-            display: none !important;
+
+          .print-modal-card {
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            max-width: none !important;
+            max-height: none !important;
+            width: 100% !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            overflow: visible !important;
+            display: block !important;
+          }
+
+          #printable-report-area {
+            display: block !important;
+            visibility: visible !important;
+            position: static !important;
+            width: 100% !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
           }
         }
       `}</style>
