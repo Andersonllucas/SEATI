@@ -128,7 +128,7 @@ export function formatCpf(cpf?: string): string {
 // ==========================================
 // 1. TEMPLATES (MODELOS OFICIAIS DE IMPORTAÇÃO)
 // ==========================================
-export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locais', format: 'xlsx' | 'csv') {
+export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locais' | 'votos', format: 'xlsx' | 'csv') {
   const XLSX = await getXLSX();
   const wb = XLSX.utils.book_new();
 
@@ -238,7 +238,7 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Modelo_Liderancas');
     await exportWorkbook(wb, 'modelo_importacao_liderancas', format);
-  } else {
+  } else if (type === 'locais') {
     // locais - Modelo Oficial TSE (Tribunal Superior Eleitoral)
     const data = [
       {
@@ -291,15 +291,51 @@ export async function downloadTemplate(type: 'eleitores' | 'liderancas' | 'locai
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'TSE_Modelo_Locais');
     await exportWorkbook(wb, 'modelo_tse_locais_votacao', format);
+  } else if (type === 'votos') {
+    const data = [
+      {
+        'Zona Eleitoral': '001',
+        'Seção Eleitoral': '0012',
+        'Votos Apurados': 45,
+        'Boletim de Urna': 'BU Oficial TSE',
+        'Observações': 'Apuração Eleição'
+      },
+      {
+        'Zona Eleitoral': '001',
+        'Seção Eleitoral': '0013',
+        'Votos Apurados': 38,
+        'Boletim de Urna': 'BU Oficial TSE',
+        'Observações': 'Apuração Eleição'
+      },
+      {
+        'Zona Eleitoral': '001',
+        'Seção Eleitoral': '0014',
+        'Votos Apurados': 72,
+        'Boletim de Urna': 'BU Oficial TSE',
+        'Observações': 'Apuração Eleição'
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [
+      { wch: 16 }, // Zona Eleitoral
+      { wch: 16 }, // Seção Eleitoral
+      { wch: 16 }, // Votos Apurados
+      { wch: 25 }, // Boletim de Urna
+      { wch: 30 }  // Observações
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Modelo_Votos');
+    await exportWorkbook(wb, 'modelo_importacao_votos_secoes', format);
   }
 }
+
 
 // ==========================================
 // 2. PARSING DE ARQUIVOS (XLSX, XLS, CSV)
 // ==========================================
 export async function parseSpreadsheetFile(
   file: File,
-  targetType: 'eleitores' | 'liderancas' | 'locais'
+  targetType: 'eleitores' | 'liderancas' | 'locais' | 'votos'
 ): Promise<{
   rows: any[];
   totalRawRows: number;
@@ -339,6 +375,15 @@ export async function parseSpreadsheetFile(
     };
   } else if (targetType === 'liderancas') {
     const parsed = parseLeaderRows(rawJson);
+    return {
+      rows: parsed,
+      totalRawRows: rawJson.length,
+      validCount: parsed.filter((p) => p.isValid).length,
+      invalidCount: parsed.filter((p) => !p.isValid).length,
+      sheetName
+    };
+  } else if (targetType === 'votos') {
+    const parsed = parseVoteRows(rawJson);
     return {
       rows: parsed,
       totalRawRows: rawJson.length,
@@ -894,6 +939,69 @@ function parseLocalRows(rawJson: Record<string, any>[]): ParsedLocalRow[] {
       uf: item.uf,
       isValid: item.errors.length === 0,
       errors: item.errors
+    };
+  });
+}
+
+export interface ParsedVoteRow {
+  originalIndex: number;
+  zona: string;
+  secao: string;
+  votosApurados: number;
+  boletimUrna?: string;
+  observacoes?: string;
+  isValid: boolean;
+  errors: string[];
+}
+
+function parseVoteRows(rawJson: Record<string, any>[]): ParsedVoteRow[] {
+  return rawJson.map((row, index) => {
+    let zona = '';
+    let secao = '';
+    let votosApurados = 0;
+    let boletimUrna = '';
+    let observacoes = '';
+
+    for (const [key, value] of Object.entries(row)) {
+      const valStr = String(value ?? '').trim();
+      if (!valStr) continue;
+      const normKey = normalizeHeaderKey(key);
+
+      if (normKey.includes('zona') || normKey === 'nr_zona' || normKey === 'cd_zona') {
+        zona = valStr;
+      } else if (normKey.includes('secao') || normKey.includes('seccao') || normKey === 'nr_secao') {
+        secao = valStr;
+      } else if (
+        normKey.includes('voto') ||
+        normKey.includes('apurad') ||
+        normKey.includes('qt_votos') ||
+        normKey.includes('qtd')
+      ) {
+        const num = parseInt(valStr.replace(/\D/g, ''), 10);
+        if (!isNaN(num)) {
+          votosApurados = num;
+        }
+      } else if (normKey.includes('boletim') || normKey.includes('urna') || normKey === 'bu') {
+        boletimUrna = valStr;
+      } else if (normKey.includes('obs') || normKey.includes('nota') || normKey.includes('detalhe')) {
+        observacoes = valStr;
+      }
+    }
+
+    const errors: string[] = [];
+    if (!secao) {
+      errors.push('Número da Seção é obrigatório');
+    }
+
+    return {
+      originalIndex: index + 1,
+      zona: zona || '1ª Zona',
+      secao,
+      votosApurados: Math.max(0, votosApurados),
+      boletimUrna: boletimUrna || 'Importação via Planilha',
+      observacoes: observacoes || '',
+      isValid: errors.length === 0,
+      errors
     };
   });
 }

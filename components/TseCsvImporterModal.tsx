@@ -15,12 +15,14 @@ import {
 } from 'lucide-react';
 import { parseTseCsvFileStreaming, FastTseParseSummary } from '@/lib/tseFastStreamParser';
 import { BuTseCsvRow } from '@/lib/tseBuParser';
+import { CarregandoVotosOverlay } from './CarregandoVotosOverlay';
 
 interface TseCsvImporterModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImportBatch: (
-    items: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string }>
+    items: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string }>,
+    onProgress?: (progress: { current: number; total: number; percent: number; message: string }) => void
   ) => Promise<void>;
   registeredSectionsKeys?: Set<string>;
   registeredSectionsInfo?: Map<string, { totalCadastrados: number; localNome?: string }>;
@@ -61,6 +63,12 @@ export function TseCsvImporterModal({
 
   const [parseSummary, setParseSummary] = useState<FastTseParseSummary | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<{
+    percent: number;
+    current: number;
+    total: number;
+    stage: string;
+  } | null>(null);
 
   // Lembrar o número do candidato digitado
   useEffect(() => {
@@ -178,6 +186,12 @@ export function TseCsvImporterModal({
   const handleConfirmImport = async () => {
     if (!preparedRows.length) return;
     setIsSaving(true);
+    setSaveProgress({
+      percent: 5,
+      current: 0,
+      total: preparedRows.length,
+      stage: 'Iniciando preparação dos dados para envio ao banco...'
+    });
 
     try {
       const items = preparedRows.map((r) => ({
@@ -187,13 +201,31 @@ export function TseCsvImporterModal({
         boletimUrna: `TSE BU ${fileName} (Candidato: ${targetNumber}${parseSummary?.candidatoNome ? ` - ${parseSummary.candidatoNome}` : ''})`
       }));
 
-      await onImportBatch(items);
+      await onImportBatch(items, (prog) => {
+        setSaveProgress({
+          percent: prog.percent,
+          current: prog.current,
+          total: prog.total,
+          stage: prog.message
+        });
+      });
+
+      setSaveProgress({
+        percent: 100,
+        current: preparedRows.length,
+        total: preparedRows.length,
+        stage: `✓ Todas as ${preparedRows.length} seções foram gravadas com sucesso no banco!`
+      });
+
+      // Breve pausa para o usuário ver o 100% concluído com segurança
+      await new Promise((resolve) => setTimeout(resolve, 650));
       onClose();
     } catch (err) {
       console.error(err);
-      alert('Erro ao salvar os votos no sistema.');
+      alert('Erro ao salvar os votos no banco de dados. Tente novamente.');
     } finally {
       setIsSaving(false);
+      setSaveProgress(null);
     }
   };
 
@@ -212,7 +244,29 @@ export function TseCsvImporterModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
-      <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh] relative">
+        {/* Card Overlay de Carregando Votos com Barra de Progresso Profissional */}
+        <CarregandoVotosOverlay
+          isOpen={isSaving || isProcessing}
+          title="Carregando votos"
+          tipo={isProcessing ? 'leitura' : 'gravacao'}
+          progress={
+            isSaving
+              ? {
+                  percent: saveProgress?.percent ?? 10,
+                  current: saveProgress?.current,
+                  total: saveProgress?.total ?? preparedRows.length,
+                  stage: saveProgress?.stage || 'Gravando seções no banco Firestore...'
+                }
+              : {
+                  percent: progressPercent,
+                  current: undefined,
+                  total: undefined,
+                  stage: progressStatus || 'Processando arquivo do TSE e identificando votos das urnas...'
+                }
+          }
+        />
+
         {/* Header */}
         <div className="px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex items-center justify-between">
           <div className="flex items-center gap-2.5">

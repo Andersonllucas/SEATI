@@ -43,6 +43,7 @@ import * as XLSX from 'xlsx';
 import { TseCsvImporterModal } from '@/components/TseCsvImporterModal';
 import { BuQrCodeScannerModal } from '@/components/BuQrCodeScannerModal';
 import { exportCumprimentoPDF } from '@/lib/cumprimentoPdfExport';
+import { CarregandoVotosOverlay } from '@/components/CarregandoVotosOverlay';
 
 // Som sutil de confirmação de voto lançado
 function playVoteChime() {
@@ -320,6 +321,12 @@ export default function CumprimentoVotosPage() {
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [batchRawText, setBatchRawText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{
+    percent: number;
+    current: number;
+    total: number;
+    stage: string;
+  } | null>(null);
 
   // Modal de Exclusão de Todos os Votos da Importação
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
@@ -1026,6 +1033,12 @@ export default function CumprimentoVotosPage() {
   const handleImportBatch = async () => {
     if (!batchRawText.trim()) return;
     setIsImporting(true);
+    setBatchProgress({
+      percent: 5,
+      current: 0,
+      total: 0,
+      stage: 'Processando texto e identificando seções...'
+    });
 
     try {
       const lines = batchRawText.split('\n');
@@ -1057,19 +1070,45 @@ export default function CumprimentoVotosPage() {
 
       if (parsed.length === 0) {
         showToast('Nenhum registro no formato válido encontrado. Use: Zona, Seção, Votos');
+        setIsImporting(false);
+        setBatchProgress(null);
         return;
       }
 
-      await importarLoteApuracao(parsed);
+      setBatchProgress({
+        percent: 10,
+        current: 0,
+        total: parsed.length,
+        stage: `Iniciando gravação de ${parsed.length} seções no banco Firestore...`
+      });
+
+      await importarLoteApuracao(parsed, (p) => {
+        setBatchProgress({
+          percent: p.percent,
+          current: p.current,
+          total: p.total,
+          stage: p.message
+        });
+      });
+
+      setBatchProgress({
+        percent: 100,
+        current: parsed.length,
+        total: parsed.length,
+        stage: `✓ ${parsed.length} seções gravadas no banco de dados com sucesso!`
+      });
+
       playVoteChime();
+      await new Promise((r) => setTimeout(r, 650));
       showToast(`✓ ${parsed.length} seções eleitorais apuradas com sucesso!`);
       setIsBatchModalOpen(false);
       setBatchRawText('');
     } catch (err) {
       console.error(err);
-      showToast('Erro ao processar importação em lote');
+      showToast('Erro ao processar importação em lote no banco');
     } finally {
       setIsImporting(false);
+      setBatchProgress(null);
     }
   };
 
@@ -2330,7 +2369,15 @@ export default function CumprimentoVotosPage() {
       {/* MODAL LANÇAMENTO / IMPORTAÇÃO EM LOTE DE URNAS */}
       {isBatchModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col">
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col relative">
+            {/* Card Overlay de Carregando Votos com Barra de Progresso */}
+            <CarregandoVotosOverlay
+              isOpen={isImporting}
+              title="Carregando votos"
+              tipo="gravacao"
+              progress={batchProgress}
+            />
+
             <div className="px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Upload className="w-5 h-5 text-primary" />
@@ -2393,10 +2440,10 @@ export default function CumprimentoVotosPage() {
         <TseCsvImporterModal
           isOpen={isTseModalOpen}
           onClose={() => setIsTseModalOpen(false)}
-          onImportBatch={async (items) => {
-            await importarLoteApuracao(items);
+          onImportBatch={async (items, onProgress) => {
+            await importarLoteApuracao(items, onProgress);
             playVoteChime();
-            showToast(`✓ ${items.length} seções do TSE importadas com sucesso!`);
+            showToast(`✓ ${items.length} seções do TSE importadas e gravadas no banco com sucesso!`);
           }}
           registeredSectionsKeys={registeredSectionsKeys}
           registeredSectionsInfo={registeredSectionsInfo}

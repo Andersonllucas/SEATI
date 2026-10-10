@@ -1412,13 +1412,15 @@ export default function AdminMasterPage() {
 
           <div className="bg-surface-container-low border border-outline-variant/50 rounded-2xl p-4 sm:p-5 shadow-xs">
             <div className="flex items-center justify-between text-on-surface-variant mb-2">
-              <span className="text-xs font-medium">Banco Central</span>
+              <span className="text-xs font-medium">Banco do Ambiente</span>
               <Database className="w-4 h-4 text-primary" />
             </div>
-            <div className="text-sm font-bold font-mono text-primary truncate">
+            <div className="text-sm font-bold font-mono text-primary truncate" title={CENTRAL_FIREBASE_CONFIG.projectId}>
               {CENTRAL_FIREBASE_CONFIG.projectId}
             </div>
-            <p className="text-[11px] text-on-surface-variant mt-1 truncate">clientes_registry ativo</p>
+            <p className="text-[11px] text-on-surface-variant mt-1 truncate" title="Cada cliente opera em seu próprio banco isolado">
+              Banco específico por cliente
+            </p>
           </div>
         </div>
 
@@ -1539,8 +1541,13 @@ export default function AdminMasterPage() {
                     </div>
 
                     <div className="text-[11px] text-on-surface-variant flex items-center gap-1.5 font-mono truncate">
-                      <Database className="w-3.5 h-3.5 shrink-0" />
-                      <span>Projeto: {client.firebaseConfig.projectId}</span>
+                      <Database className="w-3.5 h-3.5 shrink-0 text-primary" />
+                      <span className="truncate">
+                        Banco: <strong className="text-on-surface">{client.firebaseConfig.projectId}</strong>
+                        {client.firebaseConfig.firestoreDatabaseId && client.firebaseConfig.firestoreDatabaseId !== '(default)' && (
+                          <span className="ml-1 text-primary font-semibold">[{client.firebaseConfig.firestoreDatabaseId}]</span>
+                        )}
+                      </span>
                     </div>
                   </div>
 
@@ -2608,10 +2615,29 @@ export default function AdminMasterPage() {
 
               {/* Seção 3: Credenciais do Firebase */}
               <div className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                  <Database className="w-4 h-4" />
-                  <span>2. Configuração do Firebase do Cliente</span>
-                </h3>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Database className="w-4 h-4" />
+                    <span>2. Configuração do Banco / Firebase do Cliente</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormFirebase({
+                        projectId: CENTRAL_FIREBASE_CONFIG.projectId || 'seati-d0096',
+                        apiKey: CENTRAL_FIREBASE_CONFIG.apiKey,
+                        authDomain: CENTRAL_FIREBASE_CONFIG.authDomain || 'seati-d0096.firebaseapp.com',
+                        appId: CENTRAL_FIREBASE_CONFIG.appId,
+                        firestoreDatabaseId: formSubdominio.trim() ? formSubdominio.trim() : '(default)',
+                        storageBucket: CENTRAL_FIREBASE_CONFIG.storageBucket || 'seati-d0096.firebasestorage.app',
+                        messagingSenderId: CENTRAL_FIREBASE_CONFIG.messagingSenderId || ''
+                      });
+                    }}
+                    className="text-[11px] font-semibold text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Usar base seati-d0096
+                  </button>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -2687,6 +2713,9 @@ export default function AdminMasterPage() {
                       placeholder="(default)"
                       className="w-full px-3.5 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
+                    <p className="text-[10px] text-on-surface-variant mt-1">
+                      Use <code>(default)</code> ou informe o ID do banco Firestore específico deste cliente.
+                    </p>
                   </div>
 
                   <div>

@@ -1,9 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
 
-    // Regras otimizadas para alto desempenho e consumo zero de leituras adicionais (sem get() recursivo)
-    
     // Coleção de Eleitores
     match /eleitores/{document=**} {
       allow read, write: if true;

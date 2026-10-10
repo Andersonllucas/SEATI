@@ -389,3 +389,63 @@ export async function deleteDocRest(
   }
   return true;
 }
+
+export interface FirestoreWriteOp {
+  type: 'update' | 'delete';
+  collectionId: string;
+  docId: string;
+  data?: Record<string, any>;
+}
+
+/**
+ * Executa commit em lote no Firestore REST (atômico e direto no banco, até 450 operações por chamada)
+ */
+export async function batchCommitRest(
+  ops: FirestoreWriteOp[],
+  cfg?: FirestoreRestConfig
+): Promise<{ success: boolean; count: number; error?: string }> {
+  if (!ops.length) return { success: true, count: 0 };
+
+  const c = resolveConfig(cfg);
+  const token = await getServiceAccountAccessToken(c.projectId);
+  const url = `https://firestore.googleapis.com/v1/projects/${c.projectId}/databases/${c.databaseId}/documents:commit${
+    !token && c.apiKey ? `?key=${c.apiKey}` : ''
+  }`;
+
+  const CHUNK_SIZE = 400;
+  let totalCommitted = 0;
+
+  for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+    const chunk = ops.slice(i, i + CHUNK_SIZE);
+    const writes = chunk.map((op) => {
+      const docPath = `projects/${c.projectId}/databases/${c.databaseId}/documents/${op.collectionId}/${encodeURIComponent(op.docId)}`;
+      if (op.type === 'delete') {
+        return { delete: docPath };
+      }
+      return {
+        update: {
+          name: docPath,
+          fields: toFirestoreFields(op.data || {})
+        }
+      };
+    });
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getBaseHeaders(token),
+      cache: 'no-store',
+      body: JSON.stringify({ writes })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn(`[firestoreRest] batchCommit chunk ${i / CHUNK_SIZE} falhou (status ${res.status}):`, errText);
+      throw new Error(`Firestore REST batchCommit ${res.status}: ${errText}`);
+    }
+
+    totalCommitted += chunk.length;
+  }
+
+  return { success: true, count: totalCommitted };
+}
+

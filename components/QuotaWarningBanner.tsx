@@ -31,6 +31,7 @@ export function QuotaWarningBanner() {
     resetCircuitBreaker('configuracoes/geral');
     resetCircuitBreaker('usuarios');
     resetCircuitBreaker('logs_auditoria');
+    resetCircuitBreaker('apuracao_secoes');
 
     setTimeout(() => {
       setIsReconnecting(false);
@@ -73,7 +74,7 @@ export function QuotaWarningBanner() {
           </button>
 
           <a
-            href="https://console.firebase.google.com/project/seati-d0096/usage"
+            href="https://console.firebase.google.com"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold transition-colors shadow-sm cursor-pointer"

@@ -27,10 +27,13 @@ import {
   History,
   Clock,
   UserPlus,
-  Sparkles
+  Sparkles,
+  Vote
 } from 'lucide-react';
-import { useCampaignData, formatTituloUtil, Eleitor } from '@/context/CampaignContext';
+import { useCampaignData, useApuracao, formatTituloUtil, Eleitor } from '@/context/CampaignContext';
 import { getActiveDb } from '@/lib/firebase';
+import { TseCsvImporterModal } from '@/components/TseCsvImporterModal';
+import { CarregandoVotosOverlay } from '@/components/CarregandoVotosOverlay';
 import {
   collection,
   addDoc,
@@ -56,7 +59,7 @@ import {
   formatCpf
 } from '@/lib/importExportUtils';
 
-type ImportTarget = 'eleitores' | 'liderancas' | 'locais';
+type ImportTarget = 'eleitores' | 'liderancas' | 'locais' | 'votos';
 
 interface HistoricoImportacao {
   id: string;
@@ -100,6 +103,9 @@ export default function Importacao() {
     batchSaveLocais,
     clearAllLocais
   } = useCampaignData();
+
+  const { apuracoes, importarLoteApuracao } = useApuracao();
+  const [isTseModalOpen, setIsTseModalOpen] = useState(false);
 
   // Selected Target for Template & Import
   const [importTarget, setImportTarget] = useState<ImportTarget>('eleitores');
@@ -148,6 +154,12 @@ export default function Importacao() {
   // Import Execution State
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
+  const [importVoteProgress, setImportVoteProgress] = useState<{
+    percent: number;
+    current?: number;
+    total?: number;
+    stage?: string;
+  } | null>(null);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
 
   // Export Feedback state
@@ -787,6 +799,49 @@ export default function Importacao() {
         setImportSuccessMessage(
           `${leaderRows.length} lideranças foram registradas com sucesso no banco de dados!`
         );
+      } else if (importTarget === 'votos') {
+        const voteRows = (parsedData.rows as any[]).filter((r) => r.isValid !== false);
+        if (voteRows.length === 0) {
+          throw new Error('Nenhuma seção eleitoral com dados válidos de votos encontrada na planilha.');
+        }
+
+        setImportProgress({ done: 0, total: voteRows.length });
+        setImportVoteProgress({
+          percent: 5,
+          current: 0,
+          total: voteRows.length,
+          stage: 'Iniciando preparação dos votos para envio ao banco...'
+        });
+
+        const toInsert = voteRows.map((r) => ({
+          zona: String(r.zona || '1ª Zona').trim(),
+          secao: String(r.secao || '').trim(),
+          votosApurados: Number(r.votosApurados || 0),
+          boletimUrna: r.boletimUrna || `Planilha ${selectedFile?.name || 'importada'}`,
+          observacoes: r.observacoes || 'Importação via Planilha'
+        }));
+
+        await importarLoteApuracao(toInsert, (p) => {
+          setImportProgress({ done: p.current, total: p.total });
+          setImportVoteProgress({
+            percent: p.percent,
+            current: p.current,
+            total: p.total,
+            stage: p.message
+          });
+        });
+
+        // Registrar no Histórico de Importações
+        await registrarHistoricoImportacao({
+          nomeArquivo: selectedFile?.name || 'apuracao_votos.xlsx',
+          tipo: 'eleitores', // fallback de tipo
+          totalImportados: toInsert.length,
+          tamanhoArquivo: selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB` : undefined
+        });
+
+        setImportSuccessMessage(
+          `✓ ${toInsert.length} seções com apuração de votos foram gravadas permanentemente no banco Firestore!`
+        );
       } else {
         // Locais
         const localRows = (parsedData.rows as ParsedLocalRow[]).filter((r) => r.isValid);
@@ -1061,10 +1116,83 @@ export default function Importacao() {
               >
                 Locais
               </button>
+              <button
+                onClick={() => {
+                  setImportTarget('votos');
+                  handleResetImport();
+                }}
+                className={`px-3 py-1 rounded text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  importTarget === 'votos'
+                    ? 'bg-primary text-on-primary shadow-xs'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                <Vote className="w-3.5 h-3.5" />
+                Votos & BU
+              </button>
             </div>
           </div>
 
           <div className="p-4 sm:p-6 space-y-6">
+            {importTarget === 'votos' && (
+              <div className="p-5 rounded-2xl bg-surface-container-low border border-primary/30 space-y-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-primary/10 text-primary shrink-0">
+                    <Vote className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm text-on-surface">
+                      Importação de Votos & Boletim de Urna (TSE)
+                    </h3>
+                    <p className="text-xs text-on-surface-variant leading-relaxed">
+                      Para apurar os votos oficiais das urnas diretamente no banco do sistema (com gravação persistente sincronizada entre qualquer máquina ou dispositivo), utilize o <strong>Importador Oficial de BU do TSE</strong> com busca instantânea em streaming, ou baixe o modelo em planilha.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-outline-variant/40">
+                  <button
+                    type="button"
+                    onClick={() => setIsTseModalOpen(true)}
+                    className="px-4 py-2.5 bg-primary text-on-primary hover:bg-secondary rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Abrir Importador Oficial de BU do TSE
+                  </button>
+                  <Link
+                    href="/cumprimento-votos"
+                    className="px-4 py-2.5 bg-surface-container border border-outline-variant rounded-xl text-xs font-semibold text-on-surface hover:bg-surface-container-high transition-all flex items-center gap-1.5"
+                  >
+                    <Eye className="w-4 h-4 text-primary" />
+                    Ir para Painel de Cumprimento de Votos
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => downloadTemplate('votos', 'xlsx')}
+                    className="px-3.5 py-2 border border-outline-variant/70 bg-surface-container-lowest rounded-xl text-xs font-semibold text-on-surface hover:bg-surface-container flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <TableProperties className="w-3.5 h-3.5 text-secondary" />
+                    Modelo Votos (.xlsx)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadTemplate('votos', 'csv')}
+                    className="px-3.5 py-2 border border-outline-variant/70 bg-surface-container-lowest rounded-xl text-xs font-semibold text-on-surface hover:bg-surface-container flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Receipt className="w-3.5 h-3.5 text-secondary" />
+                    Modelo Votos (.csv)
+                  </button>
+                </div>
+
+                {apuracoes.length > 0 && (
+                  <div className="text-xs text-on-surface-variant flex items-center gap-2 bg-emerald-500/10 p-2.5 rounded-lg border border-emerald-500/20 text-emerald-800 dark:text-emerald-300">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Atualmente existem <strong>{apuracoes.length} seções com votos gravados</strong> no banco Firestore do ambiente.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ETAPA 1: Download do Modelo Padronizado */}
             <div className="p-4 rounded-lg bg-surface-container-low/40 border border-outline-variant/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3">
@@ -1073,7 +1201,7 @@ export default function Importacao() {
                 </span>
                 <div>
                   <h3 className="font-semibold text-sm text-on-surface">
-                    Baixar Modelo Padronizado de {importTarget === 'eleitores' ? 'Eleitores' : importTarget === 'liderancas' ? 'Lideranças' : 'Locais'}
+                    Baixar Modelo Padronizado de {importTarget === 'eleitores' ? 'Eleitores' : importTarget === 'liderancas' ? 'Lideranças' : importTarget === 'locais' ? 'Locais' : 'Votos das Urnas'}
                   </h3>
                   <p className="text-xs text-on-surface-variant mt-0.5">
                     Utilize a planilha com colunas pré-formatadas para garantir compatibilidade perfeita.
@@ -2531,6 +2659,27 @@ export default function Importacao() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Overlay de Carregando Votos via Planilha */}
+      <CarregandoVotosOverlay
+        isOpen={isImporting && importTarget === 'votos'}
+        title="Carregando votos"
+        tipo="gravacao"
+        progress={importVoteProgress}
+      />
+
+      {/* Modal Importador de BU do TSE */}
+      {isTseModalOpen && (
+        <TseCsvImporterModal
+          isOpen={isTseModalOpen}
+          onClose={() => setIsTseModalOpen(false)}
+          onImportBatch={async (items, onProgress) => {
+            await importarLoteApuracao(items, onProgress);
+            setImportSuccessMessage(`✓ ${items.length} seções do TSE importadas e gravadas no banco com sucesso!`);
+          }}
+          existingVotesCount={apuracoes.length}
+        />
       )}
     </div>
   );
