@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ShieldAlert, AlertCircle, ArrowLeft, ExternalLink, HelpCircle, LogOut, RefreshCw } from 'lucide-react';
+import { ShieldAlert, AlertCircle, ArrowLeft, HelpCircle, LogOut, RefreshCw } from 'lucide-react';
 
 function TenantErrorContent() {
   const searchParams = useSearchParams();

@@ -1,0 +1,36 @@
+[
+  {
+    "id": "demo",
+    "subdominio": "demo",
+    "nome": "Campanha Teresina (Cliente Padrão)",
+    "status": "ativo",
+    "firebaseConfig": {
+      "projectId": "seati-d0096",
+      "appId": "1:711544625297:web:fc3b015f0fdecbd45e4730",
+      "apiKey": "AIzaSyChF91tddeI_u7LnayExwg94RP8-n4q2eM",
+      "authDomain": "seati-d0096.firebaseapp.com",
+      "firestoreDatabaseId": "(default)",
+      "storageBucket": "seati-d0096.firebasestorage.app",
+      "messagingSenderId": "711544625297"
+    },
+    "criadoEm": "2026-10-11T12:49:38.651Z",
+    "atualizadoEm": "2026-10-11T12:49:38.651Z"
+  },
+  {
+    "id": "marcelo",
+    "subdominio": "marcelo",
+    "nome": "Campanha Marcelo",
+    "status": "ativo",
+    "firebaseConfig": {
+      "projectId": "seati-d0096",
+      "appId": "1:711544625297:web:fc3b015f0fdecbd45e4730",
+      "apiKey": "AIzaSyChF91tddeI_u7LnayExwg94RP8-n4q2eM",
+      "authDomain": "seati-d0096.firebaseapp.com",
+      "firestoreDatabaseId": "(default)",
+      "storageBucket": "seati-d0096.firebasestorage.app",
+      "messagingSenderId": "711544625297"
+    },
+    "criadoEm": "2026-10-11T12:49:38.651Z",
+    "atualizadoEm": "2026-10-11T12:49:38.651Z"
+  }
+]

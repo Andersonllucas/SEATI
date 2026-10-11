@@ -11,14 +11,14 @@
     "telefone": ""
   },
   {
-    "id": "user_lucas_fernandes",
-    "nome": "Lucas Fernandes (Master)",
+    "id": "dMnPWk2VsVb99Xxw8K0w",
+    "nome": "Anderson Lucas",
     "email": "lucasfernandes819@gmail.com",
     "senha": "pbkdf2:sha256:100000:7a1b2c3d4e5f60718293a4b5c6d7e8f9:d627c265882b4dcabce04ce4999fe8d022fa59f3e09886a87754b5dfd468f3a2",
     "perfil": "Administrador",
     "status": "Ativo",
-    "cargo": "Administrador Master",
-    "dataCadastro": "2026-10-11T00:23:15.957Z",
+    "cargo": "",
+    "dataCadastro": "2026-09-26T16:24:18.698Z",
     "telefone": ""
   },
   {
@@ -40,5 +40,45 @@
     "status": "Ativo",
     "cargo": "Digitador de Campo",
     "dataCadastro": "2026-10-11T00:23:15.957Z"
+  },
+  {
+    "id": "admintest_campanha_com",
+    "nome": "Admin Teste",
+    "email": "admintest@campanha.com",
+    "perfil": "Administrador",
+    "status": "Ativo",
+    "telefone": "",
+    "cargo": "",
+    "dataCadastro": "2026-10-11T12:50:33.696Z"
+  },
+  {
+    "id": "operadortest_campanha_com",
+    "nome": "Operador Teste",
+    "email": "operadortest@campanha.com",
+    "perfil": "Operador",
+    "status": "Ativo",
+    "telefone": "",
+    "cargo": "",
+    "dataCadastro": "2026-10-11T12:50:38.425Z"
+  },
+  {
+    "id": "anderson_teresina2026_adti_app_br",
+    "nome": "Dr. Anderson",
+    "email": "anderson@teresina2026.adti.app.br",
+    "perfil": "Administrador",
+    "status": "Ativo",
+    "telefone": "",
+    "cargo": "",
+    "dataCadastro": "2026-10-11T12:51:47.184Z"
+  },
+  {
+    "id": "marcos_teresina2026_adti_app_br",
+    "nome": "Marcos Operador",
+    "email": "marcos@teresina2026.adti.app.br",
+    "perfil": "Operador",
+    "status": "Ativo",
+    "telefone": "",
+    "cargo": "",
+    "dataCadastro": "2026-10-11T12:51:50.555Z"
   }
 ]

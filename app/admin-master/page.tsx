@@ -897,10 +897,15 @@ export default function AdminMasterPage() {
     };
 
     try {
-      // 1. Tenta inicialização direta no client-side
-      const res = await bootstrapTenantDatabase(bootstrapTargetClient.firebaseConfig, options);
+      let res: any = null;
+      try {
+        // 1. Tenta inicialização direta no client-side
+        res = await bootstrapTenantDatabase(bootstrapTargetClient.firebaseConfig, options);
+      } catch (clientErr) {
+        console.warn('Tentativa direta no client-side falhou, acionando servidor de provisionamento:', clientErr);
+      }
 
-      if (res.success) {
+      if (res && res.success) {
         setBootstrapResult(res);
         // Atualiza métricas do card imediatamente
         fetchClientStats(bootstrapTargetClient);
@@ -914,7 +919,7 @@ export default function AdminMasterPage() {
           detalhes: `Banco provisionado com sucesso: Admin "${res.adminEmail}", locais: ${res.locaisImportados || 0}.`
         });
       } else {
-        // 2. Se falhar no client, tenta via API do servidor
+        // 2. Se falhar no client, tenta via API do servidor (com suporte a fallback REST e Service Account)
         const apiRes = await fetch('/api/admin/bootstrap-tenant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -937,7 +942,7 @@ export default function AdminMasterPage() {
             detalhes: `Banco provisionado via servidor: Admin "${apiData.adminEmail}", locais: ${apiData.locaisImportados || 0}.`
           });
         } else {
-          setBootstrapError(apiData.error || res.message || 'Falha ao provisionar banco do cliente.');
+          setBootstrapError(apiData.error || res?.message || 'Falha ao provisionar banco do cliente.');
         }
       }
     } catch (err: any) {
@@ -1276,38 +1281,9 @@ export default function AdminMasterPage() {
             </button>
           </form>
 
-          <div className="pt-2 border-t border-outline-variant/40 space-y-2">
-            <p className="text-[11px] font-semibold text-on-surface-variant text-center">
-              Acesso Rápido Master:
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  setEmailInput('lucasfernandes819@gmail.com');
-                  setPasswordInput('admin123');
-                  setAuthError(null);
-                }}
-                className="p-2 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline-variant/60 text-left transition-colors cursor-pointer"
-              >
-                <div className="font-semibold text-primary text-[11px]">Lucas Fernandes</div>
-                <div className="text-[10px] text-on-surface-variant truncate">lucasfernandes819...</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmailInput('admin@campanha.com');
-                  setPasswordInput('admin123');
-                  setAuthError(null);
-                }}
-                className="p-2 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline-variant/60 text-left transition-colors cursor-pointer"
-              >
-                <div className="font-semibold text-primary text-[11px]">Admin Campanha</div>
-                <div className="text-[10px] text-on-surface-variant truncate">admin@campanha.com</div>
-              </button>
-            </div>
-            <p className="text-[10px] text-on-surface-variant/70 text-center pt-1">
-              Requer conta com perfil <span className="font-semibold text-primary">Administrador</span> no projeto.
+          <div className="pt-2 border-t border-outline-variant/40 text-center">
+            <p className="text-[10px] text-on-surface-variant/70">
+              Acesso restrito exclusivamente a administradores autorizados.
             </p>
           </div>
         </div>
@@ -2062,7 +2038,7 @@ export default function AdminMasterPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
                       <KeyRound className="w-4 h-4 text-primary" />
-                      Credenciais Padrão Criadas (Admin + Operador)
+                      Credenciais de Acesso Inicial (Admin + Operador)
                     </span>
                     <button
                       onClick={copyBootstrapCredentials}
