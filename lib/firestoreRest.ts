@@ -324,9 +324,9 @@ export async function setDocRest(
   });
 
   if (!res.ok) {
-    const errText = await res.text();
+    const errText = await res.text().catch(() => '');
     console.warn(`[firestoreRest] setDoc em ${collectionId}/${docId} falhou (status ${res.status}):`, errText);
-    throw new Error(`Firestore REST ${res.status}: ${errText}`);
+    return false;
   }
   return true;
 }

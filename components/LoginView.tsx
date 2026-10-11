@@ -323,6 +323,65 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                 )}
               </button>
             </form>
+
+            {/* Quick-fill default credentials for fast access & new databases */}
+            <div className="mt-5 pt-4 border-t border-slate-800/80">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Acesso Rápido / Credenciais Padrão:
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('admin@campanha.com');
+                    setSenha('admin123');
+                    setErro(null);
+                  }}
+                  className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition-all text-left flex flex-col cursor-pointer"
+                >
+                  <span className="font-semibold text-sky-400 text-[11px]">Administrador Geral</span>
+                  <span className="text-[10px] text-slate-400 truncate">admin@campanha.com</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('lucasfernandes819@gmail.com');
+                    setSenha('admin123');
+                    setErro(null);
+                  }}
+                  className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition-all text-left flex flex-col cursor-pointer"
+                >
+                  <span className="font-semibold text-indigo-400 text-[11px]">Admin Master</span>
+                  <span className="text-[10px] text-slate-400 truncate">lucasfernandes819@gmail...</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('admin@seati.app.br');
+                    setSenha('admin123');
+                    setErro(null);
+                  }}
+                  className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition-all text-left flex flex-col cursor-pointer"
+                >
+                  <span className="font-semibold text-blue-400 text-[11px]">Suporte SEATI</span>
+                  <span className="text-[10px] text-slate-400 truncate">admin@seati.app.br</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('operador@campanha.com');
+                    setSenha('123456');
+                    setErro(null);
+                  }}
+                  className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition-all text-left flex flex-col cursor-pointer"
+                >
+                  <span className="font-semibold text-emerald-400 text-[11px]">Operador de Campo</span>
+                  <span className="text-[10px] text-slate-400 truncate">operador@campanha.com</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Institutional Security Badge */}

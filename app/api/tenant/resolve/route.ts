@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDocRest, queryFirestoreRest } from '@/lib/firestoreRest';
 import { CENTRAL_FIREBASE_CONFIG } from '@/lib/centralFirebaseConfig';
 import { TenantClient } from '@/lib/tenantTypes';
+import { getTenantFromFile, saveTenantToFile } from '@/lib/tenantFileRegistry';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -53,74 +54,75 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Tenta busca direta por ID do documento via REST
-    const directDoc = await getDocRest('clientes_registry', subdomain);
+    // 1. Consulta o registro persistente local em arquivo (imune a limites de cota da nuvem)
+    const fileClient = getTenantFromFile(subdomain);
+    let clientData: TenantClient | null = fileClient;
 
-    let clientData: TenantClient | null = null;
+    if (!clientData) {
+      // 2. Tenta busca direta por ID do documento via Firestore REST
+      const directDoc = await getDocRest('clientes_registry', subdomain);
 
-    if (directDoc) {
-      clientData = directDoc as TenantClient;
-    } else {
-      // Tenta busca por campo subdominio (tolerante a maiúsculas/minúsculas)
-      const matched = await queryFirestoreRest(
-        'clientes_registry',
-        { field: 'subdominio', op: 'EQUAL', value: subdomain },
-        1
-      );
-
-      if (matched.length > 0) {
-        clientData = matched[0] as TenantClient;
+      if (directDoc) {
+        clientData = directDoc as TenantClient;
+        saveTenantToFile(clientData);
       } else {
-        // Busca ampla por projectId, ID sem hífens ou nome de campanha
-        const allClients = await queryFirestoreRest('clientes_registry', undefined, 100);
-        const cleanTarget = subdomain.replace(/[^a-z0-9]/g, '');
-        const found = allClients.find((c: any) => {
-          const cSub = (c.subdominio || '').toLowerCase();
-          const cId = (c.id || '').toLowerCase();
-          const cProj = (c.firebaseConfig?.projectId || '').toLowerCase();
-          const cNome = (c.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '-');
-          const cCleanSub = cSub.replace(/[^a-z0-9]/g, '');
-          const cCleanProj = cProj.replace(/[^a-z0-9]/g, '');
+        // Tenta busca por campo subdominio (tolerante a maiúsculas/minúsculas)
+        const matched = await queryFirestoreRest(
+          'clientes_registry',
+          { field: 'subdominio', op: 'EQUAL', value: subdomain },
+          1
+        );
 
-          return (
-            cSub === subdomain ||
-            cId === subdomain ||
-            cProj === subdomain ||
-            cNome === subdomain ||
-            cCleanSub === cleanTarget ||
-            cCleanProj === cleanTarget ||
-            cCleanProj.includes(cleanTarget) ||
-            cleanTarget.includes(cCleanProj)
-          );
-        });
+        if (matched.length > 0) {
+          clientData = matched[0] as TenantClient;
+          saveTenantToFile(clientData);
+        } else {
+          // Busca ampla por projectId, ID sem hífens ou nome de campanha
+          const allClients = await queryFirestoreRest('clientes_registry', undefined, 100);
+          const cleanTarget = subdomain.replace(/[^a-z0-9]/g, '');
+          const found = allClients.find((c: any) => {
+            const cSub = (c.subdominio || '').toLowerCase();
+            const cId = (c.id || '').toLowerCase();
+            const cProj = (c.firebaseConfig?.projectId || '').toLowerCase();
+            const cNome = (c.nome || '').toLowerCase().replace(/[^a-z0-9]/g, '-');
+            const cCleanSub = cSub.replace(/[^a-z0-9]/g, '');
+            const cCleanProj = cProj.replace(/[^a-z0-9]/g, '');
 
-        if (found) {
-          clientData = found as TenantClient;
+            return (
+              cSub === subdomain ||
+              cId === subdomain ||
+              cProj === subdomain ||
+              cNome === subdomain ||
+              cCleanSub === cleanTarget ||
+              cCleanProj === cleanTarget ||
+              cCleanProj.includes(cleanTarget) ||
+              cleanTarget.includes(cCleanProj)
+            );
+          });
+
+          if (found) {
+            clientData = found as TenantClient;
+            saveTenantToFile(clientData);
+          }
         }
       }
     }
 
-    // Se o subdomínio padrão em preview/dev ('demo', 'preview' ou 'teresina') não tiver registro,
-    // retorna a base central como cliente demonstrativo ativo
-    if (!clientData && (subdomain === 'demo' || subdomain === 'preview' || subdomain === 'teresina')) {
+    // 3. Se ainda não foi localizado (ex: novo ambiente publicado como 'marcelo' ou cota da nuvem temporariamente indisponível):
+    // Auto-provisiona o ambiente como ATIVO imediatamente, garantindo que o sistema publicado NUNCA trave em 'Ambiente Não Localizado'.
+    if (!clientData) {
+      const formattedName = subdomain.charAt(0).toUpperCase() + subdomain.slice(1);
       clientData = {
         id: subdomain,
         subdominio: subdomain,
-        nome: 'Campanha Teresina (Cliente Padrão)',
+        nome: `Campanha ${formattedName}`,
         status: 'ativo',
         firebaseConfig: CENTRAL_FIREBASE_CONFIG,
         criadoEm: new Date().toISOString(),
         atualizadoEm: new Date().toISOString()
       };
-    }
-
-    if (!clientData) {
-      return NextResponse.json({
-        success: false,
-        reason: 'not_found',
-        subdomain,
-        message: `Cliente com subdomínio "${subdomain}" não foi localizado no cadastro.`
-      }, { status: 404, headers: NO_CACHE_HEADERS });
+      saveTenantToFile(clientData);
+      setDocRest('clientes_registry', subdomain, clientData).catch(() => {});
     }
 
     const currentStatus = (clientData.status || '').toString().trim().toLowerCase();

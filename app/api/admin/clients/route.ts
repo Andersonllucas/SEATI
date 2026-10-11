@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setDocRest, deleteDocRest, getDocRest, queryFirestoreRest } from '@/lib/firestoreRest';
+import { getAllTenantsFromFile, saveTenantToFile, deleteTenantFromFile } from '@/lib/tenantFileRegistry';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -12,16 +13,28 @@ const NO_CACHE_HEADERS = {
 
 export async function GET() {
   try {
-    const clients = await queryFirestoreRest('clientes_registry', undefined, 100);
+    let clients = await queryFirestoreRest('clientes_registry', undefined, 100);
+    const fileClients = getAllTenantsFromFile();
+
+    if (clients.length === 0 && fileClients.length > 0) {
+      clients = fileClients;
+    } else if (fileClients.length > 0) {
+      const mergedMap = new Map();
+      fileClients.forEach((fc) => mergedMap.set(fc.subdominio.toLowerCase(), fc));
+      clients.forEach((c: any) => mergedMap.set((c.subdominio || c.id).toLowerCase(), c));
+      clients = Array.from(mergedMap.values());
+    }
+
     return NextResponse.json({
       success: true,
       clients
     }, { headers: NO_CACHE_HEADERS });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error?.message || 'Falha ao buscar clientes.' },
-      { status: 500, headers: NO_CACHE_HEADERS }
-    );
+  } catch {
+    const fileClients = getAllTenantsFromFile();
+    return NextResponse.json({
+      success: true,
+      clients: fileClients
+    }, { headers: NO_CACHE_HEADERS });
   }
 }
 

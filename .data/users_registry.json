@@ -1,0 +1,44 @@
+[
+  {
+    "id": "user_admin_campanha",
+    "nome": "Administrador Geral",
+    "email": "admin@campanha.com",
+    "senha": "pbkdf2:sha256:100000:7a1b2c3d4e5f60718293a4b5c6d7e8f9:d627c265882b4dcabce04ce4999fe8d022fa59f3e09886a87754b5dfd468f3a2",
+    "perfil": "Administrador",
+    "status": "Ativo",
+    "cargo": "Coordenador Geral",
+    "dataCadastro": "2026-10-11T00:23:15.957Z",
+    "telefone": ""
+  },
+  {
+    "id": "user_lucas_fernandes",
+    "nome": "Lucas Fernandes (Master)",
+    "email": "lucasfernandes819@gmail.com",
+    "senha": "pbkdf2:sha256:100000:7a1b2c3d4e5f60718293a4b5c6d7e8f9:d627c265882b4dcabce04ce4999fe8d022fa59f3e09886a87754b5dfd468f3a2",
+    "perfil": "Administrador",
+    "status": "Ativo",
+    "cargo": "Administrador Master",
+    "dataCadastro": "2026-10-11T00:23:15.957Z",
+    "telefone": ""
+  },
+  {
+    "id": "user_admin_seati",
+    "nome": "Administrador SEATI",
+    "email": "admin@seati.app.br",
+    "senha": "pbkdf2:sha256:100000:7a1b2c3d4e5f60718293a4b5c6d7e8f9:d627c265882b4dcabce04ce4999fe8d022fa59f3e09886a87754b5dfd468f3a2",
+    "perfil": "Administrador",
+    "status": "Ativo",
+    "cargo": "Suporte Técnico",
+    "dataCadastro": "2026-10-11T00:23:15.957Z"
+  },
+  {
+    "id": "user_operador_campanha",
+    "nome": "Operador de Campanha",
+    "email": "operador@campanha.com",
+    "senha": "pbkdf2:sha256:100000:7a1b2c3d4e5f60718293a4b5c6d7e8f9:4a8bb3c290a61a0f9fa4356e82a6f2bb434d31eb495535359a5d117562692224",
+    "perfil": "Operador",
+    "status": "Ativo",
+    "cargo": "Digitador de Campo",
+    "dataCadastro": "2026-10-11T00:23:15.957Z"
+  }
+]

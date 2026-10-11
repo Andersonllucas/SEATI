@@ -206,7 +206,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       const cachedUsers = getCachedCollection<AppUser>('usuarios', undefined, tenantKey);
-      setUsuarios(cachedUsers?.data || []);
+      if (cachedUsers?.data && cachedUsers.data.length > 0) {
+        setUsuarios(cachedUsers.data);
+      } else {
+        fetch(`/api/auth/users?subdomain=${encodeURIComponent(tenantKey)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.success && Array.isArray(d.users) && d.users.length > 0) {
+              setUsuarios(d.users);
+            }
+          })
+          .catch(() => {});
+      }
 
       const cachedConfig = localStorage.getItem(`adti_cache_${tenantKey}_configuracoes`);
       if (cachedConfig) {
@@ -508,6 +519,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const cached = getCachedCollection<AppUser>('usuarios', undefined, tenantKey);
         if (cached?.data && cached.data.length > 0) {
           setUsuarios(cached.data);
+        } else {
+          fetch(`/api/auth/users?subdomain=${encodeURIComponent(tenantKey)}`)
+            .then((r) => r.json())
+            .then((d) => {
+              if (d.success && Array.isArray(d.users) && d.users.length > 0) {
+                setUsuarios(d.users);
+              }
+            })
+            .catch(() => {});
         }
       }
     );

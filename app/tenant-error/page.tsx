@@ -127,19 +127,25 @@ function TenantErrorContent() {
             </>
           ) : (
             <>
-              <a
-                href="https://admin.adti.app.br"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold shadow-xs hover:bg-primary/90 transition-colors"
-              >
-                <span>Acessar Painel Master</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
               <button
-                onClick={() => window.location.reload()}
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    localStorage.removeItem('adti_active_subdomain');
+                    localStorage.removeItem('seati_active_subdomain');
+                    document.cookie = 'adti_subdomain=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+                    window.location.href = '/login';
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-on-primary text-xs font-semibold shadow-xs hover:bg-primary/90 transition-colors cursor-pointer"
+              >
+                <span>Acessar Tela de Login</span>
+                <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+              </button>
+              <button
+                onClick={() => window.location.href = '/'}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-semibold border border-outline-variant/50 transition-colors cursor-pointer"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Tentar Novamente</span>
+                <span>Página Inicial</span>
               </button>
             </>
           )}

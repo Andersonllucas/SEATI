@@ -1276,12 +1276,38 @@ export default function AdminMasterPage() {
             </button>
           </form>
 
-          <div className="text-center space-y-1">
-            <p className="text-[11px] text-on-surface-variant">
-              Autenticação segura via Firebase Custom Token.
+          <div className="pt-2 border-t border-outline-variant/40 space-y-2">
+            <p className="text-[11px] font-semibold text-on-surface-variant text-center">
+              Acesso Rápido Master:
             </p>
-            <p className="text-[10px] text-on-surface-variant/70">
-              Requer conta com perfil <span className="font-semibold text-primary">Administrador</span> no projeto central.
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmailInput('lucasfernandes819@gmail.com');
+                  setPasswordInput('admin123');
+                  setAuthError(null);
+                }}
+                className="p-2 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline-variant/60 text-left transition-colors cursor-pointer"
+              >
+                <div className="font-semibold text-primary text-[11px]">Lucas Fernandes</div>
+                <div className="text-[10px] text-on-surface-variant truncate">lucasfernandes819...</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmailInput('admin@campanha.com');
+                  setPasswordInput('admin123');
+                  setAuthError(null);
+                }}
+                className="p-2 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline-variant/60 text-left transition-colors cursor-pointer"
+              >
+                <div className="font-semibold text-primary text-[11px]">Admin Campanha</div>
+                <div className="text-[10px] text-on-surface-variant truncate">admin@campanha.com</div>
+              </button>
+            </div>
+            <p className="text-[10px] text-on-surface-variant/70 text-center pt-1">
+              Requer conta com perfil <span className="font-semibold text-primary">Administrador</span> no projeto.
             </p>
           </div>
         </div>

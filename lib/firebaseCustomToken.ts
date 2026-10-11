@@ -28,15 +28,21 @@ function base64UrlEncode(input: string | Buffer): string {
  * Retorna null se não estiverem configuradas ou se a chave for revogada.
  */
 export function getServiceAccountCredentials(): ServiceAccountConfig | null {
-  // 1. Tenta carregar JSON completo via variável de ambiente (JSON puro ou Base64)
   const rawKeyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  const rawEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const rawKey = process.env.FIREBASE_PRIVATE_KEY;
+
+  // 1. Tenta carregar JSON completo ou chave PEM direta via FIREBASE_SERVICE_ACCOUNT_KEY
   if (rawKeyJson && rawKeyJson.trim()) {
     let cleanJson = rawKeyJson.trim();
+    if ((cleanJson.startsWith('"') && cleanJson.endsWith('"')) || (cleanJson.startsWith("'") && cleanJson.endsWith("'"))) {
+      cleanJson = cleanJson.slice(1, -1).trim();
+    }
     // Suporte a valor codificado em Base64 (comum em Cloudflare/Vercel secrets)
-    if (!cleanJson.startsWith('{') && cleanJson.length > 50) {
+    if (!cleanJson.startsWith('{') && !cleanJson.includes('-----BEGIN') && cleanJson.length > 50) {
       try {
         const decoded = Buffer.from(cleanJson, 'base64').toString('utf8');
-        if (decoded.trim().startsWith('{')) {
+        if (decoded.trim().startsWith('{') || decoded.includes('-----BEGIN')) {
           cleanJson = decoded.trim();
         }
       } catch {}
@@ -45,31 +51,35 @@ export function getServiceAccountCredentials(): ServiceAccountConfig | null {
     if (cleanJson.startsWith('{')) {
       try {
         const parsed = JSON.parse(cleanJson);
-        // Se a chave estiver revogada no Google Cloud, desconsidera
-        if (parsed.private_key_id && REVOKED_KEY_IDS.has(parsed.private_key_id)) {
-          return null;
-        }
-        if (parsed.private_key && parsed.private_key.includes(REVOKED_KEY_SNIPPET)) {
-          return null;
-        }
-        if (parsed.client_email && parsed.private_key) {
+        const isRevoked =
+          (parsed.private_key_id && REVOKED_KEY_IDS.has(parsed.private_key_id)) ||
+          (parsed.private_key && parsed.private_key.includes(REVOKED_KEY_SNIPPET));
+
+        if (!isRevoked && parsed.client_email && parsed.private_key) {
           return {
             clientEmail: parsed.client_email,
-            privateKey: parsed.private_key,
-            projectId: parsed.project_id,
+            privateKey: parsed.private_key.includes('\\n') ? parsed.private_key.replace(/\\n/g, '\n') : parsed.private_key,
+            projectId: parsed.project_id || process.env.NEXT_PUBLIC_CENTRAL_PROJECT_ID || 'seati-d0096',
             privateKeyId: parsed.private_key_id
           };
         }
       } catch {
-        // Fallback silencioso para variáveis individuais
+        // Fallback para chave PEM direta
+      }
+    } else if (cleanJson.includes('-----BEGIN') && rawEmail) {
+      // É uma chave privada PEM direta (RSA)
+      if (!cleanJson.includes(REVOKED_KEY_SNIPPET)) {
+        const formattedKey = cleanJson.includes('\\n') ? cleanJson.replace(/\\n/g, '\n') : cleanJson;
+        return {
+          clientEmail: rawEmail.trim(),
+          privateKey: formattedKey,
+          projectId: process.env.NEXT_PUBLIC_CENTRAL_PROJECT_ID || 'seati-d0096'
+        };
       }
     }
   }
 
   // 2. Tenta carregar variáveis individuais
-  const rawEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const rawKey = process.env.FIREBASE_PRIVATE_KEY;
-
   if (rawEmail && rawKey) {
     let cleanEmail = rawEmail.trim();
     if ((cleanEmail.startsWith('"') && cleanEmail.endsWith('"')) || (cleanEmail.startsWith("'") && cleanEmail.endsWith("'"))) {
@@ -79,7 +89,7 @@ export function getServiceAccountCredentials(): ServiceAccountConfig | null {
     if ((cleanKey.startsWith('"') && cleanKey.endsWith('"')) || (cleanKey.startsWith("'") && cleanKey.endsWith("'"))) {
       cleanKey = cleanKey.slice(1, -1).trim();
     }
-    // Suporte a chave privada codificada em Base64 para evitar problemas com quebras de linha em formulários
+    // Suporte a chave privada codificada em Base64
     if (!cleanKey.includes('-----BEGIN') && cleanKey.length > 50) {
       try {
         const decoded = Buffer.from(cleanKey, 'base64').toString('utf8');
@@ -88,14 +98,15 @@ export function getServiceAccountCredentials(): ServiceAccountConfig | null {
         }
       } catch {}
     }
-    // Se a chave for a revogada, desconsidera
-    if (cleanKey.includes(REVOKED_KEY_SNIPPET)) {
-      return null;
+    // Se a chave não for a revogada, utiliza
+    if (!cleanKey.includes(REVOKED_KEY_SNIPPET)) {
+      const formattedKey = cleanKey.includes('\\n') ? cleanKey.replace(/\\n/g, '\n') : cleanKey;
+      return {
+        clientEmail: cleanEmail,
+        privateKey: formattedKey,
+        projectId: process.env.NEXT_PUBLIC_CENTRAL_PROJECT_ID || 'seati-d0096'
+      };
     }
-    return {
-      clientEmail: cleanEmail,
-      privateKey: cleanKey
-    };
   }
 
   return null;
