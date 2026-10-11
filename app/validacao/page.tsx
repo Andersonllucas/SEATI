@@ -86,6 +86,19 @@ function formatRelativeDate(isoString?: string): string {
   }
 }
 
+// Helper de formatação de telefone / WhatsApp
+function formatPhoneUtil(val?: string): string {
+  if (!val) return '-';
+  const numbers = val.replace(/\D/g, '').slice(0, 11);
+  if (numbers.length === 11) {
+    return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7)}`;
+  }
+  if (numbers.length === 10) {
+    return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 6)}-${numbers.slice(6)}`;
+  }
+  return val;
+}
+
 // Helper para converter data para input datetime-local
 function toDatetimeLocal(isoString?: string): string {
   if (!isoString) {
@@ -400,10 +413,11 @@ export default function ValidacaoPage() {
         const matchNome = (e.nome || '').toLowerCase().includes(term);
         const matchCpf = cleanDigits && (e.cpf || '').replace(/\D/g, '').includes(cleanDigits);
         const matchTel = cleanDigits && (e.telefone || '').replace(/\D/g, '').includes(cleanDigits);
+        const matchWhatsapp = cleanDigits && (e.whatsapp || '').replace(/\D/g, '').includes(cleanDigits);
         const matchBairro = (e.bairro || '').toLowerCase().includes(term);
         const matchObs = (e.observacoesValidacao || '').toLowerCase().includes(term);
 
-        if (!matchNome && !matchCpf && !matchTel && !matchBairro && !matchObs) {
+        if (!matchNome && !matchCpf && !matchTel && !matchWhatsapp && !matchBairro && !matchObs) {
           return false;
         }
       }
@@ -412,7 +426,8 @@ export default function ValidacaoPage() {
       if (pendenciaFilter !== 'todas') {
         const hasNoCpf = !e.cpf || !e.cpf.trim() || e.cpf.replace(/\D/g, '').length < 11;
         const hasNoTitulo = !e.tituloEleitor || !e.tituloEleitor.trim() || e.tituloEleitor.replace(/\D/g, '').length < 5;
-        const hasNoTelefone = !e.telefone || !e.telefone.trim() || e.telefone.replace(/\D/g, '').length < 8;
+        const phoneDigits = (e.whatsapp || e.telefone || '').replace(/\D/g, '');
+        const hasNoTelefone = phoneDigits.length < 8;
         const hasNoZonaSecao = !e.zona || !e.zona.trim() || !e.secao || !e.secao.trim();
         const hasNoBairro = !e.bairro || !e.bairro.trim();
         const normZ = (e.zona || '').replace(/\D/g, '').replace(/^0+/, '');
@@ -542,7 +557,8 @@ export default function ValidacaoPage() {
 
   // Disparo direto de WhatsApp com link
   const handleOpenWhatsApp = (eleitor: Eleitor) => {
-    const cleanPhone = (eleitor.telefone || '').replace(/\D/g, '');
+    const rawPhone = eleitor.whatsapp || eleitor.telefone || '';
+    const cleanPhone = rawPhone.replace(/\D/g, '');
     if (!cleanPhone) return;
 
     const primeiroNome = (eleitor.nome || '').split(' ')[0];
@@ -558,7 +574,8 @@ export default function ValidacaoPage() {
 
   // Disparo de ligação
   const handleCall = (eleitor: Eleitor) => {
-    const cleanPhone = (eleitor.telefone || '').replace(/\D/g, '');
+    const rawPhone = eleitor.telefone || eleitor.whatsapp || '';
+    const cleanPhone = rawPhone.replace(/\D/g, '');
     if (!cleanPhone) return;
     window.location.href = `tel:${cleanPhone}`;
     // Abre a janela de validação sugerindo tipo "Ligação"
@@ -618,6 +635,7 @@ export default function ValidacaoPage() {
       return {
         '#': index + 1,
         'Nome do Eleitor': e.nome,
+        'WhatsApp': formatPhoneUtil(e.whatsapp || e.telefone || ''),
         'Telefone': e.telefone || '-',
         'CPF': e.cpf || '-',
         'Bairro': e.bairro || '-',
@@ -1021,7 +1039,8 @@ export default function ValidacaoPage() {
                     }
                   />
                 </th>
-                <th className="py-2 px-3 md:py-2.5 md:px-3.5">Eleitor & Telefone</th>
+                <th className="py-2 px-3 md:py-2.5 md:px-3.5">Eleitor</th>
+                <th className="py-2 px-3 md:py-2.5 md:px-3.5 text-center">WhatsApp</th>
                 <th className="py-2 px-3 md:py-2.5 md:px-3.5">Status da Validação</th>
                 <th className="py-2 px-3 md:py-2.5 md:px-3.5">Canal / Tipo</th>
                 <th className="py-2 px-3 md:py-2.5 md:px-3.5">Horário da Validação</th>
@@ -1033,7 +1052,7 @@ export default function ValidacaoPage() {
             <tbody className="divide-y divide-outline-variant/30 text-sm">
               {filteredEleitores.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-on-surface-variant">
+                  <td colSpan={9} className="text-center py-12 text-on-surface-variant">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <UserCheck className="w-8 h-8 text-outline-variant" />
                       <p className="font-semibold text-on-surface">Nenhum eleitor encontrado nos filtros</p>
@@ -1047,7 +1066,9 @@ export default function ValidacaoPage() {
                 paginatedEleitores.map((eleitor) => {
                   const isSelected = selectedIds.has(eleitor.id);
                   const statusVal = eleitor.statusValidacao || 'Pendente';
-                  const hasPhone = !!eleitor.telefone && eleitor.telefone.replace(/\D/g, '').length >= 10;
+                  const phoneContact = eleitor.whatsapp || eleitor.telefone || '';
+                  const cleanPhone = phoneContact.replace(/\D/g, '');
+                  const hasPhone = cleanPhone.length >= 10;
                   const voterLeader = eleitor.liderancaId
                     ? leaderByIdMap.get(eleitor.liderancaId)
                     : eleitor.lideranca
@@ -1081,8 +1102,29 @@ export default function ValidacaoPage() {
                           {eleitor.nome}
                         </p>
                         <p className="text-[10px] md:text-[11px] text-on-surface-variant mt-0.5 leading-none">
-                          {eleitor.telefone || 'Sem telefone'} • {eleitor.bairro || 'Sem bairro'}
+                          {eleitor.bairro || 'Sem bairro'} • CPF: {eleitor.cpf || 'Não informado'}
                         </p>
+                      </td>
+
+                      <td className="py-1.5 px-3 md:py-2 md:px-3.5 text-center">
+                        {hasPhone ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenWhatsApp(eleitor)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-300 hover:border-emerald-600 rounded-md text-xs font-semibold transition-all shadow-2xs cursor-pointer group mx-auto"
+                            title={`Conversar no WhatsApp com ${eleitor.nome} e registrar validação`}
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600 group-hover:text-white transition-colors shrink-0" />
+                            <span className="font-mono text-xs font-medium">
+                              {formatPhoneUtil(phoneContact)}
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-on-surface-variant/50 italic justify-center">
+                            <MessageCircle className="w-3 h-3 text-outline-variant" />
+                            Sem WhatsApp
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-1.5 px-3 md:py-2 md:px-3.5">
@@ -1248,7 +1290,7 @@ export default function ValidacaoPage() {
                 <div>
                   <h3 className="text-sm font-bold text-on-surface">Registrar Validação de Eleitor</h3>
                   <p className="text-xs text-on-surface-variant font-medium">
-                    {activeEleitor.nome} • {activeEleitor.telefone || 'Sem telefone'}
+                    {activeEleitor.nome} • {activeEleitor.whatsapp || activeEleitor.telefone ? `WhatsApp: ${formatPhoneUtil(activeEleitor.whatsapp || activeEleitor.telefone)}` : 'Sem telefone'}
                   </p>
                 </div>
               </div>

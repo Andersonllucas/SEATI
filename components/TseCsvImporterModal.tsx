@@ -11,18 +11,23 @@ import {
   Building,
   Loader2,
   AlertCircle,
-  Trash2
+  Trash2,
+  Database,
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 import { parseTseCsvFileStreaming, FastTseParseSummary } from '@/lib/tseFastStreamParser';
 import { BuTseCsvRow } from '@/lib/tseBuParser';
 import { CarregandoVotosOverlay } from './CarregandoVotosOverlay';
+import { ApuracaoMetadadosGerais } from '@/context/ApuracaoContext';
 
 interface TseCsvImporterModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImportBatch: (
-    items: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string }>,
-    onProgress?: (progress: { current: number; total: number; percent: number; message: string }) => void
+    items: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string; observacoes?: string }>,
+    onProgress?: (progress: { current: number; total: number; percent: number; message: string }) => void,
+    metadados?: ApuracaoMetadadosGerais
   ) => Promise<void>;
   registeredSectionsKeys?: Set<string>;
   registeredSectionsInfo?: Map<string, { totalCadastrados: number; localNome?: string }>;
@@ -137,6 +142,8 @@ export function TseCsvImporterModal({
     return parseSummary.rows;
   }, [parseSummary]);
 
+  const [importMode, setImportMode] = useState<'apenas_base' | 'todas_secoes'>('apenas_base');
+
   // Estatísticas de correspondência com a base cadastrada
   const stats = useMemo(() => {
     if (!preparedRows.length) return null;
@@ -155,7 +162,10 @@ export function TseCsvImporterModal({
       const info = registeredSectionsInfo?.get(secKey);
       const isKeyMatch = registeredSectionsKeys?.has(secKey);
 
-      if (info || isKeyMatch) {
+      // Considera correspondência se a seção tiver eleitores cadastrados
+      const hasCadastrados = (info && info.totalCadastrados > 0) || (!registeredSectionsInfo && isKeyMatch);
+
+      if (hasCadastrados) {
         matchingRegistered++;
         votosEmSecoesCadastradas += r.votos;
         if (info) {
@@ -169,6 +179,7 @@ export function TseCsvImporterModal({
     const taxaCumprimentoBase = eleitoresCadastradosCruzados > 0
       ? Math.round((votosEmSecoesCadastradas / eleitoresCadastradosCruzados) * 100)
       : 0;
+    const economiaGravacoes = Math.max(0, preparedRows.length - matchingRegistered);
 
     return {
       totalSecoes: preparedRows.length,
@@ -178,28 +189,71 @@ export function TseCsvImporterModal({
       taxaMatch,
       votosEmSecoesCadastradas,
       eleitoresCadastradosCruzados,
-      taxaCumprimentoBase
+      taxaCumprimentoBase,
+      economiaGravacoes
     };
   }, [preparedRows, registeredSectionsKeys, registeredSectionsInfo]);
 
-  // Confirmar e Importar
-  const handleConfirmImport = async () => {
+  // Define automaticamente o modo sugerido conforme o resultado do cruzamento
+  useEffect(() => {
+    if (stats && stats.matchingRegistered > 0) {
+      setImportMode('apenas_base');
+    } else if (stats && stats.matchingRegistered === 0) {
+      setImportMode('todas_secoes');
+    }
+  }, [stats?.matchingRegistered]);
+
+  // Confirmar e Importar no banco
+  const handleConfirmImport = async (overrideMode?: 'apenas_base' | 'todas_secoes') => {
     if (!preparedRows.length) return;
+    const mode = overrideMode || importMode;
+
+    let rowsToSave = preparedRows;
+    if (mode === 'apenas_base') {
+      rowsToSave = preparedRows.filter((r) => {
+        const keyZ = String(parseInt(r.zona.replace(/\D/g, '') || '0', 10));
+        const keyS = String(parseInt(r.secao.replace(/\D/g, '') || '0', 10));
+        const secKey = `z${keyZ}_s${keyS}`;
+        const info = registeredSectionsInfo?.get(secKey);
+        const isKeyMatch = registeredSectionsKeys?.has(secKey);
+        return (info && info.totalCadastrados > 0) || (!registeredSectionsInfo && isKeyMatch);
+      });
+
+      if (rowsToSave.length === 0) {
+        alert('Nenhuma das seções do arquivo possui eleitores cadastrados na sua base. Use a opção para gravar todas as seções.');
+        return;
+      }
+    }
+
+    const economia = preparedRows.length - rowsToSave.length;
+
     setIsSaving(true);
     setSaveProgress({
       percent: 5,
       current: 0,
-      total: preparedRows.length,
-      stage: 'Iniciando preparação dos dados para envio ao banco...'
+      total: rowsToSave.length,
+      stage: mode === 'apenas_base'
+        ? `Iniciando gravação otimizada de ${rowsToSave.length} seções da base (economizando ${economia} gravações no banco)...`
+        : `Iniciando gravação de todas as ${rowsToSave.length} seções no banco...`
     });
 
     try {
-      const items = preparedRows.map((r) => ({
+      const items = rowsToSave.map((r) => ({
         zona: r.zona,
         secao: r.secao,
         votosApurados: r.votos,
         boletimUrna: `TSE BU ${fileName} (Candidato: ${targetNumber}${parseSummary?.candidatoNome ? ` - ${parseSummary.candidatoNome}` : ''})`
       }));
+
+      const metadados: ApuracaoMetadadosGerais = {
+        totalVotosArquivo: parseSummary?.totalVotosCandidato || 0,
+        totalSecoesArquivo: preparedRows.length,
+        candidatoNumero: targetNumber,
+        candidatoNome: parseSummary?.candidatoNome || '',
+        nomeArquivo: fileName,
+        dataImportacao: new Date().toISOString(),
+        modoImportacao: mode
+      };
 
       await onImportBatch(items, (prog) => {
         setSaveProgress({
@@ -208,16 +262,18 @@ export function TseCsvImporterModal({
           total: prog.total,
           stage: prog.message
         });
-      });
+      }, metadados);
 
       setSaveProgress({
         percent: 100,
-        current: preparedRows.length,
-        total: preparedRows.length,
-        stage: `✓ Todas as ${preparedRows.length} seções foram gravadas com sucesso no banco!`
+        current: rowsToSave.length,
+        total: rowsToSave.length,
+        stage: mode === 'apenas_base'
+          ? `✓ Sucesso! ${rowsToSave.length} seções da base gravadas no banco (${economia} gravações economizadas). Total Geral mantido: ${(parseSummary?.totalVotosCandidato || 0).toLocaleString('pt-BR')} votos.`
+          : `✓ Sucesso! Todas as ${rowsToSave.length} seções foram gravadas no banco!`
       });
 
-      // Breve pausa para o usuário ver o 100% concluído com segurança
+      // Breve pausa para o usuário ver a confirmação de 100% com segurança
       await new Promise((resolve) => setTimeout(resolve, 650));
       onClose();
     } catch (err) {
@@ -643,6 +699,79 @@ export function TseCsvImporterModal({
                       </table>
                     </div>
                   </div>
+
+                  {/* Opção de Gravação no Banco de Dados: Somente Seções da Base vs Todas as Seções */}
+                  {stats && (
+                    <div className="bg-surface-container-low border border-outline-variant/70 rounded-xl p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <Database className="w-4 h-4 text-emerald-600" />
+                          <span>Opção de Gravação no Banco de Dados:</span>
+                        </span>
+                        {stats.matchingRegistered > 0 && (
+                          <span className="text-[10px] bg-emerald-500/15 text-emerald-800 font-extrabold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                            ⚡ Economiza {stats.economiaGravacoes} gravações
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Opção 1: Somente Seções da Minha Base (Recomendado) */}
+                        <button
+                          type="button"
+                          onClick={() => setImportMode('apenas_base')}
+                          disabled={stats.matchingRegistered === 0}
+                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                            importMode === 'apenas_base'
+                              ? 'border-emerald-600 bg-emerald-500/10 ring-2 ring-emerald-600/30 shadow-xs'
+                              : 'border-outline-variant bg-surface hover:bg-surface-container'
+                          } ${stats.matchingRegistered === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                                importMode === 'apenas_base' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-outline'
+                              }`}>
+                                {importMode === 'apenas_base' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                              </div>
+                              <span className="text-xs font-black text-on-surface">Somente da Minha Base</span>
+                            </div>
+                            <span className="text-[9px] font-black bg-emerald-600 text-white px-1.5 py-0.2 rounded">
+                              Recomendado
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-on-surface-variant mt-1.5 leading-snug">
+                            Grava apenas as <strong>{stats.matchingRegistered} seções</strong> com eleitores da base. <strong>Economiza {stats.economiaGravacoes} gravações</strong> e alimenta o <strong>Total Geral ({parseSummary.totalVotosCandidato.toLocaleString('pt-BR')} votos)</strong> no painel.
+                          </p>
+                        </button>
+
+                        {/* Opção 2: Todas as Seções do Arquivo */}
+                        <button
+                          type="button"
+                          onClick={() => setImportMode('todas_secoes')}
+                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                            importMode === 'todas_secoes'
+                              ? 'border-secondary bg-secondary/10 ring-2 ring-secondary/30 shadow-xs'
+                              : 'border-outline-variant bg-surface hover:bg-surface-container'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                                importMode === 'todas_secoes' ? 'border-secondary bg-secondary text-white' : 'border-outline'
+                              }`}>
+                                {importMode === 'todas_secoes' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                              </div>
+                              <span className="text-xs font-bold text-on-surface">Todas as Seções ({preparedRows.length})</span>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-on-surface-variant mt-1.5 leading-snug">
+                            Grava todas as <strong>{preparedRows.length} seções</strong> do arquivo no banco (incluindo seções sem eleitores cadastrados).
+                          </p>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -650,28 +779,59 @@ export function TseCsvImporterModal({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 bg-surface border-t border-outline-variant/60 flex items-center justify-between">
-          <div className="text-[11px] text-on-surface-variant flex items-center gap-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Processamento local no navegador</span>
+        <div className="px-5 py-3.5 bg-surface border-t border-outline-variant/60 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="text-[11px] text-on-surface-variant flex items-center gap-1.5 w-full sm:w-auto">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span>Processamento local • Total: {parseSummary?.totalVotosCandidato.toLocaleString('pt-BR')} votos</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
             <button
               type="button"
               onClick={onClose}
               disabled={isSaving || isProcessing}
-              className="px-3.5 py-1.5 border border-outline-variant rounded-xl text-xs font-semibold text-on-surface hover:bg-surface-container cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-2 border border-outline-variant rounded-xl text-xs font-semibold text-on-surface hover:bg-surface-container cursor-pointer disabled:opacity-50"
             >
               Cancelar
             </button>
+
+            {/* Botão Secundário: Gravar Todas as Seções */}
             <button
               type="button"
-              onClick={handleConfirmImport}
+              onClick={() => handleConfirmImport('todas_secoes')}
               disabled={isSaving || isProcessing || !preparedRows.length}
-              className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-500 rounded-xl text-xs font-bold shadow-sm transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              className={`px-3 py-2 border rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 ${
+                importMode === 'todas_secoes'
+                  ? 'border-secondary bg-secondary text-white shadow-xs'
+                  : 'border-outline-variant text-on-surface hover:bg-surface-container'
+              }`}
+              title="Grava todas as seções do arquivo no banco de dados"
             >
-              <Check className="w-4 h-4" />
-              <span>{isSaving ? 'Gravando no Banco...' : `Confirmar e Importar ${preparedRows.length} Seções`}</span>
+              <Vote className="w-3.5 h-3.5" />
+              <span>Gravar Todas ({preparedRows.length})</span>
+            </button>
+
+            {/* Botão Primário em Destaque: Gravar Somente Seções da Minha Base */}
+            <button
+              type="button"
+              onClick={() => handleConfirmImport('apenas_base')}
+              disabled={isSaving || isProcessing || !preparedRows.length || !stats || stats.matchingRegistered === 0}
+              className={`px-4 py-2 rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 ${
+                importMode === 'apenas_base'
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-500 ring-2 ring-emerald-500/40'
+                  : 'bg-emerald-600/90 text-white hover:bg-emerald-500'
+              }`}
+              title={
+                stats && stats.matchingRegistered > 0
+                  ? `Grava somente as ${stats.matchingRegistered} seções com eleitores cadastrados e economiza ${stats.economiaGravacoes} gravações no banco!`
+                  : 'Nenhuma seção com eleitor cadastrado encontrada no arquivo'
+              }
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+              <span>
+                {isSaving && importMode === 'apenas_base'
+                  ? 'Gravando no Banco...'
+                  : `Gravar Apenas Minha Base (${stats?.matchingRegistered || 0} seções)`}
+              </span>
             </button>
           </div>
         </div>

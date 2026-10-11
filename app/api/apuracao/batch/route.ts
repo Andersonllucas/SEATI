@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { batchCommitRest, queryFirestoreRest, FirestoreWriteOp } from '@/lib/firestoreRest';
+import { batchCommitRest, queryFirestoreRest, getDocRest, FirestoreWriteOp } from '@/lib/firestoreRest';
 import { TenantFirebaseConfig } from '@/lib/tenantTypes';
 
 export const dynamic = 'force-dynamic';
@@ -23,11 +23,15 @@ export async function GET(req: NextRequest) {
 
     const cfg = projectId ? { projectId, databaseId: databaseId || '(default)', apiKey: apiKey || undefined } : undefined;
 
-    const docs = await queryFirestoreRest('apuracao_secoes', undefined, 2000, cfg);
+    const [docs, resumoDoc] = await Promise.all([
+      queryFirestoreRest('apuracao_secoes', undefined, 2000, cfg),
+      getDocRest('configuracoes', 'apuracao_resumo', cfg).catch(() => null)
+    ]);
     return NextResponse.json({
       success: true,
       count: docs.length,
-      apuracoes: docs
+      apuracoes: docs,
+      metadados: resumoDoc || null
     }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('Erro ao buscar apurações no Firestore:', error);
@@ -44,8 +48,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { items, firebaseConfig } = body as {
-      items: Array<{
+    const { items, firebaseConfig, metadados } = body as {
+      items?: Array<{
         id?: string;
         zona: string;
         secao: string;
@@ -56,9 +60,13 @@ export async function POST(req: NextRequest) {
         observacoes?: string;
       }>;
       firebaseConfig?: TenantFirebaseConfig;
+      metadados?: Record<string, any>;
     };
 
-    if (!Array.isArray(items) || items.length === 0) {
+    const hasItems = Array.isArray(items) && items.length > 0;
+    const hasMeta = metadados && typeof metadados === 'object';
+
+    if (!hasItems && !hasMeta) {
       return NextResponse.json({
         success: false,
         error: 'Nenhum item informado para importação.'
@@ -66,7 +74,7 @@ export async function POST(req: NextRequest) {
     }
 
     const nowIso = new Date().toISOString();
-    const ops: FirestoreWriteOp[] = items.map((it) => {
+    const ops: FirestoreWriteOp[] = (items || []).map((it) => {
       const zClean = String(it.zona || '').trim();
       const sClean = String(it.secao || '').trim();
       const zNorm = zClean.replace(/\D/g, '') ? String(parseInt(zClean.replace(/\D/g, ''), 10)) : zClean.toLowerCase();
@@ -90,6 +98,19 @@ export async function POST(req: NextRequest) {
       };
     });
 
+    if (metadados && typeof metadados === 'object') {
+      ops.push({
+        type: 'update',
+        collectionId: 'configuracoes',
+        docId: 'apuracao_resumo',
+        data: {
+          id: 'apuracao_resumo',
+          ...metadados,
+          updatedAt: nowIso
+        }
+      });
+    }
+
     const cfg = firebaseConfig?.projectId
       ? {
           projectId: firebaseConfig.projectId,
@@ -103,7 +124,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       count: result.count,
-      message: `${result.count} seções salvas diretamente no banco Firestore com sucesso!`
+      message: `${result.count} registros salvos diretamente no banco Firestore com sucesso!`
     }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('Erro na API /api/apuracao/batch (POST):', error);
@@ -139,15 +160,18 @@ export async function DELETE(req: NextRequest) {
       targetIds = existing.map((d: any) => d.id).filter(Boolean);
     }
 
-    if (!targetIds.length) {
-      return NextResponse.json({ success: true, count: 0, message: 'Nenhuma apuração para excluir.' });
-    }
-
     const ops: FirestoreWriteOp[] = targetIds.map((id) => ({
       type: 'delete',
       collectionId: 'apuracao_secoes',
       docId: id
     }));
+
+    // Também remove o resumo de metadados gerais da apuração
+    ops.push({
+      type: 'delete',
+      collectionId: 'configuracoes',
+      docId: 'apuracao_resumo'
+    });
 
     const result = await batchCommitRest(ops, cfg);
 

@@ -107,6 +107,26 @@ export default function Importacao() {
   const { apuracoes, importarLoteApuracao } = useApuracao();
   const [isTseModalOpen, setIsTseModalOpen] = useState(false);
 
+  const registeredSectionsInfo = useMemo(() => {
+    const map = new Map<string, { totalCadastrados: number; localNome?: string }>();
+    eleitores.forEach((e) => {
+      const zRaw = String(e.zona || '').trim();
+      const sRaw = String(e.secao || '').trim();
+      const zNorm = zRaw.replace(/\D/g, '') ? String(parseInt(zRaw.replace(/\D/g, ''), 10)) : zRaw.toLowerCase();
+      const sNorm = sRaw.replace(/\D/g, '') ? String(parseInt(sRaw.replace(/\D/g, ''), 10)) : sRaw.toLowerCase();
+      if (!zNorm || !sNorm) return;
+      const key = `z${zNorm}_s${sNorm}`;
+      const cur = map.get(key) || { totalCadastrados: 0 };
+      cur.totalCadastrados++;
+      map.set(key, cur);
+    });
+    return map;
+  }, [eleitores]);
+
+  const registeredSectionsKeys = useMemo(() => {
+    return new Set(registeredSectionsInfo.keys());
+  }, [registeredSectionsInfo]);
+
   // Selected Target for Template & Import
   const [importTarget, setImportTarget] = useState<ImportTarget>('eleitores');
   const [limparLocaisAntes, setLimparLocaisAntes] = useState(true);
@@ -2674,10 +2694,15 @@ export default function Importacao() {
         <TseCsvImporterModal
           isOpen={isTseModalOpen}
           onClose={() => setIsTseModalOpen(false)}
-          onImportBatch={async (items, onProgress) => {
-            await importarLoteApuracao(items, onProgress);
-            setImportSuccessMessage(`✓ ${items.length} seções do TSE importadas e gravadas no banco com sucesso!`);
+          onImportBatch={async (items, onProgress, metadados) => {
+            await importarLoteApuracao(items, onProgress, metadados);
+            const msg = metadados?.modoImportacao === 'apenas_base'
+              ? `✓ ${items.length} seções da sua base gravadas no banco (Total Geral: ${metadados.totalVotosArquivo?.toLocaleString('pt-BR')} votos)!`
+              : `✓ ${items.length} seções do TSE importadas e gravadas no banco com sucesso!`;
+            setImportSuccessMessage(msg);
           }}
+          registeredSectionsKeys={registeredSectionsKeys}
+          registeredSectionsInfo={registeredSectionsInfo}
           existingVotesCount={apuracoes.length}
         />
       )}

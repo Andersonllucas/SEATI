@@ -127,7 +127,7 @@ export default function CumprimentoVotosPage() {
   const { currentTenant, subdomain } = useTenant();
   const { currentUser } = useAuth();
   const { eleitores, liderancas, locais } = useCampaignData();
-  const { apuracoes, apuracoesMap, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao, limparTodasApuracoes } = useApuracao();
+  const { apuracoes, apuracoesMap, metadadosGerais, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao, limparTodasApuracoes } = useApuracao();
 
   // Abas: "secoes" (Análise por Seção) ou "liderancas" (Auditoria por Liderança)
   const [activeTab, setActiveTab] = useState<'secoes' | 'liderancas'>('secoes');
@@ -663,13 +663,17 @@ export default function CumprimentoVotosPage() {
       : 0;
 
     // Total de todos os votos contabilizados no arquivo de importação
-    const totalVotosImportados = apuracoes.length > 0
-      ? apuracoes.reduce((acc, a) => acc + (Number(a.votosApurados) || 0), 0)
-      : totalVotosApuradosGerais;
+    const totalVotosImportados = (metadadosGerais?.totalVotosArquivo && metadadosGerais.totalVotosArquivo > 0)
+      ? metadadosGerais.totalVotosArquivo
+      : (apuracoes.length > 0
+          ? apuracoes.reduce((acc, a) => acc + (Number(a.votosApurados) || 0), 0)
+          : totalVotosApuradosGerais);
 
-    const totalSecoesImportadas = apuracoes.length > 0
-      ? apuracoes.length
-      : totalSecoesApuradasGerais;
+    const totalSecoesImportadas = (metadadosGerais?.totalSecoesArquivo && metadadosGerais.totalSecoesArquivo > 0)
+      ? metadadosGerais.totalSecoesArquivo
+      : (apuracoes.length > 0
+          ? apuracoes.length
+          : totalSecoesApuradasGerais);
 
     // Cumprimento Real: Eleitores da base que efetivamente cumpriram o voto nas urnas vs Total Prometido
     // Votos excedentes em uma seção NÃO compensam eleitores que não cumpriram em outra!
@@ -1275,15 +1279,24 @@ export default function CumprimentoVotosPage() {
         {/* Card 2: Total de Votos Geral (Todos os votos contabilizados no arquivo de importação) */}
         <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-secondary/40 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-bold text-secondary uppercase tracking-wider">
-              Total de Votos Geral
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] font-bold text-secondary uppercase tracking-wider">
+                Total de Votos Geral
+              </p>
+              {metadadosGerais?.modoImportacao === 'apenas_base' && (
+                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded" title="Apenas seções da base com eleitores cadastrados foram gravadas no banco">
+                  Base Otimizada
+                </span>
+              )}
+            </div>
             <div className="flex items-baseline gap-1.5 mt-0.5">
-              <h3 className="text-lg md:text-xl font-black text-secondary">{stats.totalVotosImportados}</h3>
+              <h3 className="text-lg md:text-xl font-black text-secondary">
+                {stats.totalVotosImportados.toLocaleString('pt-BR')}
+              </h3>
               <span className="text-[11px] text-on-surface-variant font-medium">nas urnas</span>
             </div>
             <p className="text-[10px] text-on-surface-variant/80 mt-0.5 font-medium">
-              {stats.totalSecoesImportadas} seções contabilizadas no arquivo
+              {stats.totalSecoesImportadas} seções no arquivo{metadadosGerais?.modoImportacao === 'apenas_base' ? ` (${apuracoes.length} salvas no banco)` : ''}
             </p>
           </div>
           <div className="p-1.5 bg-secondary/10 rounded-lg text-secondary">
@@ -2440,10 +2453,13 @@ export default function CumprimentoVotosPage() {
         <TseCsvImporterModal
           isOpen={isTseModalOpen}
           onClose={() => setIsTseModalOpen(false)}
-          onImportBatch={async (items, onProgress) => {
-            await importarLoteApuracao(items, onProgress);
+          onImportBatch={async (items, onProgress, metadados) => {
+            await importarLoteApuracao(items, onProgress, metadados);
             playVoteChime();
-            showToast(`✓ ${items.length} seções do TSE importadas e gravadas no banco com sucesso!`);
+            const msg = metadados?.modoImportacao === 'apenas_base'
+              ? `✓ ${items.length} seções da sua base gravadas no banco (Total Geral: ${metadados.totalVotosArquivo?.toLocaleString('pt-BR')} votos)!`
+              : `✓ ${items.length} seções do TSE importadas e gravadas no banco com sucesso!`;
+            showToast(msg);
           }}
           registeredSectionsKeys={registeredSectionsKeys}
           registeredSectionsInfo={registeredSectionsInfo}

@@ -47,6 +47,16 @@ export function makeSecaoKey(zona?: string, secao?: string): string {
   return `z${z}_s${s}`;
 }
 
+export interface ApuracaoMetadadosGerais {
+  totalVotosArquivo?: number;
+  totalSecoesArquivo?: number;
+  candidatoNumero?: string;
+  candidatoNome?: string;
+  nomeArquivo?: string;
+  dataImportacao?: string;
+  modoImportacao?: 'apenas_base' | 'todas_secoes';
+}
+
 export interface ApuracaoProgress {
   current: number;
   total: number;
@@ -57,6 +67,7 @@ export interface ApuracaoProgress {
 interface ApuracaoContextType {
   apuracoes: ApuracaoSecao[];
   apuracoesMap: Map<string, ApuracaoSecao>;
+  metadadosGerais: ApuracaoMetadadosGerais | null;
   isLoaded: boolean;
   salvarApuracaoSecao: (
     zona: string,
@@ -65,9 +76,11 @@ interface ApuracaoContextType {
     extras?: { boletimUrna?: string; observacoes?: string; dataApuracao?: string }
   ) => Promise<void>;
   removerApuracaoSecao: (zona: string, secao: string) => Promise<void>;
+  salvarMetadadosGerais: (meta: ApuracaoMetadadosGerais) => Promise<void>;
   importarLoteApuracao: (
     itens: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string; observacoes?: string }>,
-    onProgress?: (progress: ApuracaoProgress) => void
+    onProgress?: (progress: ApuracaoProgress) => void,
+    metadados?: ApuracaoMetadadosGerais
   ) => Promise<{ imported: number }>;
   limparTodasApuracoes: () => Promise<{ deleted: number }>;
 }
@@ -85,6 +98,15 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', CACHE_TTL_MS, tenantKey);
     return cached?.data || [];
   });
+  const [metadadosGerais, setMetadadosGerais] = useState<ApuracaoMetadadosGerais | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`adti_cache_${tenantKey}_apuracao_meta`);
+        return saved ? JSON.parse(saved) : null;
+      } catch {}
+    }
+    return null;
+  });
   const [isLoaded, setIsLoaded] = useState(() => {
     const cached = getCachedCollection<ApuracaoSecao>('apuracao_secoes', CACHE_TTL_MS, tenantKey);
     return !!cached?.data;
@@ -96,6 +118,12 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     if (cached?.data) {
       setApuracoes(cached.data);
       setIsLoaded(true);
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`adti_cache_${tenantKey}_apuracao_meta`);
+        if (saved) setMetadadosGerais(JSON.parse(saved));
+      } catch {}
     }
   }, [tenantKey, tenantVersion]);
 
@@ -123,8 +151,16 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         });
         if (res.ok) {
           const json = await res.json();
+          if (!isSubscribed) return;
+
+          if (json.metadados) {
+            setMetadadosGerais(json.metadados);
+            try {
+              localStorage.setItem(`adti_cache_${tenantKey}_apuracao_meta`, JSON.stringify(json.metadados));
+            } catch {}
+          }
+
           if (json.success && Array.isArray(json.apuracoes) && json.apuracoes.length > 0) {
-            if (!isSubscribed) return;
             setApuracoes((prev) => {
               // Mescla de forma inteligente preservando a versão mais recente
               const map = new Map<string, ApuracaoSecao>();
@@ -160,7 +196,7 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isAuthReady, isLoadingTenant, tenantKey, currentTenant?.firebaseConfig?.projectId]);
 
-  // Snapshot em tempo real com Firestore ativo
+  // Snapshot em tempo real com Firestore ativo para apuracao_secoes e metadados
   useEffect(() => {
     if (!isAuthReady || isLoadingTenant) {
       return;
@@ -177,6 +213,19 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
 
     const targetDb = activeDb || getActiveDb();
     const colRef = collection(targetDb, 'apuracao_secoes');
+    const metaRef = doc(targetDb, 'configuracoes', 'apuracao_resumo');
+
+    const unsubscribeMeta = onSnapshot(metaRef, (snap) => {
+      if (snap.exists()) {
+        const metaData = snap.data() as ApuracaoMetadadosGerais;
+        setMetadadosGerais(metaData);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`adti_cache_${tenantKey}_apuracao_meta`, JSON.stringify(metaData));
+          } catch {}
+        }
+      }
+    }, () => {});
 
     const unsubscribe = onSnapshot(
       colRef,
@@ -212,7 +261,10 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubscribeMeta();
+    };
   }, [isAuthReady, isLoadingTenant, activeDb, tenantKey]);
 
   // Mapa rápido indexado por chave normalizada
@@ -314,11 +366,42 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     [activeDb, tenantKey, currentTenant?.firebaseConfig]
   );
 
+  // Salvar metadados gerais da apuração
+  const salvarMetadadosGerais = useCallback(
+    async (meta: ApuracaoMetadadosGerais) => {
+      setMetadadosGerais(meta);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`adti_cache_${tenantKey}_apuracao_meta`, JSON.stringify(meta));
+        } catch {}
+      }
+
+      fetch('/api/apuracao/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [],
+          metadados: meta,
+          firebaseConfig: currentTenant?.firebaseConfig
+        })
+      }).catch((e) => console.warn('[ApuracaoContext] Aviso ao salvar metadados via REST:', e));
+
+      try {
+        const targetDb = activeDb || getActiveDb();
+        await setDoc(doc(targetDb, 'configuracoes', 'apuracao_resumo'), meta);
+      } catch (err) {
+        console.warn(`[ApuracaoContext] Aviso ao salvar metadados no SDK:`, err);
+      }
+    },
+    [activeDb, tenantKey, currentTenant?.firebaseConfig]
+  );
+
   // Importar lote de apurações com gravação real e atômica no Firestore
   const importarLoteApuracao = useCallback(
     async (
       itens: Array<{ zona: string; secao: string; votosApurados: number; boletimUrna?: string; observacoes?: string }>,
-      onProgress?: (progress: ApuracaoProgress) => void
+      onProgress?: (progress: ApuracaoProgress) => void,
+      metadados?: ApuracaoMetadadosGerais
     ) => {
       const operador = currentUser?.nome || currentUser?.email || 'Coordenação';
       const nowIso = new Date().toISOString();
@@ -355,6 +438,15 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
+      if (metadados) {
+        setMetadadosGerais(metadados);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`adti_cache_${tenantKey}_apuracao_meta`, JSON.stringify(metadados));
+          } catch {}
+        }
+      }
+
       // Limpa circuit breaker pré-existente
       resetCircuitBreaker('apuracao_secoes', tenantKey);
 
@@ -386,6 +478,7 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               items: chunk,
+              metadados: i === 0 ? metadados : undefined,
               firebaseConfig: currentTenant?.firebaseConfig
             })
           });
@@ -416,6 +509,9 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
       // Sincroniza também no SDK do cliente em segundo plano para refletir no cache local imediato
       try {
         const targetDb = activeDb || getActiveDb();
+        if (metadados) {
+          await setDoc(doc(targetDb, 'configuracoes', 'apuracao_resumo'), metadados).catch(() => null);
+        }
         const CHUNK_SIZE = 400;
         for (let i = 0; i < newDocs.length; i += CHUNK_SIZE) {
           const chunk = newDocs.slice(i, i + CHUNK_SIZE);
@@ -446,6 +542,12 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     // Atualização otimista imediata
     setApuracoes([]);
     setCachedCollection('apuracao_secoes', [], tenantKey);
+    setMetadadosGerais(null);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(`adti_cache_${tenantKey}_apuracao_meta`);
+      } catch {}
+    }
 
     // 1. Limpeza garantida no Firestore via servidor
     try {
@@ -463,6 +565,7 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     // 2. Limpeza no SDK local
     try {
       const targetDb = activeDb || getActiveDb();
+      await deleteDoc(doc(targetDb, 'configuracoes', 'apuracao_resumo')).catch(() => null);
       const snap = await getDocs(collection(targetDb, 'apuracao_secoes'));
       const CHUNK_SIZE = 400;
       const docs = snap.docs;
@@ -482,18 +585,29 @@ export function ApuracaoProvider({ children }: { children: React.ReactNode }) {
     return { deleted: count };
   }, [activeDb, apuracoes.length, tenantKey, currentTenant?.firebaseConfig]);
 
-
   const value = useMemo(
     () => ({
       apuracoes,
       apuracoesMap,
+      metadadosGerais,
       isLoaded,
       salvarApuracaoSecao,
       removerApuracaoSecao,
+      salvarMetadadosGerais,
       importarLoteApuracao,
       limparTodasApuracoes
     }),
-    [apuracoes, apuracoesMap, isLoaded, salvarApuracaoSecao, removerApuracaoSecao, importarLoteApuracao, limparTodasApuracoes]
+    [
+      apuracoes,
+      apuracoesMap,
+      metadadosGerais,
+      isLoaded,
+      salvarApuracaoSecao,
+      removerApuracaoSecao,
+      salvarMetadadosGerais,
+      importarLoteApuracao,
+      limparTodasApuracoes
+    ]
   );
 
   return <ApuracaoContext.Provider value={value}>{children}</ApuracaoContext.Provider>;

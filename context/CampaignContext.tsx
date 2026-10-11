@@ -21,6 +21,7 @@ import {
   ApuracaoProvider,
   useApuracao,
   ApuracaoSecao,
+  ApuracaoMetadadosGerais,
   normalizeZona,
   normalizeSecao,
   makeSecaoKey
@@ -52,6 +53,7 @@ export type {
   StatusValidacao,
   ValidacaoRegistro,
   ApuracaoSecao,
+  ApuracaoMetadadosGerais,
   Lideranca,
   LocalVotacao,
   CpfConflictGroup,
