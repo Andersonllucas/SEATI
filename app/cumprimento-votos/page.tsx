@@ -143,13 +143,6 @@ export default function CumprimentoVotosPage() {
   const campaignDisplayName =
     currentTenant?.nome || (subdomain && subdomain !== 'demo' ? `Campanha ${subdomain}` : 'Campanha Eleitoral 2026');
 
-  const handleOpenPrintModal = (type: 'secoes' | 'liderancas' | 'lideranca_individual', lideranca?: LiderancaDesempenho | null) => {
-    setPrintReportType(type);
-    if (lideranca) {
-      setPrintSelectedLideranca(lideranca);
-    }
-    setIsPrintModalOpen(true);
-  };
 
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
@@ -286,7 +279,8 @@ export default function CumprimentoVotosPage() {
         printStats,
         secoesList: printSecoesList,
         liderancasList: printLiderancasList,
-        selectedLideranca: printSelectedLideranca
+        selectedLideranca: printSelectedLideranca,
+        selectedLiderancaSecoes: printSelectedLiderancaSecoes
       });
     } catch (err) {
       console.error('Erro ao gerar PDF do relatório:', err);
@@ -303,6 +297,24 @@ export default function CumprimentoVotosPage() {
   const [zonaFilter, setZonaFilter] = useState('todas');
   const [bairroFilter, setBairroFilter] = useState('todos');
   const [liderancaFilter, setLiderancaFilter] = useState('todas');
+
+  const handleOpenPrintModal = (type: 'secoes' | 'liderancas' | 'lideranca_individual', lideranca?: LiderancaDesempenho | null) => {
+    setPrintReportType(type);
+    if (lideranca) {
+      setPrintSelectedLideranca(lideranca);
+    }
+    // Sincroniza o escopo de impressão com o filtro já ativo na tela
+    if (votoPresencaFilter === 'com_votos') {
+      setPrintScope('com_votos');
+    } else if (votoPresencaFilter === 'sem_votos') {
+      setPrintScope('sem_votos');
+    } else if (statusApuracaoFilter === 'apuradas') {
+      setPrintScope('apenas_apuradas');
+    } else if (statusApuracaoFilter === 'abaixo') {
+      setPrintScope('apenas_quebras');
+    }
+    setIsPrintModalOpen(true);
+  };
 
   // Paginação
   const [currentPage, setCurrentPage] = useState(1);
@@ -1052,6 +1064,51 @@ export default function CumprimentoVotosPage() {
     return filteredLiderancas;
   }, [filteredLiderancas, printScope]);
 
+  // Seções da Liderança Selecionada para Impressão Individual (filtradas por escopo e filtros ativos)
+  const printSelectedLiderancaSecoes = useMemo(() => {
+    if (!printSelectedLideranca) return [];
+    let secoes = [...printSelectedLideranca.detalhesSecoes];
+
+    // Aplica os filtros gerais da listagem caso ativos
+    if (zonaFilter !== 'todas') {
+      secoes = secoes.filter((s) => s.zona === zonaFilter);
+    }
+    if (bairroFilter !== 'todos') {
+      secoes = secoes.filter((s) => s.bairro.toLowerCase() === bairroFilter.toLowerCase());
+    }
+    if (statusApuracaoFilter === 'apuradas') {
+      secoes = secoes.filter((s) => s.isApurada);
+    } else if (statusApuracaoFilter === 'pendentes') {
+      secoes = secoes.filter((s) => !s.isApurada);
+    } else if (statusApuracaoFilter === 'superaram') {
+      secoes = secoes.filter((s) => s.isApurada && s.teveVotosSuficientes === true);
+    } else if (statusApuracaoFilter === 'abaixo') {
+      secoes = secoes.filter((s) => s.isApurada && s.teveVotosSuficientes === false);
+    }
+
+    if (votoPresencaFilter === 'com_votos') {
+      secoes = secoes.filter((s) => (typeof s.votosApurados === 'number' ? s.votosApurados : 0) > 0);
+    } else if (votoPresencaFilter === 'sem_votos') {
+      secoes = secoes.filter((s) => (typeof s.votosApurados === 'number' ? s.votosApurados : 0) <= 0);
+    }
+
+    // Aplica o filtro de escopo de impressão selecionado no topo do modal (printScope)
+    if (printScope === 'apenas_apuradas') {
+      return secoes.filter((s) => s.isApurada);
+    }
+    if (printScope === 'apenas_quebras') {
+      return secoes.filter((s) => s.isApurada && (s.teveVotosSuficientes === false || s.votosFaltantes > 0));
+    }
+    if (printScope === 'com_votos') {
+      return secoes.filter((s) => (typeof s.votosApurados === 'number' ? s.votosApurados : 0) > 0);
+    }
+    if (printScope === 'sem_votos') {
+      return secoes.filter((s) => (typeof s.votosApurados === 'number' ? s.votosApurados : 0) <= 0);
+    }
+
+    return secoes;
+  }, [printSelectedLideranca, printScope, zonaFilter, bairroFilter, statusApuracaoFilter, votoPresencaFilter]);
+
   const activeFiltersSummaryText = useMemo(() => {
     const parts: string[] = [];
     if (statusApuracaoFilter !== 'todos') {
@@ -1186,26 +1243,35 @@ export default function CumprimentoVotosPage() {
       };
     }
 
-    const votosFaltantes = lid.votosFaltantesTotal ?? Math.max(0, lid.eleitoresEmSecoesApuradas - lid.votosValidadosTotal);
+    const secoes = printSelectedLiderancaSecoes;
+    const cadFiltrados = secoes.reduce((acc, s) => acc + s.eleitoresLideranca, 0);
+    const votosConfirmadosFiltrados = secoes.reduce((acc, s) => acc + (s.isApurada ? s.votosValidados : 0), 0);
+    const eleitoresEmApuradas = secoes.filter((s) => s.isApurada).reduce((acc, s) => acc + s.eleitoresLideranca, 0);
+    const votosFaltantes = secoes.reduce((acc, s) => acc + (s.isApurada ? s.votosFaltantes : 0), 0);
+    const secoesCumpridas = secoes.filter((s) => s.isApurada && s.teveVotosSuficientes).length;
+    const secoesComQuebra = secoes.filter((s) => s.isApurada && !s.teveVotosSuficientes).length;
+    const cumprimentoPct = eleitoresEmApuradas > 0
+      ? Math.round((votosConfirmadosFiltrados / eleitoresEmApuradas) * 100)
+      : (cadFiltrados > 0 ? 0 : 100);
 
     return {
       card1Label: `Cadastrados por ${lid.nome}`,
-      card1Val: String(lid.totalEleitoresPrometidos),
-      card1Sub: `${lid.secoesAtuadas} seções de atuação`,
+      card1Val: String(cadFiltrados),
+      card1Sub: `${secoes.length} seções no escopo`,
 
       card2Label: 'Votos Confirmados',
-      card2Val: String(lid.votosValidadosTotal),
-      card2Sub: `de ${lid.eleitoresEmSecoesApuradas} eleitores em urnas apuradas`,
+      card2Val: String(votosConfirmadosFiltrados),
+      card2Sub: `de ${eleitoresEmApuradas} eleitores em urnas apuradas`,
 
       card3Label: 'Votos Faltantes (Cobrança)',
       card3Val: String(votosFaltantes),
       card3Sub: votosFaltantes > 0 ? `⚠ Cobrar explicação de ${votosFaltantes} votos faltantes` : '✓ 100% da meta confirmada',
 
       card4Label: 'Cumprimento Real',
-      card4Val: `${lid.cumprimentoMedioPct}%`,
-      card4Sub: `${lid.secoesCumpridas} seções cumpridas / ${lid.secoesComQuebra} com quebra`
+      card4Val: `${cumprimentoPct}%`,
+      card4Sub: `${secoesCumpridas} seções cumpridas / ${secoesComQuebra} com quebra`
     };
-  }, [printReportType, printSecoesList, printLiderancasList, printSelectedLideranca]);
+  }, [printReportType, printSecoesList, printLiderancasList, printSelectedLideranca, printSelectedLiderancaSecoes]);
 
   // Manipulação de Edição Inline de Votos
   const handleVoteInputChange = (key: string, value: string) => {
@@ -2980,13 +3046,14 @@ export default function CumprimentoVotosPage() {
                   <select
                     value={printSelectedLideranca?.id || ''}
                     onChange={(e) => {
-                      const found = desempenhoLiderancas.find((l) => l.id === e.target.value);
+                      const found = (filteredLiderancas.length > 0 ? filteredLiderancas : desempenhoLiderancas).find((l) => l.id === e.target.value) ||
+                                    desempenhoLiderancas.find((l) => l.id === e.target.value);
                       if (found) setPrintSelectedLideranca(found);
                     }}
                     className="h-8 bg-surface-container-lowest border border-primary/60 text-primary font-bold rounded-lg px-2 text-xs focus:outline-none"
                     title="Selecione a liderança ou sub para prestar contas"
                   >
-                    {desempenhoLiderancas.map((l) => (
+                    {(filteredLiderancas.length > 0 ? filteredLiderancas : desempenhoLiderancas).map((l) => (
                       <option key={l.id} value={l.id}>
                         {l.nome} ({l.totalEleitoresPrometidos} eleitores)
                       </option>
@@ -3090,7 +3157,7 @@ export default function CumprimentoVotosPage() {
                         ? `${printSecoesList.length} seções`
                         : printReportType === 'liderancas'
                         ? `${printLiderancasList.length} lideranças`
-                        : `${printSelectedLideranca?.detalhesSecoes.length || 0} seções (${printSelectedLideranca?.totalEleitoresPrometidos || 0} eleitores)`
+                        : `${printSelectedLiderancaSecoes.length} seções (${printSelectedLiderancaSecoes.reduce((acc, s) => acc + s.eleitoresLideranca, 0)} eleitores)`
                     }</strong>
                   </p>
                 </div>
@@ -3353,55 +3420,10 @@ export default function CumprimentoVotosPage() {
               {/* MODELO 3: AUDITORIA INDIVIDUAL E PRESTAÇÃO DE CONTAS DE UMA LIDERANÇA ESPECÍFICA */}
               {printReportType === 'lideranca_individual' && printSelectedLideranca && (
                 <div className="space-y-4">
-                  {/* Resumo do Articulador */}
-                  {(() => {
-                    const faltantes = printSelectedLideranca.votosFaltantesTotal ?? Math.max(0, printSelectedLideranca.eleitoresEmSecoesApuradas - printSelectedLideranca.votosValidadosTotal);
-                    return (
-                      <div className="p-3 bg-slate-50 border border-slate-300 rounded grid grid-cols-4 gap-2 text-center">
-                        <div>
-                          <p className="text-[9px] uppercase text-slate-500 font-bold">Cadastrados por {printSelectedLideranca.nome}</p>
-                          <p className="text-base font-black text-slate-900 font-mono mt-0.5">
-                            {printSelectedLideranca.totalEleitoresPrometidos}
-                          </p>
-                          <p className="text-[9px] text-slate-500">{printSelectedLideranca.secoesAtuadas} seções da base</p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] uppercase text-slate-500 font-bold">Votos Confirmados</p>
-                          <p className="text-base font-black text-slate-900 font-mono mt-0.5">
-                            {printSelectedLideranca.votosValidadosTotal}
-                          </p>
-                          <p className="text-[9px] text-slate-500">de {printSelectedLideranca.eleitoresEmSecoesApuradas} eleitores em urnas apuradas</p>
-                        </div>
-                        <div className={`p-1.5 rounded border ${
-                          faltantes > 0 ? 'bg-rose-50 border-rose-300' : 'bg-slate-100 border-slate-200'
-                        }`}>
-                          <p className={`text-[9px] uppercase font-bold ${faltantes > 0 ? 'text-rose-700' : 'text-slate-500'}`}>
-                            Votos Faltantes (Cobrança)
-                          </p>
-                          <p className={`text-base font-black font-mono mt-0.5 ${faltantes > 0 ? 'text-rose-800' : 'text-slate-900'}`}>
-                            {faltantes}
-                          </p>
-                          <p className={`text-[9px] ${faltantes > 0 ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>
-                            {faltantes > 0 ? `cobrar explicação de ${faltantes} votos faltantes` : '100% da meta confirmada'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] uppercase text-slate-500 font-bold">Cumprimento Real</p>
-                          <p className="text-base font-black text-slate-900 font-mono mt-0.5">
-                            {printSelectedLideranca.cumprimentoMedioPct}%
-                          </p>
-                          <p className="text-[9px] text-slate-500">
-                            {printSelectedLideranca.secoesCumpridas} seções cumpridas / {printSelectedLideranca.secoesComQuebra} quebras
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
                   {/* Tabela de Seções Desta Liderança */}
                   <div>
                     <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                      <span>Desempenho por Seção Eleitoral ({printSelectedLideranca.detalhesSecoes.length} seções onde {printSelectedLideranca.nome} possui eleitores)</span>
+                      <span>Desempenho por Seção Eleitoral ({printSelectedLiderancaSecoes.length} seções {printScope !== 'todas' ? 'no escopo' : `onde ${printSelectedLideranca.nome} possui eleitores`})</span>
                       <span className="text-[10px] text-slate-500 font-normal">
                         Cruzamento de Votos Apurados vs Eleitores Cadastrados
                       </span>
@@ -3421,64 +3443,76 @@ export default function CumprimentoVotosPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-300">
-                        {printSelectedLideranca.detalhesSecoes.map((sec, idx) => (
-                          <tr key={sec.key} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-600">{idx + 1}</td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold">{sec.zona} / {sec.secao}</td>
-                            <td className="py-1.5 px-2 font-medium">{sec.localNome}</td>
-                            <td className="py-1.5 px-2 text-slate-600">{sec.bairro}</td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold">{sec.eleitoresLideranca}</td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold">
-                              {sec.isApurada ? sec.votosApurados : '-'}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold">
-                              {sec.isApurada ? sec.votosValidados : '-'}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold">
-                              {sec.isApurada ? (
-                                sec.votosFaltantes > 0 ? (
-                                  <span className="text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded text-[10px]">
-                                    {sec.votosFaltantes} faltantes
-                                  </span>
-                                ) : (
-                                  <span className="text-emerald-800">0</span>
-                                )
-                              ) : '-'}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-semibold text-[9px]">
-                              {sec.isApurada ? (
-                                sec.teveVotosSuficientes ? (
-                                  <span className="text-emerald-800 font-bold">✓ Meta Cumprida</span>
-                                ) : (
-                                  <span className="text-rose-800 font-bold">✗ Quebra (-{sec.votosFaltantes})</span>
-                                )
-                              ) : (
-                                <span className="text-slate-500 italic">Aguardando Urna</span>
-                              )}
+                        {printSelectedLiderancaSecoes.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="py-8 text-center text-slate-500 italic">
+                              Nenhuma seção eleitoral encontrada para esta liderança com o filtro/escopo selecionado.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          printSelectedLiderancaSecoes.map((sec, idx) => (
+                            <tr key={sec.key} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                              <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-600">{idx + 1}</td>
+                              <td className="py-1.5 px-2 text-center font-mono font-bold">{sec.zona} / {sec.secao}</td>
+                              <td className="py-1.5 px-2 font-medium">{sec.localNome}</td>
+                              <td className="py-1.5 px-2 text-slate-600">{sec.bairro}</td>
+                              <td className="py-1.5 px-2 text-center font-mono font-bold">{sec.eleitoresLideranca}</td>
+                              <td className="py-1.5 px-2 text-center font-mono font-bold">
+                                {sec.isApurada ? sec.votosApurados : '-'}
+                              </td>
+                              <td className="py-1.5 px-2 text-center font-mono font-bold">
+                                {sec.isApurada ? sec.votosValidados : '-'}
+                              </td>
+                              <td className="py-1.5 px-2 text-center font-mono font-bold">
+                                {sec.isApurada ? (
+                                  sec.votosFaltantes > 0 ? (
+                                    <span className="text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded text-[10px]">
+                                      {sec.votosFaltantes} faltantes
+                                    </span>
+                                  ) : (
+                                    <span className="text-emerald-800">0</span>
+                                  )
+                                ) : '-'}
+                              </td>
+                              <td className="py-1.5 px-2 text-center font-semibold text-[9px]">
+                                {sec.isApurada ? (
+                                  sec.teveVotosSuficientes ? (
+                                    <span className="text-emerald-800 font-bold">✓ Meta Cumprida</span>
+                                  ) : (
+                                    <span className="text-rose-800 font-bold">✗ Quebra (-{sec.votosFaltantes})</span>
+                                  )
+                                ) : (
+                                  <span className="text-slate-500 italic">Aguardando Urna</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
-                      {printSelectedLideranca.detalhesSecoes.length > 0 && (
+                      {printSelectedLiderancaSecoes.length > 0 && (
                         <tfoot>
                           <tr className="bg-slate-200 font-bold text-slate-900 border-t-2 border-slate-800">
                             <td colSpan={4} className="py-1.5 px-2 text-right uppercase">
-                              Totais de {printSelectedLideranca.nome}:
+                              Totais de {printSelectedLideranca.nome} ({printSelectedLiderancaSecoes.length} seções):
                             </td>
                             <td className="py-1.5 px-2 text-center font-mono">
-                              {printSelectedLideranca.detalhesSecoes.reduce((acc, s) => acc + s.eleitoresLideranca, 0)}
+                              {printSelectedLiderancaSecoes.reduce((acc, s) => acc + s.eleitoresLideranca, 0)}
                             </td>
                             <td className="py-1.5 px-2 text-center font-mono">
-                              {printSelectedLideranca.detalhesSecoes.reduce((acc, s) => acc + (s.votosApurados || 0), 0)}
+                              {printSelectedLiderancaSecoes.reduce((acc, s) => acc + (s.votosApurados || 0), 0)}
                             </td>
                             <td className="py-1.5 px-2 text-center font-mono">
-                              {printSelectedLideranca.detalhesSecoes.reduce((acc, s) => acc + (s.isApurada ? s.votosValidados : 0), 0)}
+                              {printSelectedLiderancaSecoes.reduce((acc, s) => acc + (s.isApurada ? s.votosValidados : 0), 0)}
                             </td>
                             <td className="py-1.5 px-2 text-center font-mono text-rose-800">
-                              {printSelectedLideranca.detalhesSecoes.reduce((acc, s) => acc + (s.isApurada ? s.votosFaltantes : 0), 0)} faltantes
+                              {printSelectedLiderancaSecoes.reduce((acc, s) => acc + (s.isApurada ? s.votosFaltantes : 0), 0)} faltantes
                             </td>
                             <td className="py-1.5 px-2 text-center text-[9px]">
-                              {printSelectedLideranca.cumprimentoMedioPct}% eficácia
+                              {(() => {
+                                const eleitApur = printSelectedLiderancaSecoes.filter((s) => s.isApurada).reduce((acc, s) => acc + s.eleitoresLideranca, 0);
+                                const conf = printSelectedLiderancaSecoes.reduce((acc, s) => acc + (s.isApurada ? s.votosValidados : 0), 0);
+                                return eleitApur > 0 ? `${Math.round((conf / eleitApur) * 100)}% eficácia` : '0% eficácia';
+                              })()}
                             </td>
                           </tr>
                         </tfoot>
@@ -3487,51 +3521,66 @@ export default function CumprimentoVotosPage() {
                   </div>
 
                   {/* Relação Nominal dos Eleitores Desta Liderança */}
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                      <span>Relação Nominal dos Eleitores Cadastrados por {printSelectedLideranca.nome} ({printSelectedLideranca.detalhesSecoes.flatMap((s) => s.eleitores).length} eleitores)</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Lista para conferência direta com o articulador</span>
-                    </h3>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] border border-slate-300 p-2.5 rounded bg-slate-50 max-h-56 overflow-y-auto">
-                      {printSelectedLideranca.detalhesSecoes
-                        .flatMap((s) => s.eleitores)
-                        .map((e, idx) => (
-                          <div key={e.id || idx} className="flex items-center justify-between py-1 border-b border-slate-200">
-                            <span className="font-semibold text-slate-900 truncate max-w-[200px]">
-                              {idx + 1}. {e.nome}
-                            </span>
-                            <span className="text-slate-600 font-mono text-[8.5px]">
-                              Z{e.zona}/S{e.secao} • {e.bairro || 'Sem Bairro'}
-                              {((e as any).telefone || (e as any).celular) && ` • ${(e as any).telefone || (e as any).celular}`}
-                            </span>
+                  {(() => {
+                    const eleitoresFiltrados = printSelectedLiderancaSecoes.flatMap((s) => s.eleitores);
+                    return (
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                          <span>Relação Nominal dos Eleitores Cadastrados por {printSelectedLideranca.nome} ({eleitoresFiltrados.length} eleitores)</span>
+                          <span className="text-[10px] text-slate-500 font-normal">Lista filtrada para conferência direta com o articulador</span>
+                        </h3>
+                        {eleitoresFiltrados.length === 0 ? (
+                          <div className="border border-slate-300 p-4 rounded bg-slate-50 text-center text-slate-500 text-[10px] italic">
+                            Nenhum eleitor nesta liderança para as seções filtradas no escopo.
                           </div>
-                        ))}
-                    </div>
-                  </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] border border-slate-300 p-2.5 rounded bg-slate-50 max-h-56 overflow-y-auto">
+                            {eleitoresFiltrados.map((e, idx) => (
+                              <div key={e.id || idx} className="flex items-center justify-between py-1 border-b border-slate-200">
+                                <span className="font-semibold text-slate-900 truncate max-w-[200px]">
+                                  {idx + 1}. {e.nome}
+                                </span>
+                                <span className="text-slate-600 font-mono text-[8.5px]">
+                                  Z{e.zona}/S{e.secao} • {e.bairro || 'Sem Bairro'}
+                                  {((e as any).telefone || (e as any).celular) && ` • ${(e as any).telefone || (e as any).celular}`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Termo de Prestação de Contas com Assinaturas */}
-                  <div className="border border-slate-300 rounded p-3 bg-slate-50 mt-3 text-[10px] space-y-3">
-                    <p className="font-bold text-slate-900 uppercase">
-                      Termo de Conferência e Prestação de Contas Eleitoral
-                    </p>
-                    <p className="text-slate-700 text-[9px] leading-relaxed">
-                      Certifico que foi realizado o cruzamento dos dados de votação oficial com os eleitores cadastrados pelo articulador <strong>{printSelectedLideranca.nome}</strong>. Registrou-se a quantidade de <strong>{printSelectedLideranca.votosValidadosTotal} votos confirmados</strong> e a quebra de <strong>{printSelectedLideranca.votosFaltantesTotal ?? Math.max(0, printSelectedLideranca.eleitoresEmSecoesApuradas - printSelectedLideranca.votosValidadosTotal)} votos faltantes</strong> nas seções de atuação.
-                    </p>
-                    <div className="grid grid-cols-2 gap-8 pt-6">
-                      <div className="text-center">
-                        <div className="border-t border-slate-600 pt-1 font-semibold text-slate-900">
-                          Coordenação Geral de Campanha
+                  {(() => {
+                    const totalConf = printSelectedLiderancaSecoes.reduce((acc, s) => acc + (s.isApurada ? s.votosValidados : 0), 0);
+                    const totalFalt = printSelectedLiderancaSecoes.reduce((acc, s) => acc + (s.isApurada ? s.votosFaltantes : 0), 0);
+                    return (
+                      <div className="border border-slate-300 rounded p-3 bg-slate-50 mt-3 text-[10px] space-y-3">
+                        <p className="font-bold text-slate-900 uppercase">
+                          Termo de Conferência e Prestação de Contas Eleitoral
+                        </p>
+                        <p className="text-slate-700 text-[9px] leading-relaxed">
+                          Certifico que foi realizado o cruzamento dos dados de votação oficial com os eleitores cadastrados pelo articulador <strong>{printSelectedLideranca.nome}</strong>. Registrou-se a quantidade de <strong>{totalConf} votos confirmados</strong> e a quebra de <strong>{totalFalt} votos faltantes</strong> nas {printSelectedLiderancaSecoes.length} seções filtradas no escopo de auditoria.
+                        </p>
+                        <div className="grid grid-cols-2 gap-8 pt-6">
+                          <div className="text-center">
+                            <div className="border-t border-slate-600 pt-1 font-semibold text-slate-900">
+                              Coordenação Geral de Campanha
+                            </div>
+                            <p className="text-[8px] text-slate-500">SEATI Eleitoral • Auditoria</p>
+                          </div>
+                          <div className="text-center">
+                            <div className="border-t border-slate-600 pt-1 font-semibold text-slate-900">
+                              {printSelectedLideranca.nome}
+                            </div>
+                            <p className="text-[8px] text-slate-500">Articulador / Responsável pela Base</p>
+                          </div>
                         </div>
-                        <p className="text-[8px] text-slate-500">SEATI Eleitoral • Auditoria</p>
                       </div>
-                      <div className="text-center">
-                        <div className="border-t border-slate-600 pt-1 font-semibold text-slate-900">
-                          {printSelectedLideranca.nome}
-                        </div>
-                        <p className="text-[8px] text-slate-500">Articulador / Responsável pela Base</p>
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
 

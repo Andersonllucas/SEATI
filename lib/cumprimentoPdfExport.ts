@@ -1,5 +1,5 @@
 import { getPDFModules } from './importExportUtils';
-import { SecaoAgrupada, LiderancaDesempenho } from '@/app/cumprimento-votos/page';
+import { SecaoAgrupada, LiderancaDesempenho, LiderancaSecaoDetalhe } from '@/app/cumprimento-votos/page';
 
 export interface CumprimentoPdfExportOptions {
   campaignDisplayName: string;
@@ -36,6 +36,7 @@ export interface CumprimentoPdfExportOptions {
   secoesList: SecaoAgrupada[];
   liderancasList: LiderancaDesempenho[];
   selectedLideranca: LiderancaDesempenho | null;
+  selectedLiderancaSecoes?: LiderancaSecaoDetalhe[];
 }
 
 export async function exportCumprimentoPDF(options: CumprimentoPdfExportOptions) {
@@ -49,7 +50,8 @@ export async function exportCumprimentoPDF(options: CumprimentoPdfExportOptions)
     printStats,
     secoesList,
     liderancasList,
-    selectedLideranca
+    selectedLideranca,
+    selectedLiderancaSecoes
   } = options;
 
   const { jsPDF, autoTable } = await getPDFModules();
@@ -318,6 +320,18 @@ export async function exportCumprimentoPDF(options: CumprimentoPdfExportOptions)
       }
     });
   } else if (reportType === 'lideranca_individual' && selectedLideranca) {
+    const secoesDaLideranca = (selectedLiderancaSecoes && selectedLiderancaSecoes.length > 0)
+      ? selectedLiderancaSecoes
+      : (printScope && printScope !== 'todas'
+        ? selectedLideranca.detalhesSecoes.filter((item) => {
+            if (printScope === 'apenas_apuradas') return item.isApurada;
+            if (printScope === 'apenas_quebras') return item.isApurada && (!item.teveVotosSuficientes || item.votosFaltantes > 0);
+            if (printScope === 'com_votos') return (typeof item.votosApurados === 'number' ? item.votosApurados : 0) > 0;
+            if (printScope === 'sem_votos') return (typeof item.votosApurados === 'number' ? item.votosApurados : 0) <= 0;
+            return true;
+          })
+        : selectedLideranca.detalhesSecoes);
+
     const headers = [
       '#',
       'Zona / Seção',
@@ -330,7 +344,9 @@ export async function exportCumprimentoPDF(options: CumprimentoPdfExportOptions)
       'Situação'
     ];
 
-    const body = selectedLideranca.detalhesSecoes.map((item, idx) => {
+    const body = secoesDaLideranca.length === 0 ? [
+      ['-', '-', 'Nenhuma seção encontrada com os filtros/escopo aplicados', '-', '-', '-', '-', '-', '-']
+    ] : secoesDaLideranca.map((item, idx) => {
       const faltantes = item.isApurada ? Math.max(0, item.eleitoresLideranca - item.votosValidados) : 0;
       return [
         String(idx + 1),
@@ -378,7 +394,7 @@ export async function exportCumprimentoPDF(options: CumprimentoPdfExportOptions)
     });
 
     // Relação Nominal dos Eleitores Cadastrados desta Liderança
-    const eleitoresDaLideranca = selectedLideranca.detalhesSecoes.flatMap((s) => s.eleitores);
+    const eleitoresDaLideranca = secoesDaLideranca.flatMap((s) => s.eleitores);
     if (eleitoresDaLideranca.length > 0) {
       const lastTableY = (doc as any).lastAutoTable.finalY + 16;
       
@@ -388,7 +404,7 @@ export async function exportCumprimentoPDF(options: CumprimentoPdfExportOptions)
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
         doc.setTextColor(15, 23, 42);
-        doc.text(`Relação Nominal dos Eleitores de ${selectedLideranca.nome} (${eleitoresDaLideranca.length} eleitores):`, 32, 40);
+        doc.text(`Relação Nominal dos Eleitores de ${selectedLideranca.nome} (${eleitoresDaLideranca.length} eleitores filtrados):`, 32, 40);
         
         const eleitoresHeaders = ['#', 'Nome do Eleitor', 'Zona / Seção', 'Bairro', 'Telefone / Contato'];
         const eleitoresBody = eleitoresDaLideranca.slice(0, 150).map((e, idx) => [
