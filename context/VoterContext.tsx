@@ -24,7 +24,7 @@ import { getCachedCollection, setCachedCollection } from '@/lib/firestoreCache';
 import { useCampaignUI } from './CampaignUIContext';
 
 export type TipoValidacao = 'Mensagem' | 'Ligação';
-export type StatusValidacao = 'Confirmado' | 'Pendente' | 'Negado';
+export type StatusValidacao = 'Confirmado' | 'Pendente' | 'Negado' | 'Contatado aguardando retorno';
 
 export interface ValidacaoRegistro {
   id: string;
@@ -624,6 +624,8 @@ export function VoterProvider({ children }: { children: React.ReactNode }) {
           ? 'Confirmado'
           : dados.status === 'Negado'
           ? 'Negado'
+          : dados.status === 'Contatado aguardando retorno'
+          ? 'Contatado'
           : 'Pendente';
 
       const updatePayload: Partial<Eleitor> = {

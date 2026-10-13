@@ -1,0 +1,6 @@
+{
+  "summary": "Plano de implementação detalhado para o Disparador e Validador de WhatsApp em Lote com Fila Guiada Anti-Bloqueio.\nContempla:\n- Fila guiada assistida no navegador sem custos de API externa\n- Atualização automática de status para 'Contatado aguardando retorno' e histórico de contato\n- Seleção múltipla inteligente de eleitores com filtro detalhado por liderança e sub-liderança\n- Gerenciador de modelos de mensagens personalizáveis com variáveis dinâmicas ({nome}, {lideranca}, etc.)\n- Controle de cadência e intervalo anti-bloqueio com opções de pausa, skip e envio individual\n- Painel analítico de disparos e relatório de taxas de validação e respostas",
+  "updatedAt": "2026-10-13T12:58:30.014784765Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

@@ -31,6 +31,7 @@ import {
 } from '@/context/CampaignContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
+import WhatsAppBatchModal from '@/components/validacao/WhatsAppBatchModal';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 
@@ -242,12 +243,15 @@ export default function ValidacaoPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
-  // Modal de Validação em Lote
+  // Modal de Validação em Lote Manual
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [batchTipo, setBatchTipo] = useState<TipoValidacao>('Mensagem');
   const [batchStatus, setBatchStatus] = useState<StatusValidacao>('Confirmado');
   const [batchObs, setBatchObs] = useState('');
   const [isBatchSaving, setIsBatchSaving] = useState(false);
+
+  // Modal de Disparo WhatsApp em Lote com Fila Guiada
+  const [isWhatsAppBatchModalOpen, setIsWhatsAppBatchModalOpen] = useState(false);
 
   // Lista de Bairros Únicos
   const bairrosDisponiveis = useMemo(() => {
@@ -261,6 +265,7 @@ export default function ValidacaoPage() {
   // Estatísticas Rápidas
   const stats = useMemo(() => {
     let confirmados = 0;
+    let contatados = 0;
     let pendentes = 0;
     let negados = 0;
     let porLigacao = 0;
@@ -270,6 +275,7 @@ export default function ValidacaoPage() {
     eleitores.forEach((e) => {
       const s = e.statusValidacao;
       if (s === 'Confirmado') confirmados++;
+      else if (s === 'Contatado aguardando retorno') contatados++;
       else if (s === 'Negado') negados++;
       else pendentes++; // Pendente é o default para novos ou explícitos
 
@@ -284,17 +290,20 @@ export default function ValidacaoPage() {
     const total = eleitores.length;
     const taxaConfirmacao = total > 0 ? Math.round((confirmados / total) * 100) : 0;
     const taxaValidacao = total > 0 ? Math.round((comValidacao / total) * 100) : 0;
+    const taxaContatados = total > 0 ? Math.round((contatados / total) * 100) : 0;
 
     return {
       total,
       confirmados,
+      contatados,
       pendentes,
       negados,
       comValidacao,
       porLigacao,
       porMensagem,
       taxaConfirmacao,
-      taxaValidacao
+      taxaValidacao,
+      taxaContatados
     };
   }, [eleitores]);
 
@@ -629,6 +638,17 @@ export default function ValidacaoPage() {
     setSelectedIds(new Set());
   };
 
+  const selectedEleitoresList = useMemo(() => {
+    return eleitores.filter((e) => selectedIds.has(e.id));
+  }, [eleitores, selectedIds]);
+
+  const selectedWithPhoneCount = useMemo(() => {
+    return selectedEleitoresList.filter((e) => {
+      const p = (e.whatsapp || e.telefone || '').replace(/\D/g, '');
+      return p.length >= 10;
+    }).length;
+  }, [selectedEleitoresList]);
+
   // Exportar Relatório de Validações em Excel
   const handleExportExcel = () => {
     const rows = filteredEleitores.map((e, index) => {
@@ -720,16 +740,16 @@ export default function ValidacaoPage() {
       </div>
 
       {/* Metrics Cards Compactos (Mesmo Padrão Ultra-Compacto) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 shrink-0">
         {/* Card 1: Confirmados */}
-        <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-emerald-300/60 shadow-xs flex items-center justify-between">
+        <div className="bg-surface-container-lowest px-3 py-2 rounded-xl border border-emerald-300/60 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Confirmados
             </p>
-            <div className="flex items-baseline gap-2 mt-0.5">
+            <div className="flex items-baseline gap-1 mt-0.5">
               <h3 className="text-lg md:text-xl font-black text-emerald-800">{stats.confirmados}</h3>
-              <span className="text-[11px] text-emerald-700/80 font-medium">({stats.taxaConfirmacao}% da base)</span>
+              <span className="text-[10px] text-emerald-700/80 font-medium">({stats.taxaConfirmacao}%)</span>
             </div>
           </div>
           <div className="p-1.5 bg-emerald-100 rounded-lg text-emerald-700">
@@ -737,15 +757,31 @@ export default function ValidacaoPage() {
           </div>
         </div>
 
-        {/* Card 2: Pendentes */}
-        <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-amber-300/60 shadow-xs flex items-center justify-between">
+        {/* Card 2: Contatados WhatsApp (Aguardando Retorno) */}
+        <div className="bg-surface-container-lowest px-3 py-2 rounded-xl border border-teal-300/60 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1">
+              <MessageCircle className="w-3 h-3 text-teal-600" /> Contatados
+            </p>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <h3 className="text-lg md:text-xl font-black text-teal-900">{stats.contatados}</h3>
+              <span className="text-[10px] text-teal-700 font-medium">aguardando</span>
+            </div>
+          </div>
+          <div className="p-1.5 bg-teal-100 rounded-lg text-teal-700">
+            <MessageCircle className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Card 3: Pendentes */}
+        <div className="bg-surface-container-lowest px-3 py-2 rounded-xl border border-amber-300/60 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1">
               <Clock className="w-3 h-3 text-amber-600" /> Pendentes
             </p>
-            <div className="flex items-baseline gap-2 mt-0.5">
+            <div className="flex items-baseline gap-1 mt-0.5">
               <h3 className="text-lg md:text-xl font-black text-amber-800">{stats.pendentes}</h3>
-              <span className="text-[11px] text-amber-700/80 font-medium">a contatar</span>
+              <span className="text-[10px] text-amber-700/80 font-medium">a contatar</span>
             </div>
           </div>
           <div className="p-1.5 bg-amber-100 rounded-lg text-amber-700">
@@ -753,15 +789,15 @@ export default function ValidacaoPage() {
           </div>
         </div>
 
-        {/* Card 3: Negados */}
-        <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-rose-300/60 shadow-xs flex items-center justify-between">
+        {/* Card 4: Negados */}
+        <div className="bg-surface-container-lowest px-3 py-2 rounded-xl border border-rose-300/60 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-rose-700 uppercase tracking-wider flex items-center gap-1">
-              <XCircle className="w-3 h-3 text-rose-600" /> Negados / Recusa
+              <XCircle className="w-3 h-3 text-rose-600" /> Negados
             </p>
-            <div className="flex items-baseline gap-2 mt-0.5">
+            <div className="flex items-baseline gap-1 mt-0.5">
               <h3 className="text-lg md:text-xl font-black text-rose-800">{stats.negados}</h3>
-              <span className="text-[11px] text-rose-700/80 font-medium">eleitores</span>
+              <span className="text-[10px] text-rose-700/80 font-medium">recusa</span>
             </div>
           </div>
           <div className="p-1.5 bg-rose-100 rounded-lg text-rose-700">
@@ -769,13 +805,13 @@ export default function ValidacaoPage() {
           </div>
         </div>
 
-        {/* Card 4: Canais de Contato */}
-        <div className="bg-surface-container-lowest px-3.5 py-2 rounded-xl border border-outline-variant/60 shadow-xs flex items-center justify-between">
+        {/* Card 5: Canais de Contato */}
+        <div className="bg-surface-container-lowest px-3 py-2 rounded-xl border border-outline-variant/60 shadow-xs flex items-center justify-between col-span-2 sm:col-span-1">
           <div>
             <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
-              Canais Utilizados
+              Canais
             </p>
-            <div className="flex items-center gap-3 mt-1 text-xs">
+            <div className="flex items-center gap-2 mt-0.5 text-xs">
               <span className="inline-flex items-center gap-1 text-sky-700 font-bold">
                 <Phone className="w-3 h-3" /> {stats.porLigacao} Lig.
               </span>
@@ -813,6 +849,7 @@ export default function ValidacaoPage() {
             >
               <option value="todos">Status: Todos</option>
               <option value="Confirmado">✓ Apenas Confirmados</option>
+              <option value="Contatado aguardando retorno">💬 Contatados (Aguardando Retorno)</option>
               <option value="Pendente">⏳ Apenas Pendentes</option>
               <option value="Negado">✕ Apenas Negados</option>
               <option value="sem_validacao">Sem Contato Registrado</option>
@@ -1006,11 +1043,20 @@ export default function ValidacaoPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
+                onClick={() => setIsWhatsAppBatchModalOpen(true)}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                title="Disparar mensagens no WhatsApp com fila guiada anti-bloqueio"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                Disparo WhatsApp em Lote ({selectedWithPhoneCount})
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsBatchModalOpen(true)}
-                className="px-3 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                className="px-3 py-1.5 bg-surface-container hover:bg-surface-container-high text-on-surface border border-outline-variant/60 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Registrar Validação em Lote ({selectedIds.size})
+                Validação Manual ({selectedIds.size})
               </button>
             </div>
           </div>
@@ -1083,6 +1129,8 @@ export default function ValidacaoPage() {
                           ? 'bg-secondary/10 hover:bg-secondary/15 ring-1 ring-inset ring-secondary/30'
                           : statusVal === 'Confirmado'
                           ? 'hover:bg-emerald-50/30'
+                          : statusVal === 'Contatado aguardando retorno'
+                          ? 'hover:bg-teal-50/30'
                           : statusVal === 'Negado'
                           ? 'hover:bg-rose-50/30'
                           : 'hover:bg-surface-container-low'
@@ -1131,6 +1179,10 @@ export default function ValidacaoPage() {
                         {statusVal === 'Confirmado' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Confirmado
+                          </span>
+                        ) : statusVal === 'Contatado aguardando retorno' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-900 border border-teal-300">
+                            <MessageCircle className="w-3 h-3 text-teal-700" /> Contatado (Aguardando)
                           </span>
                         ) : statusVal === 'Negado' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
@@ -1279,7 +1331,14 @@ export default function ValidacaoPage() {
 
       {/* MODAL DE VALIDAÇÃO INDIVIDUAL */}
       {activeEleitor && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setActiveEleitor(null);
+            }
+          }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn"
+        >
           <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
             {/* Header */}
             <div className="px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex items-center justify-between">
@@ -1344,11 +1403,11 @@ export default function ValidacaoPage() {
                 <label className="block text-xs font-bold text-on-surface mb-1.5 uppercase tracking-wider">
                   2. Status do Eleitor após o Contato
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setFormStatus('Confirmado')}
-                    className={`py-2.5 px-2 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                    className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
                       formStatus === 'Confirmado'
                         ? 'border-emerald-600 bg-emerald-50 text-emerald-950 ring-2 ring-emerald-500/30'
                         : 'border-outline-variant/60 hover:bg-surface-container text-on-surface'
@@ -1360,8 +1419,21 @@ export default function ValidacaoPage() {
 
                   <button
                     type="button"
+                    onClick={() => setFormStatus('Contatado aguardando retorno')}
+                    className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                      formStatus === 'Contatado aguardando retorno'
+                        ? 'border-teal-600 bg-teal-50 text-teal-950 ring-2 ring-teal-500/30'
+                        : 'border-outline-variant/60 hover:bg-surface-container text-on-surface'
+                    }`}
+                  >
+                    <MessageCircle className={`w-4 h-4 ${formStatus === 'Contatado aguardando retorno' ? 'text-teal-700' : 'text-on-surface-variant'}`} />
+                    <span>Contatado</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setFormStatus('Pendente')}
-                    className={`py-2.5 px-2 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                    className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
                       formStatus === 'Pendente'
                         ? 'border-amber-600 bg-amber-50 text-amber-950 ring-2 ring-amber-500/30'
                         : 'border-outline-variant/60 hover:bg-surface-container text-on-surface'
@@ -1374,7 +1446,7 @@ export default function ValidacaoPage() {
                   <button
                     type="button"
                     onClick={() => setFormStatus('Negado')}
-                    className={`py-2.5 px-2 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                    className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
                       formStatus === 'Negado'
                         ? 'border-rose-600 bg-rose-50 text-rose-950 ring-2 ring-rose-500/30'
                         : 'border-outline-variant/60 hover:bg-surface-container text-on-surface'
@@ -1493,7 +1565,14 @@ export default function ValidacaoPage() {
 
       {/* MODAL DE VALIDAÇÃO EM LOTE */}
       {isBatchModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsBatchModalOpen(false);
+            }
+          }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn"
+        >
           <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl max-w-md w-full shadow-2xl overflow-hidden flex flex-col">
             <div className="px-5 py-3.5 bg-surface border-b border-outline-variant/60 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1505,7 +1584,7 @@ export default function ValidacaoPage() {
               <button
                 type="button"
                 onClick={() => setIsBatchModalOpen(false)}
-                className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container"
+                className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container cursor-pointer transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1542,11 +1621,11 @@ export default function ValidacaoPage() {
 
               <div>
                 <label className="block text-xs font-bold text-on-surface mb-1">Status da Validação</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setBatchStatus('Confirmado')}
-                    className={`py-2 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                    className={`py-2 px-1.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer ${
                       batchStatus === 'Confirmado'
                         ? 'border-emerald-600 bg-emerald-50 text-emerald-950 font-bold'
                         : 'border-outline-variant text-on-surface'
@@ -1556,8 +1635,19 @@ export default function ValidacaoPage() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setBatchStatus('Contatado aguardando retorno')}
+                    className={`py-2 px-1.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                      batchStatus === 'Contatado aguardando retorno'
+                        ? 'border-teal-600 bg-teal-50 text-teal-950 font-bold'
+                        : 'border-outline-variant text-on-surface'
+                    }`}
+                  >
+                    <MessageCircle className="w-3.5 h-3.5 text-teal-700" /> Contatado
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setBatchStatus('Pendente')}
-                    className={`py-2 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                    className={`py-2 px-1.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer ${
                       batchStatus === 'Pendente'
                         ? 'border-amber-600 bg-amber-50 text-amber-950 font-bold'
                         : 'border-outline-variant text-on-surface'
@@ -1568,7 +1658,7 @@ export default function ValidacaoPage() {
                   <button
                     type="button"
                     onClick={() => setBatchStatus('Negado')}
-                    className={`py-2 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                    className={`py-2 px-1.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer ${
                       batchStatus === 'Negado'
                         ? 'border-rose-600 bg-rose-50 text-rose-950 font-bold'
                         : 'border-outline-variant text-on-surface'
@@ -1595,7 +1685,7 @@ export default function ValidacaoPage() {
               <button
                 type="button"
                 onClick={() => setIsBatchModalOpen(false)}
-                className="px-3.5 py-1.5 border border-outline-variant rounded-lg text-xs font-semibold text-on-surface hover:bg-surface-container"
+                className="px-3.5 py-1.5 border border-outline-variant rounded-lg text-xs font-semibold text-on-surface hover:bg-surface-container cursor-pointer transition-colors"
               >
                 Cancelar
               </button>
@@ -1611,6 +1701,20 @@ export default function ValidacaoPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL DE DISPARO WHATSAPP EM LOTE COM FILA GUIADA */}
+      <WhatsAppBatchModal
+        isOpen={isWhatsAppBatchModalOpen}
+        onClose={() => setIsWhatsAppBatchModalOpen(false)}
+        selectedEleitores={selectedEleitoresList}
+        onBatchCompleted={() => {
+          setFeedbackToast({
+            message: '✓ Fila de disparos via WhatsApp concluída com sucesso!',
+            type: 'success'
+          });
+          setTimeout(() => setFeedbackToast(null), 3500);
+        }}
+      />
     </div>
   );
 }
