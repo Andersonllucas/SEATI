@@ -55,9 +55,9 @@ interface LeaderContextType {
   totalLiderancasAtivas: number;
   recarregarLiderancas: () => Promise<void>;
   batchImportLiderancas: (
-    leaders: Omit<Lideranca, 'id' | 'dataCadastro'>[],
+    leaders: (Omit<Lideranca, 'id' | 'dataCadastro'> & { id?: string })[],
     onProgress?: (done: number, total: number) => void
-  ) => Promise<{ imported: number }>;
+  ) => Promise<{ imported: number; items?: Lideranca[] }>;
   batchDeleteLiderancas: (ids: string[]) => Promise<{ deleted: number }>;
 }
 
@@ -230,16 +230,26 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
 
   const batchImportLiderancas = useCallback(
     async (
-      leaders: Omit<Lideranca, 'id' | 'dataCadastro'>[],
+      leaders: (Omit<Lideranca, 'id' | 'dataCadastro'> & { id?: string })[],
       onProgress?: (done: number, total: number) => void
     ) => {
       let imported = 0;
       const CHUNK_SIZE = 400;
       const total = leaders.length;
+      const targetDb = activeDb || getActiveDb();
 
-      const newItems: Lideranca[] = leaders.map((l, i) => ({
-        id: `imp_lid_${Date.now()}_${i}`,
-        ...sanitizeFirestoreData(l),
+      // Resolve ou gera IDs antecipadamente para manter coerência entre cache e Firestore
+      const prepared = leaders.map((l, i) => {
+        const leaderId = l.id || doc(collection(targetDb, 'liderancas')).id;
+        return {
+          id: leaderId,
+          data: sanitizeFirestoreData(l)
+        };
+      });
+
+      const newItems: Lideranca[] = prepared.map((p) => ({
+        id: p.id,
+        ...p.data,
         dataCadastro: new Date().toISOString()
       }));
 
@@ -250,14 +260,13 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
       });
 
       try {
-        const targetDb = activeDb || getActiveDb();
-        for (let i = 0; i < leaders.length; i += CHUNK_SIZE) {
-          const chunk = leaders.slice(i, i + CHUNK_SIZE);
+        for (let i = 0; i < prepared.length; i += CHUNK_SIZE) {
+          const chunk = prepared.slice(i, i + CHUNK_SIZE);
           const batch = writeBatch(targetDb);
-          chunk.forEach((item) => {
-            const docRef = doc(collection(targetDb, 'liderancas'));
+          chunk.forEach((p) => {
+            const docRef = doc(targetDb, 'liderancas', p.id);
             batch.set(docRef, {
-              ...sanitizeFirestoreData(item),
+              ...p.data,
               dataCadastro: serverTimestamp()
             });
           });
@@ -271,7 +280,7 @@ export function LeaderProvider({ children }: { children: React.ReactNode }) {
         handleFirestoreError(err, OperationType.WRITE, 'liderancas');
       }
 
-      return { imported: imported || leaders.length };
+      return { imported: imported || leaders.length, items: newItems };
     },
     [tenantKey, activeDb]
   );

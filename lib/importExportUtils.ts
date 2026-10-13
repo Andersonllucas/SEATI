@@ -464,10 +464,28 @@ function parseVoterRows(rawJson: Record<string, any>[]): ParsedVoterRow[] {
         normKey.includes('sublider') ||
         normKey.includes('sub_lider') ||
         normKey.includes('sublideranca') ||
-        normKey.includes('sub-lider')
+        normKey.includes('sub-lider') ||
+        normKey.includes('segundalider') ||
+        normKey.includes('liderancasecundaria') ||
+        normKey.includes('lidersecundar') ||
+        normKey.includes('lider2') ||
+        normKey.includes('lideranca2') ||
+        (normKey.startsWith('sub') && normKey.includes('lider')) ||
+        (normKey.includes('sub') && normKey.includes('lider')) ||
+        normKey === 'sub' ||
+        normKey.includes('vicelider') ||
+        normKey.includes('subcoord')
       ) {
         subLideranca = valStr;
-      } else if (normKey.includes('lider') || normKey.includes('responsavel') || normKey.includes('coordenador')) {
+      } else if (
+        normKey.includes('liderancaprincipal') ||
+        normKey.includes('liderprincipal') ||
+        normKey.includes('lider1') ||
+        normKey.includes('lideranca1') ||
+        normKey.includes('lider') ||
+        normKey.includes('responsavel') ||
+        normKey.includes('coordenador')
+      ) {
         lideranca = valStr;
       }
     }

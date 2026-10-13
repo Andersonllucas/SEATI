@@ -507,10 +507,16 @@ export default function Eleitores() {
     setZona(eleitor.zona || '');
     setSecao(eleitor.secao || '');
     setFormStatus(eleitor.status || 'Pendente');
+    const foundSub = eleitor.subLiderancaId
+      ? liderancas.find((l) => l.id === eleitor.subLiderancaId)
+      : eleitor.subLideranca
+      ? liderancas.find((l) => l.nome?.trim().toLowerCase() === eleitor.subLideranca?.trim().toLowerCase())
+      : null;
+
     const foundLider = liderancas.find(
-      (l) => l.id === eleitor.liderancaId || l.nome === eleitor.lideranca
+      (l) => l.id === eleitor.liderancaId || l.nome?.trim().toLowerCase() === eleitor.lideranca?.trim().toLowerCase()
     );
-    setSelectedLiderId(foundLider ? foundLider.id : '');
+    setSelectedLiderId(foundSub ? foundSub.id : foundLider ? foundLider.id : '');
     setIsDrawerOpen(true);
   };
 
@@ -625,7 +631,23 @@ export default function Eleitores() {
     }
 
     const selectedLider = liderancas.find((l) => l.id === selectedLiderId);
-    const liderancaNome = selectedLider ? selectedLider.nome : 'Sem Liderança Definida';
+    let liderancaNome = 'Sem Liderança Definida';
+    let liderancaId = '';
+    let subLiderancaNome = '';
+    let subLiderancaId = '';
+
+    if (selectedLider) {
+      if (selectedLider.tipo === 'Sub-liderança') {
+        subLiderancaNome = selectedLider.nome;
+        subLiderancaId = selectedLider.id;
+        liderancaNome = selectedLider.liderancaPaiNome || selectedLider.nome;
+        liderancaId = selectedLider.liderancaPaiId || '';
+      } else {
+        liderancaNome = selectedLider.nome;
+        liderancaId = selectedLider.id;
+      }
+    }
+
     const formattedTitulo = formatTituloUtil(trimmedTitulo);
 
     const payload: Partial<Eleitor> = {
@@ -639,7 +661,9 @@ export default function Eleitores() {
       zona: trimmedZona,
       secao: trimmedSecao,
       lideranca: liderancaNome,
-      liderancaId: selectedLiderId || '',
+      liderancaId: liderancaId,
+      subLideranca: subLiderancaNome,
+      subLiderancaId: subLiderancaId,
       status: formStatus || 'Pendente'
     };
 

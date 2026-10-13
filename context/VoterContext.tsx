@@ -51,6 +51,8 @@ export interface Eleitor {
   cep?: string;
   liderancaId?: string;
   lideranca?: string;
+  subLiderancaId?: string;
+  subLideranca?: string;
   indicadoPor?: string;
   status?: string;
   observacoes?: string;

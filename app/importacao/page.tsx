@@ -151,12 +151,26 @@ export default function Importacao() {
   // Estados para Lideranças Não Cadastradas detectadas na planilha
   const [isRegisteringLeader, setIsRegisteringLeader] = useState(false);
   const [leaderRegisterSuccess, setLeaderRegisterSuccess] = useState<string | null>(null);
+  const [autoRegisterPendingLeaders, setAutoRegisterPendingLeaders] = useState<boolean>(true);
   const [quickLeaderModal, setQuickLeaderModal] = useState<{
     nome: string;
     tipo: 'Liderança Principal' | 'Sub-liderança';
     metaVotos: number | '';
     telefone: string;
     bairro: string;
+    voterCount: number;
+    liderancaPaiId?: string;
+    liderancaPaiNome?: string;
+  } | null>(null);
+  const [quickBothModal, setQuickBothModal] = useState<{
+    mainNome: string;
+    subNome: string;
+    mainMeta: number | '';
+    subMeta: number | '';
+    mainTelefone: string;
+    subTelefone: string;
+    mainBairro: string;
+    subBairro: string;
     voterCount: number;
   } | null>(null);
 
@@ -311,6 +325,236 @@ export default function Importacao() {
     return liderancas.filter((l) => l.tipo === 'Sub-liderança');
   }, [liderancas]);
 
+  // Helper para identificar valores vazios ou marcadores de ausência de liderança
+  const isPlaceholderLeader = (name?: string): boolean => {
+    if (!name) return true;
+    const n = normalizeLeaderName(name);
+    return (
+      !n ||
+      n === 'sem lideranca' ||
+      n === 'sem lideranca definida' ||
+      n === 'sem sublideranca' ||
+      n === 'sem sub lideranca' ||
+      n === 'nao informada' ||
+      n === 'nenhuma' ||
+      n === '-' ||
+      n === 'null' ||
+      n === 'undefined'
+    );
+  };
+
+  // 1. Pares Liderança + Sub-liderança onde AMBAS estão na planilha e NENHUMA está cadastrada
+  const unregisteredPairsSummary = useMemo(() => {
+    if (!parsedData || importTarget !== 'eleitores') return [];
+    const voterRows = parsedData.rows as ParsedVoterRow[];
+    const map = new Map<
+      string,
+      {
+        key: string;
+        rawMainName: string;
+        rawSubName: string;
+        normMain: string;
+        normSub: string;
+        count: number;
+        sampleRows: ParsedVoterRow[];
+        bairro: string;
+      }
+    >();
+
+    voterRows.forEach((r) => {
+      const rawLid = (r.lideranca || '').trim();
+      const rawSub = (r.subLideranca || '').trim();
+      const normLid = normalizeLeaderName(rawLid);
+      const normSub = normalizeLeaderName(rawSub);
+
+      const hasLid = Boolean(normLid && !isPlaceholderLeader(rawLid));
+      const hasSub = Boolean(normSub && !isPlaceholderLeader(rawSub));
+
+      // Ambas informadas, mas NENHUMA cadastrada
+      if (hasLid && hasSub && !registeredLeadersMap.has(normLid) && !registeredSubLeadersMap.has(normSub)) {
+        const key = `${normLid}:::${normSub}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            rawMainName: rawLid,
+            rawSubName: rawSub,
+            normMain: normLid,
+            normSub: normSub,
+            count: 1,
+            sampleRows: [r],
+            bairro: r.bairro || ''
+          });
+        } else {
+          const item = map.get(key)!;
+          item.count++;
+          if (item.sampleRows.length < 3) item.sampleRows.push(r);
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  }, [parsedData, importTarget, registeredLeadersMap, registeredSubLeadersMap]);
+
+  // 2. Sub-lideranças NÃO cadastradas, mas cuja Liderança Pai informada na linha JÁ ESTÁ cadastrada
+  const unregisteredSubWithRegisteredParentSummary = useMemo(() => {
+    if (!parsedData || importTarget !== 'eleitores') return [];
+    const voterRows = parsedData.rows as ParsedVoterRow[];
+    const map = new Map<
+      string,
+      {
+        key: string;
+        rawSubName: string;
+        normSub: string;
+        parentLeader: (typeof liderancas)[0];
+        parentName: string;
+        parentId: string;
+        count: number;
+        sampleRows: ParsedVoterRow[];
+        bairro: string;
+      }
+    >();
+
+    voterRows.forEach((r) => {
+      const rawLid = (r.lideranca || '').trim();
+      const rawSub = (r.subLideranca || '').trim();
+      const normLid = normalizeLeaderName(rawLid);
+      const normSub = normalizeLeaderName(rawSub);
+
+      const hasLid = Boolean(normLid && !isPlaceholderLeader(rawLid));
+      const hasSub = Boolean(normSub && !isPlaceholderLeader(rawSub));
+
+      // Liderança Pai CADASTRADA, mas Sub-liderança NÃO CADASTRADA
+      if (hasSub && !registeredSubLeadersMap.has(normSub) && hasLid && registeredLeadersMap.has(normLid)) {
+        const parentLeader = registeredLeadersMap.get(normLid)!;
+        const key = `${normSub}:::${parentLeader.id}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            rawSubName: rawSub,
+            normSub: normSub,
+            parentLeader,
+            parentName: parentLeader.nome,
+            parentId: parentLeader.id,
+            count: 1,
+            sampleRows: [r],
+            bairro: r.bairro || ''
+          });
+        } else {
+          const item = map.get(key)!;
+          item.count++;
+          if (item.sampleRows.length < 3) item.sampleRows.push(r);
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  }, [parsedData, importTarget, registeredLeadersMap, registeredSubLeadersMap]);
+
+  // 3. Lideranças Principais NÃO cadastradas que aparecem na planilha sem sub-liderança (ou onde sub já está cadastrada)
+  const unregisteredMainWithoutSubSummary = useMemo(() => {
+    if (!parsedData || importTarget !== 'eleitores') return [];
+    const voterRows = parsedData.rows as ParsedVoterRow[];
+    const map = new Map<
+      string,
+      {
+        rawName: string;
+        normKey: string;
+        count: number;
+        sampleRows: ParsedVoterRow[];
+        bairro: string;
+      }
+    >();
+
+    voterRows.forEach((r) => {
+      const rawLid = (r.lideranca || '').trim();
+      const rawSub = (r.subLideranca || '').trim();
+      const normLid = normalizeLeaderName(rawLid);
+      const normSub = normalizeLeaderName(rawSub);
+
+      const hasLid = Boolean(normLid && !isPlaceholderLeader(rawLid));
+      const hasSub = Boolean(normSub && !isPlaceholderLeader(rawSub));
+
+      // Liderança NÃO CADASTRADA e (sem sub-liderança ou sub-liderança já cadastrada)
+      if (hasLid && !registeredLeadersMap.has(normLid) && (!hasSub || registeredSubLeadersMap.has(normSub))) {
+        if (!map.has(normLid)) {
+          map.set(normLid, {
+            rawName: rawLid,
+            normKey: normLid,
+            count: 1,
+            sampleRows: [r],
+            bairro: r.bairro || ''
+          });
+        } else {
+          const item = map.get(normLid)!;
+          item.count++;
+          if (item.sampleRows.length < 3) item.sampleRows.push(r);
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  }, [parsedData, importTarget, registeredLeadersMap, registeredSubLeadersMap]);
+
+  // 4. Sub-lideranças NÃO CADASTRADAS que aparecem na planilha SEM Liderança Pai informada na linha
+  const unregisteredSubWithoutParentSummary = useMemo(() => {
+    if (!parsedData || importTarget !== 'eleitores') return [];
+    const voterRows = parsedData.rows as ParsedVoterRow[];
+    const map = new Map<
+      string,
+      {
+        rawSubName: string;
+        normKey: string;
+        count: number;
+        sampleRows: ParsedVoterRow[];
+        bairro: string;
+      }
+    >();
+
+    voterRows.forEach((r) => {
+      const rawLid = (r.lideranca || '').trim();
+      const rawSub = (r.subLideranca || '').trim();
+      const normLid = normalizeLeaderName(rawLid);
+      const normSub = normalizeLeaderName(rawSub);
+
+      const hasLid = Boolean(normLid && !isPlaceholderLeader(rawLid));
+      const hasSub = Boolean(normSub && !isPlaceholderLeader(rawSub));
+
+      // Sub-liderança informada e NÃO CADASTRADA, e SEM liderança pai na linha
+      if (hasSub && !registeredSubLeadersMap.has(normSub) && !hasLid) {
+        if (!map.has(normSub)) {
+          map.set(normSub, {
+            rawSubName: rawSub,
+            normKey: normSub,
+            count: 1,
+            sampleRows: [r],
+            bairro: r.bairro || ''
+          });
+        } else {
+          const item = map.get(normSub)!;
+          item.count++;
+          if (item.sampleRows.length < 3) item.sampleRows.push(r);
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  }, [parsedData, importTarget, registeredSubLeadersMap]);
+
+  // Contagem unificada de entidades pendentes
+  const totalUnregisteredPendingEntities = useMemo(() => {
+    return (
+      unregisteredPairsSummary.length +
+      unregisteredSubWithRegisteredParentSummary.length +
+      unregisteredMainWithoutSubSummary.length +
+      unregisteredSubWithoutParentSummary.length
+    );
+  }, [
+    unregisteredPairsSummary,
+    unregisteredSubWithRegisteredParentSummary,
+    unregisteredMainWithoutSubSummary,
+    unregisteredSubWithoutParentSummary
+  ]);
+
   // Sub-lideranças indicadas na planilha que não têm Liderança Pai vinculada (Caso C)
   const subLeadersWithoutParentSummary = useMemo(() => {
     if (!parsedData || importTarget !== 'eleitores') return [];
@@ -324,7 +568,7 @@ export default function Importacao() {
       const rawSub = (r.subLideranca || '').trim();
       const rawLid = (r.lideranca || '').trim();
       const normLid = normalizeLeaderName(rawLid);
-      const hasLeader = normLid && normLid !== 'sem lideranca' && normLid !== 'nao informada' && normLid !== '-';
+      const hasLeader = normLid && !isPlaceholderLeader(rawLid);
 
       // Tem sub-liderança mas NÃO tem liderança na linha
       if (rawSub && !hasLeader) {
@@ -356,8 +600,8 @@ export default function Importacao() {
     return voterRows.filter((r) => {
       const normLid = normalizeLeaderName(r.lideranca || '');
       const normSub = normalizeLeaderName(r.subLideranca || '');
-      const hasLid = normLid && normLid !== 'sem lideranca' && normLid !== 'nao informada' && normLid !== '-';
-      const hasSub = normSub && normSub !== 'sem lideranca' && normSub !== 'nao informada' && normSub !== '-';
+      const hasLid = normLid && !isPlaceholderLeader(r.lideranca);
+      const hasSub = normSub && !isPlaceholderLeader(r.subLideranca);
       return !hasLid && !hasSub;
     }).length;
   }, [parsedData, importTarget]);
@@ -375,24 +619,14 @@ export default function Importacao() {
       const raw = (r.lideranca || '').trim();
       const norm = normalizeLeaderName(raw);
 
-      // Ignora vazios ou explicitamente sem liderança
-      if (
-        !norm ||
-        norm === 'sem lideranca' ||
-        norm === 'sem lideranca definida' ||
-        norm === 'nao informada' ||
-        norm === 'nenhuma' ||
-        norm === '-'
-      ) {
+      if (!norm || isPlaceholderLeader(raw)) {
         return;
       }
 
-      // Se já está cadastrada no sistema (desconsiderando diferenças de maiúsculas/minúsculas, ex: LUCAS e Lucas), considera identificada
       if (registeredLeadersMap.has(norm)) {
         return;
       }
 
-      // Liderança que ainda não está cadastrada no sistema
       if (!map.has(norm)) {
         map.set(norm, {
           rawName: raw,
@@ -413,8 +647,18 @@ export default function Importacao() {
   }, [parsedData, importTarget, registeredLeadersMap]);
 
   const totalVotersWithUnregisteredLeader = useMemo(() => {
-    return unregisteredLeadersSummary.reduce((acc, curr) => acc + curr.count, 0);
-  }, [unregisteredLeadersSummary]);
+    if (!parsedData || importTarget !== 'eleitores') return 0;
+    const voterRows = parsedData.rows as ParsedVoterRow[];
+    return voterRows.filter((r) => {
+      const normLid = normalizeLeaderName(r.lideranca || '');
+      const normSub = normalizeLeaderName(r.subLideranca || '');
+      const hasLid = Boolean(normLid && !isPlaceholderLeader(r.lideranca));
+      const hasSub = Boolean(normSub && !isPlaceholderLeader(r.subLideranca));
+      const lidPending = hasLid && !registeredLeadersMap.has(normLid);
+      const subPending = hasSub && !registeredSubLeadersMap.has(normSub);
+      return lidPending || subPending;
+    }).length;
+  }, [parsedData, importTarget, registeredLeadersMap, registeredSubLeadersMap]);
 
   // Listener em tempo real para o Histórico de Importações
   useEffect(() => {
@@ -515,26 +759,45 @@ export default function Importacao() {
     tipo: 'Liderança Principal' | 'Sub-liderança' = 'Liderança Principal',
     customMeta?: number,
     customTel?: string,
-    customBairro?: string
+    customBairro?: string,
+    liderancaPaiId?: string,
+    liderancaPaiNome?: string
   ) => {
     try {
       setIsRegisteringLeader(true);
+      const targetDb = getActiveDb();
+      const newId = doc(collection(targetDb, 'liderancas')).id;
+
+      let paiId = liderancaPaiId;
+      let paiNome = liderancaPaiNome;
+
+      if (tipo === 'Sub-liderança' && paiId && !paiNome) {
+        const found = liderancas.find((l) => l.id === paiId);
+        if (found) paiNome = found.nome;
+      }
+
       await batchImportLiderancas([
         {
+          id: newId,
           nome: leaderRawName.trim(),
           tipo,
+          liderancaPaiId: tipo === 'Sub-liderança' ? paiId || '' : '',
+          liderancaPaiNome: tipo === 'Sub-liderança' ? paiNome || '' : '',
           status: 'Ativa',
-          metaVotos: typeof customMeta === 'number' ? customMeta : 100,
+          metaVotos: typeof customMeta === 'number' ? customMeta : tipo === 'Sub-liderança' ? 50 : 100,
           telefone: customTel || '',
           bairro: customBairro || '',
           regiao: 'Geral',
           cidade: 'Teresina',
           estado: 'PI',
-          observacoes: 'Cadastrada no ato da importação de eleitores'
+          observacoes:
+            tipo === 'Sub-liderança'
+              ? `Sub-liderança de ${paiNome || 'Coordenação'} cadastrada no ato da importação`
+              : 'Cadastrada no ato da importação de eleitores'
         }
       ]);
       setLeaderRegisterSuccess(
-        `Liderança "${leaderRawName.trim()}" cadastrada com sucesso! Os eleitores correspondentes agora serão vinculados a ela.`
+        `${tipo} "${leaderRawName.trim()}" cadastrada com sucesso! ${paiNome ? `(Vinculada a ${paiNome})` : ''}`
       );
       setQuickLeaderModal(null);
       setTimeout(() => setLeaderRegisterSuccess(null), 5000);
@@ -546,33 +809,214 @@ export default function Importacao() {
     }
   };
 
-  const handleRegisterAllUnregisteredLeaders = async () => {
-    if (unregisteredLeadersSummary.length === 0) return;
+  const handleQuickRegisterBoth = async (
+    mainLeaderName: string,
+    subLeaderName: string,
+    options?: {
+      mainMeta?: number;
+      mainTel?: string;
+      mainBairro?: string;
+      subMeta?: number;
+      subTel?: string;
+      subBairro?: string;
+    }
+  ) => {
     try {
       setIsRegisteringLeader(true);
-      const toCreate = unregisteredLeadersSummary.map((item) => ({
-        nome: item.rawName.trim(),
-        tipo: 'Liderança Principal' as const,
-        status: 'Ativa' as const,
-        metaVotos: 100,
-        regiao: 'Geral',
-        bairro: item.sampleRows[0]?.bairro || '',
-        cidade: item.sampleRows[0]?.cidade || 'Teresina',
-        estado: item.sampleRows[0]?.estado || 'PI',
-        observacoes: 'Cadastrada no ato da importação de eleitores'
-      }));
-      await batchImportLiderancas(toCreate);
+      const targetDb = getActiveDb();
+
+      // 1. Resolve ou cria a Liderança Principal
+      const normMain = normalizeLeaderName(mainLeaderName);
+      let existingMain = registeredLeadersMap.get(normMain);
+      let parentId = existingMain?.id;
+      let parentNome = existingMain?.nome || mainLeaderName.trim();
+
+      const leadersToCreate: any[] = [];
+
+      if (!existingMain) {
+        parentId = doc(collection(targetDb, 'liderancas')).id;
+        leadersToCreate.push({
+          id: parentId,
+          nome: parentNome,
+          tipo: 'Liderança Principal',
+          status: 'Ativa',
+          metaVotos: options?.mainMeta ?? 100,
+          telefone: options?.mainTel || '',
+          bairro: options?.mainBairro || '',
+          regiao: 'Geral',
+          cidade: 'Teresina',
+          estado: 'PI',
+          observacoes: 'Cadastrada no ato da importação de eleitores'
+        });
+      }
+
+      // 2. Resolve ou cria a Sub-liderança vinculada à Liderança Principal
+      const normSub = normalizeLeaderName(subLeaderName);
+      let existingSub = registeredSubLeadersMap.get(normSub);
+      let subId = existingSub?.id;
+      let subNome = existingSub?.nome || subLeaderName.trim();
+
+      if (!existingSub) {
+        subId = doc(collection(targetDb, 'liderancas')).id;
+        leadersToCreate.push({
+          id: subId,
+          nome: subNome,
+          tipo: 'Sub-liderança',
+          liderancaPaiId: parentId,
+          liderancaPaiNome: parentNome,
+          status: 'Ativa',
+          metaVotos: options?.subMeta ?? 50,
+          telefone: options?.subTel || '',
+          bairro: options?.subBairro || '',
+          regiao: 'Geral',
+          cidade: 'Teresina',
+          estado: 'PI',
+          observacoes: `Sub-liderança de ${parentNome} cadastrada no ato da importação`
+        });
+      }
+
+      if (leadersToCreate.length > 0) {
+        await batchImportLiderancas(leadersToCreate);
+      }
+
       setLeaderRegisterSuccess(
-        `Todas as ${toCreate.length} lideranças foram cadastradas com sucesso no sistema!`
+        `Liderança Principal "${parentNome}" e Sub-liderança "${subNome}" cadastradas e vinculadas com sucesso!`
       );
+      setQuickBothModal(null);
       setTimeout(() => setLeaderRegisterSuccess(null), 6000);
     } catch (err: any) {
-      console.error('Erro ao cadastrar todas as lideranças:', err);
+      console.error('Erro ao cadastrar ambos:', err);
       alert('Erro ao cadastrar lideranças: ' + (err.message || 'Tente novamente'));
     } finally {
       setIsRegisteringLeader(false);
     }
   };
+
+  const handleRegisterAllPendingLeadersAndSubs = async () => {
+    if (!parsedData || importTarget !== 'eleitores') return;
+    try {
+      setIsRegisteringLeader(true);
+      const targetDb = getActiveDb();
+      const voterRows = parsedData.rows as ParsedVoterRow[];
+
+      // 1. Identificar todas as Lideranças Principais necessárias
+      const pendingMainsMap = new Map<string, { id: string; nome: string; bairro: string }>();
+
+      voterRows.forEach((r) => {
+        const rawLid = (r.lideranca || '').trim();
+        const normLid = normalizeLeaderName(rawLid);
+        if (normLid && !isPlaceholderLeader(rawLid) && !registeredLeadersMap.has(normLid)) {
+          if (!pendingMainsMap.has(normLid)) {
+            pendingMainsMap.set(normLid, {
+              id: doc(collection(targetDb, 'liderancas')).id,
+              nome: rawLid,
+              bairro: r.bairro || ''
+            });
+          }
+        }
+      });
+
+      // 2. Identificar todas as Sub-lideranças necessárias e mapear seus pais
+      const pendingSubsMap = new Map<
+        string,
+        { id: string; nome: string; parentId: string; parentNome: string; bairro: string }
+      >();
+
+      voterRows.forEach((r) => {
+        const rawSub = (r.subLideranca || '').trim();
+        const normSub = normalizeLeaderName(rawSub);
+        if (normSub && !isPlaceholderLeader(rawSub) && !registeredSubLeadersMap.has(normSub)) {
+          if (!pendingSubsMap.has(normSub)) {
+            const rawLid = (r.lideranca || '').trim();
+            const normLid = normalizeLeaderName(rawLid);
+
+            let pId = '';
+            let pNome = '';
+
+            if (normLid && !isPlaceholderLeader(rawLid)) {
+              const regP = registeredLeadersMap.get(normLid);
+              if (regP) {
+                pId = regP.id;
+                pNome = regP.nome;
+              } else if (pendingMainsMap.has(normLid)) {
+                const pendP = pendingMainsMap.get(normLid)!;
+                pId = pendP.id;
+                pNome = pendP.nome;
+              }
+            } else if (subLeaderParentOverrides[normSub]) {
+              pId = subLeaderParentOverrides[normSub].id;
+              pNome = subLeaderParentOverrides[normSub].nome;
+            } else if (defaultUnassignedLeader) {
+              const def = registeredLeadersMap.get(normalizeLeaderName(defaultUnassignedLeader));
+              pId = def?.id || '';
+              pNome = def?.nome || defaultUnassignedLeader;
+            }
+
+            pendingSubsMap.set(normSub, {
+              id: doc(collection(targetDb, 'liderancas')).id,
+              nome: rawSub,
+              parentId: pId,
+              parentNome: pNome,
+              bairro: r.bairro || ''
+            });
+          }
+        }
+      });
+
+      const toCreate: any[] = [];
+
+      pendingMainsMap.forEach((m) => {
+        toCreate.push({
+          id: m.id,
+          nome: m.nome,
+          tipo: 'Liderança Principal',
+          status: 'Ativa',
+          metaVotos: 100,
+          regiao: 'Geral',
+          bairro: m.bairro,
+          cidade: 'Teresina',
+          estado: 'PI',
+          observacoes: 'Cadastrada em lote no ato da importação'
+        });
+      });
+
+      pendingSubsMap.forEach((s) => {
+        toCreate.push({
+          id: s.id,
+          nome: s.nome,
+          tipo: 'Sub-liderança',
+          liderancaPaiId: s.parentId,
+          liderancaPaiNome: s.parentNome,
+          status: 'Ativa',
+          metaVotos: 50,
+          regiao: 'Geral',
+          bairro: s.bairro,
+          cidade: 'Teresina',
+          estado: 'PI',
+          observacoes: s.parentNome
+            ? `Sub-liderança de ${s.parentNome} cadastrada em lote no ato da importação`
+            : 'Sub-liderança cadastrada em lote no ato da importação'
+        });
+      });
+
+      if (toCreate.length > 0) {
+        await batchImportLiderancas(toCreate);
+        setLeaderRegisterSuccess(
+          `Cadastradas com sucesso: ${pendingMainsMap.size} liderança(s) principal(is) e ${pendingSubsMap.size} sub-liderança(s) vinculada(s)!`
+        );
+      } else {
+        setLeaderRegisterSuccess('Todas as lideranças e sub-lideranças já constam no sistema!');
+      }
+      setTimeout(() => setLeaderRegisterSuccess(null), 6000);
+    } catch (err: any) {
+      console.error('Erro ao cadastrar lideranças e sub-lideranças:', err);
+      alert('Erro: ' + (err.message || 'Tente novamente'));
+    } finally {
+      setIsRegisteringLeader(false);
+    }
+  };
+
+  const handleRegisterAllUnregisteredLeaders = handleRegisterAllPendingLeadersAndSubs;
 
   // Tecla ESC para fechar pré-visualização de arquivo importado
   useEffect(() => {
@@ -668,37 +1112,151 @@ export default function Importacao() {
           return;
         }
 
+        if (autoRegisterPendingLeaders) {
+          const targetDb = getActiveDb();
+
+          // 1. Identificar lideranças principais faltantes
+          const pendingMainsMap = new Map<string, { id: string; nome: string; bairro: string }>();
+          finalRows.forEach((r) => {
+            const rawLid = (r.lideranca || '').trim();
+            const normLid = normalizeLeaderName(rawLid);
+            if (normLid && !isPlaceholderLeader(rawLid) && !registeredLeadersMap.has(normLid)) {
+              if (!pendingMainsMap.has(normLid)) {
+                pendingMainsMap.set(normLid, {
+                  id: doc(collection(targetDb, 'liderancas')).id,
+                  nome: rawLid,
+                  bairro: r.bairro || ''
+                });
+              }
+            }
+          });
+
+          // 2. Identificar sub-lideranças faltantes e mapear pais
+          const pendingSubsMap = new Map<
+            string,
+            { id: string; nome: string; parentId: string; parentNome: string; bairro: string }
+          >();
+          finalRows.forEach((r) => {
+            const rawSub = (r.subLideranca || '').trim();
+            const normSub = normalizeLeaderName(rawSub);
+            if (normSub && !isPlaceholderLeader(rawSub) && !registeredSubLeadersMap.has(normSub)) {
+              if (!pendingSubsMap.has(normSub)) {
+                const rawLid = (r.lideranca || '').trim();
+                const normLid = normalizeLeaderName(rawLid);
+                let pId = '';
+                let pNome = '';
+
+                if (normLid && !isPlaceholderLeader(rawLid)) {
+                  const regP = registeredLeadersMap.get(normLid);
+                  if (regP) {
+                    pId = regP.id;
+                    pNome = regP.nome;
+                  } else if (pendingMainsMap.has(normLid)) {
+                    const pendP = pendingMainsMap.get(normLid)!;
+                    pId = pendP.id;
+                    pNome = pendP.nome;
+                  }
+                } else if (subLeaderParentOverrides[normSub]) {
+                  pId = subLeaderParentOverrides[normSub].id;
+                  pNome = subLeaderParentOverrides[normSub].nome;
+                } else if (defaultUnassignedLeader) {
+                  const def = registeredLeadersMap.get(normalizeLeaderName(defaultUnassignedLeader));
+                  pId = def?.id || '';
+                  pNome = def?.nome || defaultUnassignedLeader;
+                }
+
+                pendingSubsMap.set(normSub, {
+                  id: doc(collection(targetDb, 'liderancas')).id,
+                  nome: rawSub,
+                  parentId: pId,
+                  parentNome: pNome,
+                  bairro: r.bairro || ''
+                });
+              }
+            }
+          });
+
+          const leadersToCreateBatch: any[] = [];
+          pendingMainsMap.forEach((m) => {
+            leadersToCreateBatch.push({
+              id: m.id,
+              nome: m.nome,
+              tipo: 'Liderança Principal',
+              status: 'Ativa',
+              metaVotos: 100,
+              regiao: 'Geral',
+              bairro: m.bairro,
+              cidade: 'Teresina',
+              estado: 'PI',
+              observacoes: 'Cadastrada no ato da importação de eleitores'
+            });
+          });
+
+          pendingSubsMap.forEach((s) => {
+            leadersToCreateBatch.push({
+              id: s.id,
+              nome: s.nome,
+              tipo: 'Sub-liderança',
+              liderancaPaiId: s.parentId,
+              liderancaPaiNome: s.parentNome,
+              status: 'Ativa',
+              metaVotos: 50,
+              regiao: 'Geral',
+              bairro: s.bairro,
+              cidade: 'Teresina',
+              estado: 'PI',
+              observacoes: s.parentNome
+                ? `Sub-liderança de ${s.parentNome} cadastrada no ato da importação`
+                : 'Sub-liderança cadastrada no ato da importação'
+            });
+          });
+
+          if (leadersToCreateBatch.length > 0) {
+            await batchImportLiderancas(leadersToCreateBatch);
+            leadersToCreateBatch.forEach((c) => {
+              const k = normalizeLeaderName(c.nome);
+              if (c.tipo === 'Sub-liderança') {
+                registeredSubLeadersMap.set(k, c);
+              }
+              registeredLeadersMap.set(k, c);
+            });
+          }
+        }
+
         setImportProgress({ done: 0, total: finalRows.length });
 
         const toInsert = finalRows.map((r) => {
           const normLider = normalizeLeaderName(r.lideranca);
           const normSub = normalizeLeaderName(r.subLideranca);
 
-          const matchedLeader = normLider ? registeredLeadersMap.get(normLider) : null;
-          const matchedSub = normSub ? registeredSubLeadersMap.get(normSub) : null;
+          const hasLid = Boolean(normLider && !isPlaceholderLeader(r.lideranca));
+          const hasSub = Boolean(normSub && !isPlaceholderLeader(r.subLideranca));
+
+          const matchedLeader = hasLid ? registeredLeadersMap.get(normLider) : null;
+          const matchedSub = hasSub ? registeredSubLeadersMap.get(normSub) : null;
 
           let finalLideranca = 'Sem Liderança';
           let finalLiderancaId = '';
           let finalSubLideranca = '';
           let finalSubLiderancaId = '';
 
-          // Caso 1: Liderança E Sub-liderança cadastradas/informadas na linha
-          if (normLider && normSub) {
-            finalLideranca = matchedLeader ? matchedLeader.nome : r.lideranca;
+          // Caso 1: Liderança E Sub-liderança informadas na linha
+          if (hasLid && hasSub) {
+            finalLideranca = matchedLeader ? matchedLeader.nome : r.lideranca.trim();
             finalLiderancaId = matchedLeader ? matchedLeader.id : '';
-            finalSubLideranca = matchedSub ? matchedSub.nome : (r.subLideranca || '');
+            finalSubLideranca = matchedSub ? matchedSub.nome : r.subLideranca.trim();
             finalSubLiderancaId = matchedSub ? matchedSub.id : '';
           }
           // Caso 2: Somente Liderança informada (sem sub-liderança) -> cadastra diretamente na liderança
-          else if (normLider && !normSub) {
-            finalLideranca = matchedLeader ? matchedLeader.nome : r.lideranca;
+          else if (hasLid && !hasSub) {
+            finalLideranca = matchedLeader ? matchedLeader.nome : r.lideranca.trim();
             finalLiderancaId = matchedLeader ? matchedLeader.id : '';
             finalSubLideranca = '';
             finalSubLiderancaId = '';
           }
-          // Caso 3: Somente Sub-liderança informada (sem liderança pai)
-          else if (!normLider && normSub) {
-            finalSubLideranca = matchedSub ? matchedSub.nome : (r.subLideranca || '');
+          // Caso 3: Somente Sub-liderança informada (sem liderança pai na linha)
+          else if (!hasLid && hasSub) {
+            finalSubLideranca = matchedSub ? matchedSub.nome : r.subLideranca.trim();
             finalSubLiderancaId = matchedSub ? matchedSub.id : '';
 
             // Se o usuário associou uma liderança pai na interface no ato da importação
@@ -1538,9 +2096,9 @@ export default function Importacao() {
                   </div>
                 )}
 
-                {/* Notificação e Opção de Cadastro de Lideranças Não Cadastradas */}
-                {importTarget === 'eleitores' && unregisteredLeadersSummary.length > 0 && (
-                  <div className="p-4 rounded-xl bg-amber-500/10 border-2 border-amber-500/40 space-y-3.5 animate-fadeIn">
+                {/* Notificação e Opção de Cadastro de Lideranças & Sub-lideranças Não Cadastradas */}
+                {importTarget === 'eleitores' && totalUnregisteredPendingEntities > 0 && (
+                  <div className="p-4 rounded-xl bg-amber-500/10 border-2 border-amber-500/40 space-y-4 animate-fadeIn">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-start gap-2.5">
                         <div className="p-2 rounded-xl bg-amber-500/20 text-amber-700 shrink-0 mt-0.5">
@@ -1549,32 +2107,75 @@ export default function Importacao() {
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <h4 className="font-bold text-sm text-on-surface">
-                              Lideranças Não Cadastradas Encontradas ({unregisteredLeadersSummary.length})
+                              Lideranças &amp; Sub-lideranças Não Cadastradas Encontradas
                             </h4>
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300 font-extrabold uppercase">
                               Ação no Ato da Importação
                             </span>
                           </div>
                           <p className="text-xs text-on-surface-variant mt-1">
-                            Detectamos que <strong>{totalVotersWithUnregisteredLeader} eleitor(es)</strong> na planilha estão vinculados a nomes de lideranças que ainda não constam no sistema. Você pode cadastrá-las agora no ato da importação. Caso prossiga sem cadastrar, todos esses eleitores serão gravados automaticamente como <strong>&quot;Sem Liderança&quot;</strong> para que você possa visualizá-los e filtrá-los facilmente no sistema.
+                            Detectamos que <strong>{totalVotersWithUnregisteredLeader} eleitor(es)</strong> na planilha possuem lideranças e/ou sub-lideranças que ainda não constam no sistema. O sistema identificou automaticamente a qual liderança cada sub-liderança está ligada. Você pode cadastrar ambas simultaneamente ou individualmente antes ou durante a importação.
                           </p>
                         </div>
                       </div>
 
                       <button
                         type="button"
-                        onClick={handleRegisterAllUnregisteredLeaders}
+                        onClick={handleRegisterAllPendingLeadersAndSubs}
                         disabled={isRegisteringLeader}
-                        className="px-3.5 py-2 bg-secondary text-on-secondary hover:bg-secondary/90 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs shrink-0 self-start sm:self-auto disabled:opacity-50"
-                        title="Cadastrar todas as lideranças não cadastradas com 1 clique"
+                        className="px-4 py-2.5 bg-secondary text-on-secondary hover:bg-secondary/90 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs shrink-0 self-start sm:self-auto disabled:opacity-50"
+                        title="Cadastrar todas as lideranças e sub-lideranças pendentes com 1 clique"
                       >
                         {isRegisteringLeader ? (
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <Sparkles className="w-3.5 h-3.5" />
                         )}
-                        Cadastrar Todas ({unregisteredLeadersSummary.length})
+                        Cadastrar Todas as Pendentes ({totalUnregisteredPendingEntities})
                       </button>
+                    </div>
+
+                    {/* Resumo de Contadores */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                      {unregisteredPairsSummary.length > 0 && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-200/60 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 font-semibold border border-amber-300/60">
+                          <span className="w-2 h-2 rounded-full bg-amber-600 animate-pulse" />
+                          <strong>{unregisteredPairsSummary.length}</strong> Pares (Liderança + Sub) pendentes
+                        </span>
+                      )}
+                      {unregisteredSubWithRegisteredParentSummary.length > 0 && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200 font-semibold border border-blue-300/60">
+                          <strong>{unregisteredSubWithRegisteredParentSummary.length}</strong> Sub-lideranças com pai já cadastrado
+                        </span>
+                      )}
+                      {unregisteredMainWithoutSubSummary.length > 0 && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 font-semibold border border-emerald-300/60">
+                          <strong>{unregisteredMainWithoutSubSummary.length}</strong> Lideranças principais pendentes
+                        </span>
+                      )}
+                      {unregisteredSubWithoutParentSummary.length > 0 && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-900 dark:text-purple-200 font-semibold border border-purple-300/60">
+                          <strong>{unregisteredSubWithoutParentSummary.length}</strong> Sub-lideranças sem pai na linha
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Checkbox de Automação de Cadastro */}
+                    <div className="p-3 rounded-lg bg-surface border border-outline-variant/60 flex items-center justify-between gap-3 text-xs">
+                      <label className="flex items-center gap-2 cursor-pointer font-semibold text-on-surface">
+                        <input
+                          type="checkbox"
+                          checked={autoRegisterPendingLeaders}
+                          onChange={(e) => setAutoRegisterPendingLeaders(e.target.checked)}
+                          className="w-4 h-4 rounded text-secondary focus:ring-secondary/20 cursor-pointer accent-secondary"
+                        />
+                        <span>
+                          Cadastrar e vincular automaticamente no banco de dados todas as lideranças e sub-lideranças detectadas na planilha durante a importação
+                        </span>
+                      </label>
+                      <span className="text-[11px] font-bold text-secondary bg-secondary/10 px-2 py-0.5 rounded shrink-0">
+                        {autoRegisterPendingLeaders ? 'Automático Ativado' : 'Apenas Manual'}
+                      </span>
                     </div>
 
                     {leaderRegisterSuccess && (
@@ -1584,63 +2185,339 @@ export default function Importacao() {
                       </div>
                     )}
 
-                    {/* Lista das lideranças com opção de cadastro imediato */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
-                      {unregisteredLeadersSummary.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 rounded-lg bg-surface border border-outline-variant/60 flex flex-col justify-between gap-2 text-xs shadow-2xs"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <p className="font-bold text-on-surface truncate text-sm" title={item.rawName}>
-                                {item.rawName}
-                              </p>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold shrink-0">
-                                {item.count} eleitor{item.count > 1 ? 'es' : ''}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-on-surface-variant mt-0.5">
-                              {item.sampleRows[0]?.bairro ? `Bairro: ${item.sampleRows[0].bairro}` : 'Sem bairro informado'}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2 pt-1.5 border-t border-outline-variant/30">
-                            <button
-                              type="button"
-                              onClick={() => handleQuickRegisterLeader(item.rawName)}
-                              disabled={isRegisteringLeader}
-                              className="flex-1 px-2.5 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
-                              title={`Cadastrar "${item.rawName}" no sistema`}
-                            >
-                              <UserPlus className="w-3.5 h-3.5" /> Cadastrar Liderança
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setQuickLeaderModal({
-                                  nome: item.rawName,
-                                  tipo: 'Liderança Principal',
-                                  metaVotos: 100,
-                                  telefone: '',
-                                  bairro: item.sampleRows[0]?.bairro || '',
-                                  voterCount: item.count
-                                })
-                              }
-                              className="px-2 py-1.5 border border-outline-variant/60 rounded text-xs text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
-                              title="Personalizar dados antes de cadastrar"
-                            >
-                              Editar
-                            </button>
-                          </div>
+                    {/* SEÇÃO 1: PARES ONDE AMBAS ESTÃO PENDENTES (LIDERANÇA + SUB-LIDERANÇA) */}
+                    {unregisteredPairsSummary.length > 0 && (
+                      <div className="space-y-2 pt-2 border-t border-outline-variant/30">
+                        <div className="flex items-center justify-between gap-2">
+                          <h5 className="font-bold text-xs text-on-surface flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                            Pares Liderança + Sub-liderança (Ambos Não Cadastrados) ({unregisteredPairsSummary.length})
+                          </h5>
+                          <span className="text-[11px] text-on-surface-variant">
+                            Vínculo identificado na própria planilha
+                          </span>
                         </div>
-                      ))}
-                    </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">
+                          {unregisteredPairsSummary.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-lg bg-surface border-2 border-amber-500/30 hover:border-amber-500/60 flex flex-col justify-between gap-2.5 text-xs shadow-2xs transition-all"
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[10px] uppercase font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">
+                                    Par Liderança + Sub
+                                  </span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container font-mono font-bold text-on-surface shrink-0">
+                                    {item.count} eleitor{item.count > 1 ? 'es' : ''}
+                                  </span>
+                                </div>
+
+                                <div className="pt-0.5 space-y-0.5">
+                                  <p className="font-bold text-on-surface text-sm truncate" title={item.rawMainName}>
+                                    ⭐ {item.rawMainName}
+                                  </p>
+                                  <p className="text-secondary font-semibold text-xs flex items-center gap-1 truncate" title={item.rawSubName}>
+                                    <span>↳ Sub:</span>
+                                    <span>{item.rawSubName}</span>
+                                  </p>
+                                  {item.bairro && (
+                                    <p className="text-[11px] text-on-surface-variant">
+                                      Bairro: {item.bairro}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-2 border-t border-outline-variant/30">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickRegisterBoth(item.rawMainName, item.rawSubName)}
+                                  disabled={isRegisteringLeader}
+                                  className="flex-1 px-2.5 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                                  title={`Cadastrar "${item.rawMainName}" como Liderança Principal e "${item.rawSubName}" como Sub-liderança`}
+                                >
+                                  <UserPlus className="w-3.5 h-3.5" /> Cadastrar Ambos
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setQuickBothModal({
+                                      mainNome: item.rawMainName,
+                                      subNome: item.rawSubName,
+                                      mainMeta: 100,
+                                      subMeta: 50,
+                                      mainTelefone: item.sampleRows[0]?.telefone || '',
+                                      subTelefone: '',
+                                      mainBairro: item.bairro || '',
+                                      subBairro: item.bairro || '',
+                                      voterCount: item.count
+                                    })
+                                  }
+                                  className="px-2 py-1.5 border border-outline-variant/60 rounded text-xs text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+                                  title="Personalizar metas e telefones antes de salvar"
+                                >
+                                  Editar
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SEÇÃO 2: SUB-LIDERANÇAS PENDENTES COM LIDERANÇA PAI JÁ CADASTRADA */}
+                    {unregisteredSubWithRegisteredParentSummary.length > 0 && (
+                      <div className="space-y-2 pt-2 border-t border-outline-variant/30">
+                        <div className="flex items-center justify-between gap-2">
+                          <h5 className="font-bold text-xs text-on-surface flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-blue-500" />
+                            Sub-lideranças Pendentes (Liderança Pai Já Cadastrada) ({unregisteredSubWithRegisteredParentSummary.length})
+                          </h5>
+                          <span className="text-[11px] text-on-surface-variant">
+                            Vinculação direta com líder oficial
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                          {unregisteredSubWithRegisteredParentSummary.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-lg bg-surface border border-outline-variant/60 flex flex-col justify-between gap-2 text-xs shadow-2xs"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[10px] uppercase font-bold text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded">
+                                    Sub-liderança
+                                  </span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container font-mono font-bold text-on-surface shrink-0">
+                                    {item.count} eleitor{item.count > 1 ? 'es' : ''}
+                                  </span>
+                                </div>
+                                <p className="font-bold text-on-surface text-sm mt-1 truncate" title={item.rawSubName}>
+                                  {item.rawSubName}
+                                </p>
+                                <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span>↳ Ligada a: {item.parentName}</span>
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-1.5 border-t border-outline-variant/30">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleQuickRegisterLeader(
+                                      item.rawSubName,
+                                      'Sub-liderança',
+                                      50,
+                                      item.sampleRows[0]?.telefone || '',
+                                      item.bairro,
+                                      item.parentId,
+                                      item.parentName
+                                    )
+                                  }
+                                  disabled={isRegisteringLeader}
+                                  className="flex-1 px-2.5 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                                  title={`Cadastrar "${item.rawSubName}" vinculada a "${item.parentName}"`}
+                                >
+                                  <UserPlus className="w-3.5 h-3.5" /> Cadastrar Sub
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setQuickLeaderModal({
+                                      nome: item.rawSubName,
+                                      tipo: 'Sub-liderança',
+                                      metaVotos: 50,
+                                      telefone: item.sampleRows[0]?.telefone || '',
+                                      bairro: item.bairro,
+                                      voterCount: item.count,
+                                      liderancaPaiId: item.parentId,
+                                      liderancaPaiNome: item.parentName
+                                    })
+                                  }
+                                  className="px-2 py-1.5 border border-outline-variant/60 rounded text-xs text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+                                  title="Personalizar dados"
+                                >
+                                  Editar
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SEÇÃO 3: LIDERANÇAS PRINCIPAIS PENDENTES (SEM SUB-LIDERANÇA) */}
+                    {unregisteredMainWithoutSubSummary.length > 0 && (
+                      <div className="space-y-2 pt-2 border-t border-outline-variant/30">
+                        <div className="flex items-center justify-between gap-2">
+                          <h5 className="font-bold text-xs text-on-surface flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            Lideranças Principais Pendentes (Sem Sub-liderança) ({unregisteredMainWithoutSubSummary.length})
+                          </h5>
+                          <span className="text-[11px] text-on-surface-variant">
+                            Líderes diretos
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                          {unregisteredMainWithoutSubSummary.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-lg bg-surface border border-outline-variant/60 flex flex-col justify-between gap-2 text-xs shadow-2xs"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center justify-between gap-1">
+                                  <p className="font-bold text-on-surface truncate text-sm" title={item.rawName}>
+                                    ⭐ {item.rawName}
+                                  </p>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container font-mono font-bold text-on-surface shrink-0">
+                                    {item.count} eleitor{item.count > 1 ? 'es' : ''}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-on-surface-variant mt-0.5">
+                                  {item.bairro ? `Bairro: ${item.bairro}` : 'Sem bairro informado'}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-1.5 border-t border-outline-variant/30">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickRegisterLeader(item.rawName, 'Liderança Principal')}
+                                  disabled={isRegisteringLeader}
+                                  className="flex-1 px-2.5 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                                  title={`Cadastrar "${item.rawName}" no sistema`}
+                                >
+                                  <UserPlus className="w-3.5 h-3.5" /> Cadastrar Liderança
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setQuickLeaderModal({
+                                      nome: item.rawName,
+                                      tipo: 'Liderança Principal',
+                                      metaVotos: 100,
+                                      telefone: item.sampleRows[0]?.telefone || '',
+                                      bairro: item.bairro,
+                                      voterCount: item.count
+                                    })
+                                  }
+                                  className="px-2 py-1.5 border border-outline-variant/60 rounded text-xs text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+                                  title="Personalizar dados"
+                                >
+                                  Editar
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SEÇÃO 4: SUB-LIDERANÇAS PENDENTES SEM LIDERANÇA PAI NA LINHA */}
+                    {unregisteredSubWithoutParentSummary.length > 0 && (
+                      <div className="space-y-2 pt-2 border-t border-outline-variant/30">
+                        <div className="flex items-center justify-between gap-2">
+                          <h5 className="font-bold text-xs text-on-surface flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-purple-500" />
+                            Sub-lideranças sem Liderança Pai na Planilha ({unregisteredSubWithoutParentSummary.length})
+                          </h5>
+                          <span className="text-[11px] text-on-surface-variant">
+                            Associe a um líder existente ou crie novo
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                          {unregisteredSubWithoutParentSummary.map((item, idx) => {
+                            const currentOverride = subLeaderParentOverrides[item.normKey];
+                            return (
+                              <div
+                                key={idx}
+                                className="p-3 rounded-lg bg-surface border border-outline-variant/60 flex flex-col justify-between gap-2 text-xs shadow-2xs"
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-[10px] uppercase font-bold text-purple-900 bg-purple-100 px-1.5 py-0.5 rounded">
+                                      Sub-liderança
+                                    </span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container font-mono font-bold text-on-surface shrink-0">
+                                      {item.count} eleitor{item.count > 1 ? 'es' : ''}
+                                    </span>
+                                  </div>
+                                  <p className="font-bold text-on-surface text-sm mt-1 truncate" title={item.rawSubName}>
+                                    {item.rawSubName}
+                                  </p>
+                                </div>
+
+                                <div className="space-y-1.5 pt-1.5 border-t border-outline-variant/30">
+                                  <label className="text-[11px] font-semibold text-on-surface-variant block">
+                                    Liderança Pai:
+                                  </label>
+                                  <select
+                                    value={currentOverride?.id || ''}
+                                    onChange={(e) => {
+                                      const selId = e.target.value;
+                                      if (!selId) {
+                                        setSubLeaderParentOverrides((prev) => {
+                                          const next = { ...prev };
+                                          delete next[item.normKey];
+                                          return next;
+                                        });
+                                      } else {
+                                        const found = mainLeadersList.find((l) => l.id === selId);
+                                        if (found) {
+                                          setSubLeaderParentOverrides((prev) => ({
+                                            ...prev,
+                                            [item.normKey]: { id: found.id, nome: found.nome }
+                                          }));
+                                        }
+                                      }
+                                    }}
+                                    className="w-full h-8 px-2 bg-surface-container-lowest border border-outline-variant/60 rounded text-xs font-semibold text-on-surface focus:outline-none focus:border-secondary"
+                                  >
+                                    <option value="">-- Selecione uma Liderança --</option>
+                                    {mainLeadersList.map((lead) => (
+                                      <option key={lead.id} value={lead.id}>
+                                        {lead.nome} {lead.bairro ? `(${lead.bairro})` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <div className="flex items-center gap-2 pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleQuickRegisterLeader(
+                                          item.rawSubName,
+                                          'Sub-liderança',
+                                          50,
+                                          item.sampleRows[0]?.telefone || '',
+                                          item.bairro,
+                                          currentOverride?.id || '',
+                                          currentOverride?.nome || ''
+                                        )
+                                      }
+                                      disabled={isRegisteringLeader}
+                                      className="flex-1 px-2 py-1.5 bg-primary text-on-primary hover:bg-secondary rounded text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                                    >
+                                      <UserPlus className="w-3 h-3" /> Cadastrar Sub
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/40 text-[11px] text-on-surface-variant flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-secondary shrink-0" />
                       <span>
-                        <strong>Unificação inteligente:</strong> Diferenças de maiúsculas e minúsculas (ex: <code>LUCAS</code> no arquivo e <code>Lucas</code> no sistema) são consideradas a mesma liderança automaticamente.
+                        <strong>Unificação inteligente:</strong> Diferenças de maiúsculas e minúsculas (ex: <code>MARCOS</code> e <code>Marcos</code>) são tratadas como a mesma liderança automaticamente.
                       </span>
                     </div>
                   </div>
@@ -2612,6 +3489,38 @@ export default function Importacao() {
                     className="w-full h-10 border border-outline-variant rounded-lg px-3 text-sm focus:border-secondary outline-none font-mono bg-surface text-on-surface"
                   />
                 </div>
+
+                {quickLeaderModal.tipo === 'Sub-liderança' && (
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold mb-1 text-on-surface">
+                      Liderança Pai (Principal)
+                    </label>
+                    <select
+                      value={quickLeaderModal.liderancaPaiId || ''}
+                      onChange={(e) => {
+                        const selId = e.target.value;
+                        const found = mainLeadersList.find((l) => l.id === selId);
+                        setQuickLeaderModal((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                liderancaPaiId: selId,
+                                liderancaPaiNome: found ? found.nome : ''
+                              }
+                            : null
+                        );
+                      }}
+                      className="w-full h-10 border border-outline-variant rounded-lg px-3 text-sm focus:border-secondary outline-none bg-surface text-on-surface"
+                    >
+                      <option value="">Sem Liderança Pai vinculada (Opcional)</option>
+                      {mainLeadersList.map((lead) => (
+                        <option key={lead.id} value={lead.id}>
+                          ⭐ {lead.nome} {lead.bairro ? `(${lead.bairro})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2664,7 +3573,9 @@ export default function Importacao() {
                     quickLeaderModal.tipo,
                     Number(quickLeaderModal.metaVotos) || 0,
                     quickLeaderModal.telefone,
-                    quickLeaderModal.bairro
+                    quickLeaderModal.bairro,
+                    quickLeaderModal.liderancaPaiId,
+                    quickLeaderModal.liderancaPaiNome
                   )
                 }
                 className="px-5 py-2 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
@@ -2675,6 +3586,213 @@ export default function Importacao() {
                   <CheckCircle2 className="w-3.5 h-3.5" />
                 )}
                 Salvar e Vincular
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CADASTRO DUPLO (LIDERANÇA + SUB-LIDERANÇA VINCULADA) */}
+      {/* ========================================================= */}
+      {quickBothModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface rounded-2xl border border-outline-variant shadow-2xl max-w-xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-4 sm:p-5 border-b border-outline-variant/60 flex items-center justify-between bg-primary-container/10">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">
+                    Cadastrar Liderança Principal &amp; Sub-liderança
+                  </h3>
+                  <p className="text-xs text-on-surface-variant">
+                    {quickBothModal.voterCount} eleitor(es) na planilha serão vinculados a este par
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickBothModal(null)}
+                className="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Seção 1: Liderança Principal */}
+              <div className="p-3.5 rounded-xl bg-surface-container-low/60 border border-outline-variant/60 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-primary" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-primary">
+                    1. Liderança Principal (Pai / Coordenador)
+                  </h4>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1 text-on-surface">
+                    Nome da Liderança Principal <span className="text-error">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={quickBothModal.mainNome}
+                    onChange={(e) =>
+                      setQuickBothModal((prev) => (prev ? { ...prev, mainNome: e.target.value } : null))
+                    }
+                    className="w-full h-10 border border-outline-variant rounded-lg px-3 text-sm focus:border-secondary outline-none bg-surface text-on-surface font-semibold"
+                    placeholder="Nome completo da liderança principal"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-on-surface">Meta de Votos</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={quickBothModal.mainMeta}
+                      onChange={(e) =>
+                        setQuickBothModal((prev) =>
+                          prev ? { ...prev, mainMeta: e.target.value === '' ? '' : Number(e.target.value) } : null
+                        )
+                      }
+                      className="w-full h-9 border border-outline-variant rounded-lg px-2.5 text-xs focus:border-secondary outline-none font-mono bg-surface text-on-surface"
+                      placeholder="100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-on-surface">Telefone</label>
+                    <input
+                      type="text"
+                      value={quickBothModal.mainTelefone}
+                      onChange={(e) =>
+                        setQuickBothModal((prev) => (prev ? { ...prev, mainTelefone: e.target.value } : null))
+                      }
+                      className="w-full h-9 border border-outline-variant rounded-lg px-2.5 text-xs focus:border-secondary outline-none bg-surface text-on-surface"
+                      placeholder="(86) 99999-0000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-on-surface">Bairro</label>
+                    <input
+                      type="text"
+                      value={quickBothModal.mainBairro}
+                      onChange={(e) =>
+                        setQuickBothModal((prev) => (prev ? { ...prev, mainBairro: e.target.value } : null))
+                      }
+                      className="w-full h-9 border border-outline-variant rounded-lg px-2.5 text-xs focus:border-secondary outline-none bg-surface text-on-surface"
+                      placeholder="Ex: Centro"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Seção 2: Sub-liderança */}
+              <div className="p-3.5 rounded-xl bg-surface-container-low/60 border border-outline-variant/60 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-secondary" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-secondary">
+                    2. Sub-liderança (Vinculada)
+                  </h4>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1 text-on-surface">
+                    Nome da Sub-liderança <span className="text-error">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={quickBothModal.subNome}
+                    onChange={(e) =>
+                      setQuickBothModal((prev) => (prev ? { ...prev, subNome: e.target.value } : null))
+                    }
+                    className="w-full h-10 border border-outline-variant rounded-lg px-3 text-sm focus:border-secondary outline-none bg-surface text-on-surface font-semibold"
+                    placeholder="Nome completo da sub-liderança"
+                  />
+                  <p className="text-[11px] text-on-surface-variant mt-1">
+                    ↳ Esta sub-liderança será vinculada automaticamente a: <strong>{quickBothModal.mainNome || 'Liderança Principal'}</strong>
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-on-surface">Meta de Votos</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={quickBothModal.subMeta}
+                      onChange={(e) =>
+                        setQuickBothModal((prev) =>
+                          prev ? { ...prev, subMeta: e.target.value === '' ? '' : Number(e.target.value) } : null
+                        )
+                      }
+                      className="w-full h-9 border border-outline-variant rounded-lg px-2.5 text-xs focus:border-secondary outline-none font-mono bg-surface text-on-surface"
+                      placeholder="50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-on-surface">Telefone</label>
+                    <input
+                      type="text"
+                      value={quickBothModal.subTelefone}
+                      onChange={(e) =>
+                        setQuickBothModal((prev) => (prev ? { ...prev, subTelefone: e.target.value } : null))
+                      }
+                      className="w-full h-9 border border-outline-variant rounded-lg px-2.5 text-xs focus:border-secondary outline-none bg-surface text-on-surface"
+                      placeholder="(86) 99999-0000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-on-surface">Bairro</label>
+                    <input
+                      type="text"
+                      value={quickBothModal.subBairro}
+                      onChange={(e) =>
+                        setQuickBothModal((prev) => (prev ? { ...prev, subBairro: e.target.value } : null))
+                      }
+                      className="w-full h-9 border border-outline-variant rounded-lg px-2.5 text-xs focus:border-secondary outline-none bg-surface text-on-surface"
+                      placeholder="Ex: Primavera"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-5 border-t border-outline-variant/60 bg-surface-container-low/40 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setQuickBothModal(null)}
+                className="px-4 py-2 border border-outline-variant/70 rounded-lg text-xs font-semibold text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!quickBothModal.mainNome.trim() || !quickBothModal.subNome.trim() || isRegisteringLeader}
+                onClick={() =>
+                  handleQuickRegisterBoth(
+                    quickBothModal.mainNome,
+                    quickBothModal.subNome,
+                    {
+                      mainMeta: Number(quickBothModal.mainMeta) || 100,
+                      mainTel: quickBothModal.mainTelefone,
+                      mainBairro: quickBothModal.mainBairro,
+                      subMeta: Number(quickBothModal.subMeta) || 50,
+                      subTel: quickBothModal.subTelefone,
+                      subBairro: quickBothModal.subBairro
+                    }
+                  )
+                }
+                className="px-5 py-2 bg-primary text-on-primary hover:bg-secondary rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {isRegisteringLeader ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                Salvar e Vincular Ambos
               </button>
             </div>
           </div>

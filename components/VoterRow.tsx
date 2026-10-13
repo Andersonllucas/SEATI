@@ -117,7 +117,12 @@ export const VoterRow = React.memo(function VoterRow({
             <div className="text-xs md:text-sm font-medium text-on-surface flex items-center gap-1.5 leading-tight">
               <span>{eleitor.lideranca}</span>
             </div>
-            {linkedLeader?.tipo === 'Sub-liderança' && (
+            {eleitor.subLideranca && (
+              <span className="text-[10px] text-secondary font-semibold block mt-0.5 leading-none" title={`Sub-liderança: ${eleitor.subLideranca}`}>
+                ↳ Sub: {eleitor.subLideranca}
+              </span>
+            )}
+            {linkedLeader?.tipo === 'Sub-liderança' && !eleitor.subLideranca && (
               <span className="text-[10px] text-secondary font-medium block mt-0.5 leading-none">
                 Sub de: {linkedLeader.liderancaPaiNome || 'Coordenação'}
               </span>
