@@ -1208,12 +1208,22 @@ export async function exportLiderancasReal(
   voters: Eleitor[],
   format: ExportReportFormat
 ) {
-  // Precalculate voters count by leader
+  // Precalculate voters count by leader (Liderança Principal e Sub-liderança)
   const countByLeader = new Map<string, number>();
   voters.forEach((v) => {
+    if (v.liderancaId) {
+      countByLeader.set(v.liderancaId, (countByLeader.get(v.liderancaId) || 0) + 1);
+    }
     const leaderKey = (v.lideranca || '').trim().toLowerCase();
     if (leaderKey) {
       countByLeader.set(leaderKey, (countByLeader.get(leaderKey) || 0) + 1);
+    }
+    if (v.subLiderancaId) {
+      countByLeader.set(v.subLiderancaId, (countByLeader.get(v.subLiderancaId) || 0) + 1);
+    }
+    const subKey = (v.subLideranca || '').trim().toLowerCase();
+    if (subKey) {
+      countByLeader.set(subKey, (countByLeader.get(subKey) || 0) + 1);
     }
   });
 
@@ -1241,7 +1251,7 @@ export async function exportLiderancasReal(
 
     const tableRows = liderancas.map((l, i) => {
       const cleanLeaderName = (l.nome || '').trim().toLowerCase();
-      const eleitoresCadastrados = countByLeader.get(cleanLeaderName) || 0;
+      const eleitoresCadastrados = (l.id ? countByLeader.get(l.id) : 0) || countByLeader.get(cleanLeaderName) || 0;
       const meta = Number(l.metaVotos) || 1;
       const percent = Math.round((eleitoresCadastrados / meta) * 100);
 
@@ -1325,7 +1335,7 @@ export async function exportLiderancasReal(
 
   const data = liderancas.map((l) => {
     const cleanLeaderName = (l.nome || '').trim().toLowerCase();
-    const eleitoresCadastrados = countByLeader.get(cleanLeaderName) || 0;
+    const eleitoresCadastrados = (l.id ? countByLeader.get(l.id) : 0) || countByLeader.get(cleanLeaderName) || 0;
     const meta = Number(l.metaVotos) || 1;
     const percent = Math.round((eleitoresCadastrados / meta) * 100);
 

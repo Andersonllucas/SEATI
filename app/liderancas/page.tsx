@@ -95,28 +95,84 @@ export default function LiderancasPage() {
   // Expandable clusters in hierarchy view
   const [expandedClusters, setExpandedClusters] = useState<Record<string, boolean>>({});
 
-  // Compute voters count per leadership
+  // Helper para normalização insensível a maiúsculas/minúsculas e acentuação
+  const normalizeLeaderStr = useCallback((val?: string): string => {
+    if (!val) return '';
+    return val
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+  }, []);
+
+  // Compute voters count per leadership (Tanto para Lideranças Principais quanto para Sub-lideranças)
   const votersCountMap = useMemo(() => {
-    const counts: Record<string, number> = {};
+    const countsById: Record<string, number> = {};
+    const countsByName: Record<string, number> = {};
+
     eleitores.forEach((e) => {
-      if (e.liderancaId) {
-        counts[e.liderancaId] = (counts[e.liderancaId] || 0) + 1;
+      // 1. Contabilização da Liderança Principal (por ID e por Nome)
+      if (e.liderancaId && e.liderancaId.trim()) {
+        const lid = e.liderancaId.trim();
+        countsById[lid] = (countsById[lid] || 0) + 1;
       }
-      if (e.lideranca) {
-        // also count by name for backward compatibility
-        counts[e.lideranca] = (counts[e.lideranca] || 0) + 1;
+      if (e.lideranca && e.lideranca.trim()) {
+        const normLid = normalizeLeaderStr(e.lideranca);
+        if (normLid && normLid !== 'sem lideranca' && normLid !== 'sem lideranca definida' && normLid !== 'nao informada') {
+          countsByName[normLid] = (countsByName[normLid] || 0) + 1;
+        }
+      }
+
+      // 2. Contabilização da Sub-liderança vinculada (por ID e por Nome)
+      if (e.subLiderancaId && e.subLiderancaId.trim()) {
+        const sid = e.subLiderancaId.trim();
+        countsById[sid] = (countsById[sid] || 0) + 1;
+      }
+      if (e.subLideranca && e.subLideranca.trim()) {
+        const normSub = normalizeLeaderStr(e.subLideranca);
+        if (normSub && normSub !== 'sem sublideranca' && normSub !== 'sem sub lideranca' && normSub !== 'nao informada') {
+          countsByName[normSub] = (countsByName[normSub] || 0) + 1;
+        }
       }
     });
-    return counts;
-  }, [eleitores]);
+
+    return { countsById, countsByName };
+  }, [eleitores, normalizeLeaderStr]);
 
   const getVoterCountForLeader = useCallback(
     (leader: Lideranca) => {
-      const countById = votersCountMap[leader.id] || 0;
-      const countByName = votersCountMap[leader.nome] || 0;
-      return Math.max(countById, countByName);
+      const leaderId = (leader.id || '').trim();
+      const normLeaderName = normalizeLeaderStr(leader.nome);
+
+      const byId = leaderId ? (votersCountMap.countsById[leaderId] || 0) : 0;
+      const byName = normLeaderName ? (votersCountMap.countsByName[normLeaderName] || 0) : 0;
+
+      // Se encontrou contagens diretamente no mapa de índices
+      if (byId > 0 || byName > 0) {
+        return Math.max(byId, byName);
+      }
+
+      // Fallback de varredura direta nos eleitores para máxima resiliência
+      let directMatches = 0;
+      for (let i = 0; i < eleitores.length; i++) {
+        const e = eleitores[i];
+        if (leaderId && (e.subLiderancaId === leaderId || e.liderancaId === leaderId)) {
+          directMatches++;
+          continue;
+        }
+        if (normLeaderName) {
+          const eSub = normalizeLeaderStr(e.subLideranca);
+          const eLid = normalizeLeaderStr(e.lideranca);
+          if (eSub === normLeaderName || eLid === normLeaderName) {
+            directMatches++;
+          }
+        }
+      }
+
+      return directMatches;
     },
-    [votersCountMap]
+    [votersCountMap, eleitores, normalizeLeaderStr]
   );
 
   // Only main leaders for parent selection
@@ -412,12 +468,13 @@ export default function LiderancasPage() {
         (l.regiao || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (l.liderancaPaiNome || '').toLowerCase().includes(searchTerm.toLowerCase());
 
+      const isSub = Boolean(l.tipo?.toLowerCase().includes('sub') || l.liderancaPaiId);
       const matchesTipo =
         tipoFilter === 'todos'
           ? true
           : tipoFilter === 'principal'
-          ? l.tipo === 'Liderança Principal'
-          : l.tipo === 'Sub-liderança';
+          ? !isSub
+          : isSub;
 
       const matchesStatus = statusFilter === 'todos' ? true : l.status === statusFilter;
 
@@ -428,12 +485,12 @@ export default function LiderancasPage() {
   }, [liderancas, searchTerm, tipoFilter, statusFilter, regiaoFilter]);
 
   // Overall metrics
-  const totalPrincipais = useMemo(
-    () => liderancas.filter((l) => l.tipo === 'Liderança Principal').length,
+  const totalSubs = useMemo(
+    () => liderancas.filter((l) => Boolean(l.tipo?.toLowerCase().includes('sub') || l.liderancaPaiId)).length,
     [liderancas]
   );
-  const totalSubs = useMemo(
-    () => liderancas.filter((l) => l.tipo === 'Sub-liderança').length,
+  const totalPrincipais = useMemo(
+    () => liderancas.filter((l) => !Boolean(l.tipo?.toLowerCase().includes('sub') || l.liderancaPaiId)).length,
     [liderancas]
   );
   const totalMetaVotos = useMemo(
@@ -949,10 +1006,31 @@ export default function LiderancasPage() {
                 const subLeaders = liderancas.filter((l) => l.liderancaPaiId === principal.id);
                 const isExpanded = expandedClusters[principal.id] !== false; // default expanded
 
-                // Cluster aggregates
-                const directVoters = getVoterCountForLeader(principal);
-                const subsVoters = subLeaders.reduce((acc, s) => acc + getVoterCountForLeader(s), 0);
-                const totalClusterVoters = directVoters + subsVoters;
+                // Cluster aggregates com contagem unificada (sem duplicar eleitores)
+                const clusterVoterIds = new Set<string>();
+                eleitores.forEach((e) => {
+                  const pId = (principal.id || '').trim();
+                  const pNorm = normalizeLeaderStr(principal.nome);
+                  const isPrincipalMatch =
+                    (pId && e.liderancaId === pId) ||
+                    (pNorm && normalizeLeaderStr(e.lideranca) === pNorm);
+
+                  const isSubMatch = subLeaders.some((s) => {
+                    const sId = (s.id || '').trim();
+                    const sNorm = normalizeLeaderStr(s.nome);
+                    return (
+                      (sId && (e.subLiderancaId === sId || e.liderancaId === sId)) ||
+                      (sNorm &&
+                        (normalizeLeaderStr(e.subLideranca) === sNorm ||
+                          normalizeLeaderStr(e.lideranca) === sNorm))
+                    );
+                  });
+
+                  if (isPrincipalMatch || isSubMatch) {
+                    clusterVoterIds.add(e.id);
+                  }
+                });
+                const totalClusterVoters = clusterVoterIds.size;
 
                 const directMeta = principal.metaVotos || 0;
                 const subsMeta = subLeaders.reduce((acc, s) => acc + (s.metaVotos || 0), 0);

@@ -104,9 +104,17 @@ function DashboardContent() {
     eleitores.forEach((e) => {
       if (e.liderancaId) {
         countByLeader.set(e.liderancaId, (countByLeader.get(e.liderancaId) || 0) + 1);
-      } else if (e.lideranca) {
+      }
+      if (e.lideranca) {
         const clean = e.lideranca.trim().toLowerCase();
         countByLeader.set(clean, (countByLeader.get(clean) || 0) + 1);
+      }
+      if (e.subLiderancaId) {
+        countByLeader.set(e.subLiderancaId, (countByLeader.get(e.subLiderancaId) || 0) + 1);
+      }
+      if (e.subLideranca) {
+        const cleanSub = e.subLideranca.trim().toLowerCase();
+        countByLeader.set(cleanSub, (countByLeader.get(cleanSub) || 0) + 1);
       }
     });
 
