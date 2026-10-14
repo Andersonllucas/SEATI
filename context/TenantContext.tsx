@@ -292,7 +292,9 @@ export function TenantProvider({
         return;
       }
 
-      window.location.href = `/?subdomain=${encodeURIComponent(cleaned)}`;
+      const isLoginPage = window.location.pathname.startsWith('/login');
+      const basePath = isLoginPage ? '/login' : '/';
+      window.location.href = `${basePath}?subdomain=${encodeURIComponent(cleaned)}`;
     }
   }, []);
 

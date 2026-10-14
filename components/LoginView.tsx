@@ -15,10 +15,13 @@ import {
   X,
   CheckCircle2,
   Clock,
-  Globe
+  Globe,
+  Database,
+  ArrowRightLeft
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
+import { TenantSwitcherModal } from '@/components/TenantSwitcherModal';
 
 export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   const router = useRouter();
@@ -34,6 +37,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const [switcherModalOpen, setSwitcherModalOpen] = useState(false);
 
   // Security: Brute-force protection state
   const [tentativasFalhas, setTentativasFalhas] = useState(0);
@@ -168,6 +172,22 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                   {subdomain}.adti.app.br
                 </span>
               )}
+            </div>
+
+            {/* Banco Conectado & Botão de Trocar Cliente */}
+            <div className="pt-1 flex items-center justify-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-slate-900 border border-slate-800 text-slate-300">
+                <Database className="w-3.5 h-3.5 text-emerald-400" />
+                <span>banco: <strong className="text-white font-semibold">{currentTenant?.firebaseConfig?.projectId || 'seati-d0096'}</strong></span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSwitcherModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition-all cursor-pointer shadow-sm hover:text-white"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5 text-blue-400" />
+                <span>Trocar Cliente / Banco</span>
+              </button>
             </div>
           </div>
 
@@ -395,6 +415,12 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
           </div>
         </div>
       )}
+
+      {/* Tenant/Database Switcher Modal */}
+      <TenantSwitcherModal
+        isOpen={switcherModalOpen}
+        onClose={() => setSwitcherModalOpen(false)}
+      />
     </div>
   );
 }
