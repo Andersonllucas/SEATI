@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   Vote,
@@ -38,6 +38,45 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   const [sucesso, setSucesso] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [switcherModalOpen, setSwitcherModalOpen] = useState(false);
+  const [masterModeActive, setMasterModeActive] = useState(false);
+
+  // Secret Master Access: 3 clicks on the logo within 1.5 seconds triggers bank switch modal
+  const logoClicksRef = useRef<number[]>([]);
+
+  const handleLogoClick = () => {
+    const now = Date.now();
+    const updatedClicks = [...logoClicksRef.current, now].filter((t) => now - t <= 1500);
+    logoClicksRef.current = updatedClicks;
+
+    if (updatedClicks.length >= 3) {
+      logoClicksRef.current = [];
+      setMasterModeActive(true);
+      setSwitcherModalOpen(true);
+    }
+  };
+
+  // Check URL parameter ?master=1 or ?admin=1 to also allow direct access
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('master') === '1' || params.get('admin') === '1') {
+        setMasterModeActive(true);
+      }
+    }
+  }, []);
+
+  // Keyboard shortcut Ctrl+Shift+B (or Cmd+Shift+B) for instant master bank switch
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+        e.preventDefault();
+        setMasterModeActive(true);
+        setSwitcherModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Security: Brute-force protection state
   const [tentativasFalhas, setTentativasFalhas] = useState(0);
@@ -158,9 +197,16 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
         <div className="w-full max-w-md space-y-6">
           {/* Logo & Institutional Header */}
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-900/40 border border-blue-400/20 mb-2">
-              <Vote className="w-9 h-9" />
-            </div>
+            <button
+              type="button"
+              onClick={handleLogoClick}
+              tabIndex={-1}
+              className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-900/40 border border-blue-400/20 mb-2 focus:outline-none select-none cursor-default active:scale-95 transition-transform"
+              title="SEATI"
+              aria-label="SEATI"
+            >
+              <Vote className="w-9 h-9 pointer-events-none" />
+            </button>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-display">
               {currentTenant?.nome || 'SEATI'}
             </h1>
@@ -174,21 +220,24 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
               )}
             </div>
 
-            {/* Banco Conectado & Botão de Trocar Cliente */}
-            <div className="pt-1 flex items-center justify-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-slate-900 border border-slate-800 text-slate-300">
-                <Database className="w-3.5 h-3.5 text-emerald-400" />
-                <span>banco: <strong className="text-white font-semibold">{currentTenant?.firebaseConfig?.projectId || 'seati-d0096'}</strong></span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setSwitcherModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition-all cursor-pointer shadow-sm hover:text-white"
-              >
-                <ArrowRightLeft className="w-3.5 h-3.5 text-blue-400" />
-                <span>Trocar Cliente / Banco</span>
-              </button>
-            </div>
+            {/* Painel de Troca Master: Oculto por padrão, revelado apenas após 3 cliques no logotipo ou ?master=1 */}
+            {masterModeActive && (
+              <div className="pt-2 flex items-center justify-center gap-2 flex-wrap animate-in fade-in zoom-in-95 duration-200">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-slate-900 border border-slate-800 text-slate-300">
+                  <Database className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>banco: <strong className="text-white font-semibold">{currentTenant?.firebaseConfig?.projectId || 'seati-d0096'}</strong></span>
+                </span>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setSwitcherModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition-all cursor-pointer shadow-sm hover:text-white"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Trocar Cliente / Banco</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Tenant Warning/Error if any */}
@@ -257,6 +306,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                     required
                     autoFocus
                     autoComplete="email"
+                    tabIndex={1}
                     disabled={submitting || sucesso || lockoutSeconds > 0}
                     value={email}
                     onChange={(e) => {
@@ -278,6 +328,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                   </label>
                   <button
                     type="button"
+                    tabIndex={-1}
                     onClick={() => setHelpModalOpen(true)}
                     className="text-xs font-medium text-sky-400 hover:text-sky-300 hover:underline transition-colors cursor-pointer"
                   >
@@ -288,6 +339,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                   <input
                     type={mostrarSenha ? 'text' : 'password'}
                     required
+                    tabIndex={2}
                     autoComplete="current-password"
                     disabled={submitting || sucesso || lockoutSeconds > 0}
                     value={senha}
@@ -300,6 +352,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                   />
                   <button
                     type="button"
+                    tabIndex={-1}
                     disabled={submitting || sucesso}
                     onClick={() => setMostrarSenha(!mostrarSenha)}
                     className="absolute right-3 top-3 text-slate-400 hover:text-sky-300 p-0.5 cursor-pointer transition-colors"
@@ -315,6 +368,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                 <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
                   <input
                     type="checkbox"
+                    tabIndex={3}
                     checked={lembrarMe}
                     disabled={submitting || sucesso}
                     onChange={(e) => setLembrarMe(e.target.checked)}
@@ -327,6 +381,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
               {/* Submit Button */}
               <button
                 type="submit"
+                tabIndex={4}
                 disabled={submitting || sucesso || lockoutSeconds > 0}
                 className="w-full h-12 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:via-indigo-500 hover:to-blue-400 active:scale-[0.99] text-white font-bold text-base tracking-wide shadow-xl shadow-blue-600/35 hover:shadow-blue-500/50 border border-blue-400/40 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-3"
               >
