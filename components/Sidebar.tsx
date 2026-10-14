@@ -25,6 +25,7 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { useCampaignUI } from '@/context/CampaignUIContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
+import { BrandLogo } from './BrandLogo';
 
 interface NavItem {
   href: string;
@@ -175,9 +176,7 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
       {/* 1. TOPO: Identidade Visual Institucional */}
       <div className="p-4 border-b border-white/[0.08] flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-secondary/80 to-primary-container border border-white/15 flex items-center justify-center text-white shadow-md shadow-black/20 shrink-0">
-            <Vote className="w-5 h-5 text-secondary-container" />
-          </div>
+          <BrandLogo size="sm" className="shrink-0 shadow-md shadow-black/20" />
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5">
               <h1 className="text-base font-extrabold text-white tracking-tight font-display leading-none">

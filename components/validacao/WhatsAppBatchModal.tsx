@@ -407,7 +407,7 @@ export default function WhatsAppBatchModal({
                 </span>
               </div>
               <p className="text-[11px] text-on-surface-variant">
-                Envio assistido com atualização automática para "Contatado aguardando retorno".
+                Envio assistido com atualização automática para &quot;Contatado aguardando retorno&quot;.
               </p>
             </div>
           </div>
@@ -767,7 +767,7 @@ export default function WhatsAppBatchModal({
                       <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
                       <span>
                         Ao clicar em Disparar, este eleitor será marcado automaticamente como{' '}
-                        <strong>"Contatado aguardando retorno"</strong>.
+                        <strong>&quot;Contatado aguardando retorno&quot;</strong>.
                       </span>
                     </div>
                   </div>
@@ -907,7 +907,7 @@ export default function WhatsAppBatchModal({
                 <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0" />
                 <span>
                   Os {totalEnviados} eleitores disparados foram marcados com o status{' '}
-                  <strong>"Contatado aguardando retorno"</strong> e já aparecem nos relatórios de validação da sua campanha.
+                  <strong>&quot;Contatado aguardando retorno&quot;</strong> e já aparecem nos relatórios de validação da sua campanha.
                 </span>
               </div>
             </div>

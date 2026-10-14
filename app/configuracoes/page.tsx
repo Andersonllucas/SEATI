@@ -27,11 +27,15 @@ import {
   User,
   MapPin,
   Compass,
-  Headphones
+  Headphones,
+  Upload,
+  Image as ImageIcon,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth, AppUser, UserRole, UserStatus, LogTipo } from '@/context/AuthContext';
 import { ESTADOS_BRASIL, CIDADES_DISPONIVEIS } from '@/lib/locaisCatalog';
 import { HeaderButtonsManager } from '@/components/HeaderButtonsManager';
+import { BrandLogo } from '@/components/BrandLogo';
 
 function ConfiguracoesContent() {
   const searchParams = useSearchParams();
@@ -120,6 +124,9 @@ function ConfiguracoesContent() {
   const [municipioPadrao, setMunicipioPadrao] = useState(systemConfig.municipioPadrao || 'Teresina');
   const [ufPadrao, setUfPadrao] = useState(systemConfig.ufPadrao || 'PI');
   const [contatoSuporte, setContatoSuporte] = useState(systemConfig.contatoSuporte || '(86) 99999-0000');
+  const [logoUrl, setLogoUrl] = useState(systemConfig.logoUrl || '');
+  const [feedbackLogo, setFeedbackLogo] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isSavingLogo, setIsSavingLogo] = useState(false);
   const [feedbackParametros, setFeedbackParametros] = useState<string | null>(null);
 
   // Sync state when systemConfig loads asynchronously without triggering cascading effects
@@ -143,6 +150,9 @@ function ConfiguracoesContent() {
     }
     if (systemConfig.contatoSuporte && systemConfig.contatoSuporte !== contatoSuporte) {
       setContatoSuporte(systemConfig.contatoSuporte);
+    }
+    if (systemConfig.logoUrl !== undefined && systemConfig.logoUrl !== logoUrl) {
+      setLogoUrl(systemConfig.logoUrl);
     }
   }
 
@@ -395,6 +405,96 @@ function ConfiguracoesContent() {
     }
   };
 
+  // Upload e compressão de logotipo (Canvas max 512px para salvar direto no Firestore sem quebrar cota)
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFeedbackLogo(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setFeedbackLogo({ type: 'error', text: 'Selecione um arquivo de imagem válido (PNG, JPG, SVG, WebP).' });
+      return;
+    }
+
+    // Se for SVG, lê como data URI diretamente
+    if (file.type === 'image/svg+xml') {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          setLogoUrl(result);
+          setFeedbackLogo({ type: 'success', text: 'Logotipo SVG carregado! Clique em "Salvar Logotipo" para aplicar.' });
+        }
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    // Se for PNG/JPG/WebP, redimensiona proporcionalmente para no máximo 512px
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 512;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          setLogoUrl(event.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // Usa PNG se mantiver transparência, ou WebP
+        const compressedBase64 = canvas.toDataURL(file.type.includes('png') ? 'image/png' : 'image/jpeg', 0.88);
+        setLogoUrl(compressedBase64);
+        setFeedbackLogo({ type: 'success', text: 'Imagem pronta e otimizada! Clique em "Salvar Logotipo" para aplicar em todo o sistema.' });
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Salvar Logotipo Individualmente
+  const handleSaveLogo = async (customValue?: string) => {
+    setFeedbackLogo(null);
+    const valueToSave = customValue !== undefined ? customValue : logoUrl.trim();
+    try {
+      setIsSavingLogo(true);
+      await atualizarConfiguracoes({
+        logoUrl: valueToSave
+      });
+      setFeedbackLogo({ type: 'success', text: 'Logotipo atualizado e sincronizado em todo o sistema com sucesso!' });
+      setTimeout(() => setFeedbackLogo(null), 4000);
+    } catch (err: any) {
+      setFeedbackLogo({ type: 'error', text: err?.message || 'Erro ao salvar logotipo.' });
+    } finally {
+      setIsSavingLogo(false);
+    }
+  };
+
+  // Restaurar Logotipo Padrão
+  const handleResetLogo = async () => {
+    if (confirm('Deseja restaurar o logotipo oficial padrão do sistema?')) {
+      setLogoUrl('');
+      await handleSaveLogo('');
+    }
+  };
+
   // Salvar Parâmetros da Campanha
   const handleSaveParametros = async () => {
     setFeedbackParametros(null);
@@ -405,9 +505,10 @@ function ConfiguracoesContent() {
         bloqueioTituloDuplicado: bloqueioDuplicados,
         municipioPadrao: municipioPadrao.trim() || 'Teresina',
         ufPadrao: ufPadrao.trim().toUpperCase() || 'PI',
-        contatoSuporte: contatoSuporte.trim() || '(86) 99999-0000'
+        contatoSuporte: contatoSuporte.trim() || '(86) 99999-0000',
+        logoUrl: logoUrl.trim()
       });
-      setFeedbackParametros('Parâmetros da campanha salvos com sucesso!');
+      setFeedbackParametros('Parâmetros da campanha e identidade visual salvos com sucesso!');
       setTimeout(() => setFeedbackParametros(null), 3000);
     } catch {
       setFeedbackParametros('Erro ao salvar parâmetros.');
@@ -1146,6 +1247,178 @@ function ConfiguracoesContent() {
         <div className="space-y-6 animate-in fade-in duration-200">
           {/* Gerenciador de Botões Rápidos do Cabeçalho (Exclusivo Administrador) */}
           <HeaderButtonsManager />
+
+          {/* Identidade Visual & Logotipo do Sistema */}
+          <div className="bg-surface-container-lowest border border-outline-variant/70 rounded-xl p-6 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-outline-variant/40 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-500/10 text-blue-600 rounded-xl border border-blue-500/20">
+                  <ImageIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-primary">Identidade Visual & Logotipo do Sistema</h2>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 uppercase tracking-wide">
+                      Institucional
+                    </span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant">
+                    Personalize o logotipo exibido na tela de login, barra lateral, relatórios e cabeçalhos do sistema.
+                  </p>
+                </div>
+              </div>
+
+              {/* Botão Restaurar Padrão */}
+              {logoUrl && (
+                <button
+                  type="button"
+                  onClick={handleResetLogo}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer self-start sm:self-auto"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Restaurar Logotipo Padrão</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Coluna de Previews Comparativos: Fundo Escuro (Login) e Fundo Claro (Topbar/Sidebar) */}
+              <div className="lg:col-span-5 space-y-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant block">
+                  Pré-visualização em Tempo Real
+                </span>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Preview Login (Dark Mode) */}
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center flex flex-col items-center justify-center min-h-[140px] shadow-inner relative overflow-hidden">
+                    <div className="absolute top-1.5 left-2 text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                      Tela de Login
+                    </div>
+                    <div className="mt-3">
+                      <BrandLogo customSrc={logoUrl || '/logo.svg'} size="lg" className="shadow-lg shadow-blue-900/50" />
+                    </div>
+                    <span className="text-[11px] font-bold text-white mt-2 truncate max-w-[130px]">
+                      {systemConfig?.nomeCampanha || 'SEATI'}
+                    </span>
+                  </div>
+
+                  {/* Preview Sidebar (Navy/Light Mode) */}
+                  <div className="p-4 rounded-xl bg-primary border border-white/10 text-center flex flex-col items-center justify-center min-h-[140px] shadow-inner relative overflow-hidden">
+                    <div className="absolute top-1.5 left-2 text-[9px] font-mono font-bold text-slate-300 uppercase tracking-wider">
+                      Barra Lateral
+                    </div>
+                    <div className="mt-3">
+                      <BrandLogo customSrc={logoUrl || '/logo.svg'} size="sm" className="shadow-md shadow-black/20" />
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-100 mt-2 truncate max-w-[130px]">
+                      Menu & Topo
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-surface-container-low rounded-lg border border-outline-variant/40 text-[11px] text-on-surface-variant leading-relaxed">
+                  💡 <strong>Dica de Formato:</strong> Imagens PNG transparentes ou SVG vetorizado com proporção quadrada (1:1) proporcionam a melhor visualização em todos os temas.
+                </div>
+              </div>
+
+              {/* Coluna de Ações: Upload do Computador ou URL */}
+              <div className="lg:col-span-7 space-y-4">
+                {/* Opção 1: Upload direto de arquivo */}
+                <div className="p-4 bg-surface-container-low/70 rounded-xl border border-outline-variant/60 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase tracking-wider text-on-surface flex items-center gap-1.5">
+                      <Upload className="w-4 h-4 text-primary" />
+                      1. Carregar Arquivo do Computador
+                    </label>
+                    <span className="text-[10px] text-on-surface-variant font-mono">PNG, JPG, SVG, WebP</span>
+                  </div>
+
+                  <p className="text-xs text-on-surface-variant">
+                    Selecione a imagem do logotipo da sua campanha. O sistema otimizará a imagem automaticamente para carregamento ultrarrápido.
+                  </p>
+
+                  <div className="flex items-center gap-3">
+                    <label className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-secondary text-on-primary rounded-lg font-bold text-xs shadow-sm transition-all cursor-pointer">
+                      <Upload className="w-4 h-4" />
+                      <span>Selecionar Imagem</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                        onChange={handleLogoFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    <span className="text-xs text-on-surface-variant italic truncate">
+                      {logoUrl ? 'Imagem selecionada / pronta' : 'Nenhum arquivo novo selecionado'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Opção 2: URL Direta da Imagem */}
+                <div className="p-4 bg-surface-container-low/70 rounded-xl border border-outline-variant/60 space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-on-surface flex items-center gap-1.5">
+                    <ImageIcon className="w-4 h-4 text-secondary" />
+                    2. Ou Cole a URL Externa da Imagem
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="url"
+                      value={logoUrl.startsWith('data:') ? '' : logoUrl}
+                      onChange={(e) => {
+                        setLogoUrl(e.target.value);
+                        setFeedbackLogo(null);
+                      }}
+                      placeholder={logoUrl.startsWith('data:') ? 'Imagem carregada via arquivo local (base64 otimizado)' : 'https://exemplo.com/logo-campanha.png'}
+                      className="flex-1 h-10 border border-outline-variant rounded-lg px-3 text-xs focus:border-primary outline-none font-mono bg-surface text-on-surface"
+                    />
+                    {logoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setLogoUrl('')}
+                        className="px-2.5 h-10 text-xs text-on-surface-variant hover:text-rose-600 border border-outline-variant rounded-lg hover:bg-surface-container transition-colors"
+                        title="Limpar campo"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-on-surface-variant block">
+                    Aceita links HTTP/HTTPS de qualquer servidor ou CDN público.
+                  </span>
+                </div>
+
+                {/* Feedback e Botão de Salvar Logotipo */}
+                {feedbackLogo && (
+                  <div
+                    className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                      feedbackLogo.type === 'success'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        : 'bg-rose-50 text-rose-800 border border-rose-200'
+                    }`}
+                  >
+                    {feedbackLogo.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    )}
+                    <span>{feedbackLogo.text}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveLogo()}
+                    disabled={isSavingLogo}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-secondary text-on-primary rounded-lg font-bold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingLogo && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{isSavingLogo ? 'Salvando Logotipo...' : 'Salvar Logotipo no Sistema'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Regras e Metas da Campanha */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a2540" />
+      <stop offset="50%" stop-color="#1e3a8a" />
+      <stop offset="100%" stop-color="#1e40af" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="whiteGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- Background Shield/Rounded Card -->
+  <rect x="24" y="24" width="464" height="464" rx="100" fill="url(#bgGrad)" filter="url(#shadow)" stroke="#3b82f6" stroke-width="4" stroke-opacity="0.3" />
+  <rect x="28" y="28" width="456" height="220" rx="96" fill="url(#whiteGlow)" />
+
+  <!-- Geometric Urn / Ballot Emblem -->
+  <!-- Base Voting Box -->
+  <path d="M 128 240 L 384 240 L 352 400 L 160 400 Z" fill="#0f172a" fill-opacity="0.85" stroke="#60a5fa" stroke-width="6" stroke-linejoin="round" />
+
+  <!-- Front Slit Accent -->
+  <rect x="216" y="252" width="80" height="8" rx="4" fill="#38bdf8" />
+
+  <!-- Ballot Sheet Inserting into Box -->
+  <g transform="translate(0, -10)">
+    <!-- Ballot Paper -->
+    <path d="M 192 110 L 320 110 L 320 250 L 192 250 Z" fill="#f8fafc" stroke="#e2e8f0" stroke-width="4" rx="8" filter="url(#shadow)" />
+    
+    <!-- Paper Header Stripe -->
+    <rect x="196" y="114" width="120" height="26" rx="4" fill="#1e3a8a" />
+    <circle cx="212" cy="127" r="5" fill="#fbbf24" />
+    <rect x="226" y="123" width="70" height="8" rx="3" fill="#ffffff" fill-opacity="0.9" />
+
+    <!-- Checkmark on Ballot -->
+    <path d="M 224 175 L 246 198 L 290 150" fill="none" stroke="url(#emeraldGrad)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+    
+    <!-- Checklist Lines -->
+    <rect x="216" y="215" width="80" height="6" rx="3" fill="#cbd5e1" />
+    <rect x="216" y="228" width="56" height="6" rx="3" fill="#94a3b8" />
+  </g>
+
+  <!-- Stars / Electoral Articulation Constellation -->
+  <circle cx="120" cy="150" r="14" fill="url(#goldGrad)" filter="url(#shadow)" />
+  <circle cx="392" cy="150" r="14" fill="url(#goldGrad)" filter="url(#shadow)" />
+  <circle cx="100" cy="320" r="10" fill="#38bdf8" fill-opacity="0.8" />
+  <circle cx="412" cy="320" r="10" fill="#38bdf8" fill-opacity="0.8" />
+
+  <!-- Subtle Connection Lines -->
+  <path d="M 120 150 Q 256 90 392 150" fill="none" stroke="#60a5fa" stroke-width="3" stroke-dasharray="6,6" stroke-opacity="0.6" />
+
+  <!-- Dynamic Swirl Arc -->
+  <path d="M 110 390 Q 256 460 402 390" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round" filter="url(#shadow)" />
+</svg>

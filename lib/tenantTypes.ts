@@ -19,6 +19,7 @@ export interface TenantClient {
   cidade?: string;
   uf?: string;
   municipio?: string;
+  logoUrl?: string;
   criadoEm?: any;
   atualizadoEm?: any;
 }

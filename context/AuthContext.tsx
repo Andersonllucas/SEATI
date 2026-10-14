@@ -83,6 +83,7 @@ export interface SystemConfig {
   contatoSuporte: string;
   botoesCabecalho?: CustomHeaderButton[];
   senhaCadastroLiderancaCampo?: string;
+  logoUrl?: string;
   atualizadoPor?: string;
   dataAtualizacao?: any;
 }
@@ -140,7 +141,8 @@ const DEFAULT_CONFIG: SystemConfig = {
   ufPadrao: 'PI',
   contatoSuporte: '(86) 99999-0000',
   botoesCabecalho: [],
-  senhaCadastroLiderancaCampo: '123456'
+  senhaCadastroLiderancaCampo: '123456',
+  logoUrl: ''
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

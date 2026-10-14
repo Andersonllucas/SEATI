@@ -22,6 +22,7 @@ import { useToast } from '@/context/ToastContext';
 import { useRouter } from 'next/navigation';
 import { ConfigurableHeaderButtons } from '@/components/ConfigurableHeaderButtons';
 import { TenantSwitcherModal } from '@/components/TenantSwitcherModal';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter();
@@ -45,13 +46,18 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
 
   return (
     <header className="h-16 w-full bg-surface-container-lowest border-b border-outline-variant/40 sticky top-0 z-30 flex items-center justify-between px-4 md:px-6 shadow-sm shrink-0">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <button
           onClick={onMenuClick}
           className="md:hidden text-on-surface-variant p-2 hover:bg-surface-container rounded-lg cursor-pointer"
+          aria-label="Abrir menu lateral"
         >
           <Menu className="w-6 h-6" />
         </button>
+        <div className="md:hidden flex items-center gap-2">
+          <BrandLogo size="xs" className="w-7 h-7 rounded-lg shadow-sm" />
+          <span className="text-sm font-extrabold text-primary tracking-tight font-display">SEATI</span>
+        </div>
         <div className="relative w-64 md:w-96 hidden sm:block">
           <Search className="w-5 h-5 absolute left-3 top-2 text-outline" />
           <input

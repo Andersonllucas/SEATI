@@ -768,7 +768,7 @@ export default function Importacao() {
       const targetDb = getActiveDb();
       const newId = doc(collection(targetDb, 'liderancas')).id;
 
-      let paiId = liderancaPaiId;
+      const paiId = liderancaPaiId;
       let paiNome = liderancaPaiNome;
 
       if (tipo === 'Sub-liderança' && paiId && !paiNome) {
@@ -827,9 +827,9 @@ export default function Importacao() {
 
       // 1. Resolve ou cria a Liderança Principal
       const normMain = normalizeLeaderName(mainLeaderName);
-      let existingMain = registeredLeadersMap.get(normMain);
+      const existingMain = registeredLeadersMap.get(normMain);
       let parentId = existingMain?.id;
-      let parentNome = existingMain?.nome || mainLeaderName.trim();
+      const parentNome = existingMain?.nome || mainLeaderName.trim();
 
       const leadersToCreate: any[] = [];
 
@@ -852,9 +852,9 @@ export default function Importacao() {
 
       // 2. Resolve ou cria a Sub-liderança vinculada à Liderança Principal
       const normSub = normalizeLeaderName(subLeaderName);
-      let existingSub = registeredSubLeadersMap.get(normSub);
+      const existingSub = registeredSubLeadersMap.get(normSub);
       let subId = existingSub?.id;
-      let subNome = existingSub?.nome || subLeaderName.trim();
+      const subNome = existingSub?.nome || subLeaderName.trim();
 
       if (!existingSub) {
         subId = doc(collection(targetDb, 'liderancas')).id;

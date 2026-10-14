@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  Vote,
   Mail,
   Lock,
   Eye,
@@ -22,6 +21,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
 import { TenantSwitcherModal } from '@/components/TenantSwitcherModal';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   const router = useRouter();
@@ -201,11 +201,11 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
               type="button"
               onClick={handleLogoClick}
               tabIndex={-1}
-              className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-900/40 border border-blue-400/20 mb-2 focus:outline-none select-none cursor-default active:scale-95 transition-transform"
-              title="SEATI"
-              aria-label="SEATI"
+              className="inline-flex items-center justify-center rounded-2xl mb-2 focus:outline-none select-none cursor-default active:scale-95 transition-transform"
+              title={currentTenant?.nome || 'SEATI'}
+              aria-label={currentTenant?.nome || 'SEATI'}
             >
-              <Vote className="w-9 h-9 pointer-events-none" />
+              <BrandLogo size="lg" className="shadow-xl shadow-blue-900/40 border border-blue-400/20" />
             </button>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-display">
               {currentTenant?.nome || 'SEATI'}

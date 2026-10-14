@@ -22,6 +22,8 @@ export const metadata: Metadata = {
     title: 'SEATI',
   },
   icons: {
+    icon: '/logo.svg',
+    shortcut: '/logo.svg',
     apple: '/apple-touch-icon.png',
   },
 };
