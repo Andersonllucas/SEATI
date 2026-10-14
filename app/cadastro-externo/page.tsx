@@ -40,6 +40,7 @@ import { formatTituloUtil } from '@/context/CampaignContext';
 import { ESTADOS_BRASIL } from '@/lib/locaisCatalog';
 import { BairroSelector } from '@/components/BairroSelector';
 import { QRCodeSVG } from 'qrcode.react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 interface LiderancaItem {
   id: string;
@@ -702,9 +703,7 @@ export default function CadastroExternoCampoPage() {
       <header className="bg-slate-950/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-lg">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary to-secondary flex items-center justify-center text-white shadow-md font-extrabold text-base shrink-0">
-              SE
-            </div>
+            <BrandLogo size="sm" className="shrink-0 shadow-md shadow-black/40" />
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-white tracking-tight">

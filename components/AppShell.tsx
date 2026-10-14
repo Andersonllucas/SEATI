@@ -20,12 +20,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pathname = usePathname();
-  const { currentUser, isLoading, isAuthReady, logout } = useAuth();
+  const { currentUser, isLoading, isAuthReady, logout, systemConfig } = useAuth();
   const { tenantError, isLoadingTenant, isAdminMaster, subdomain } = useTenant();
 
   React.useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Sincronização dinâmica do Favicon na aba do navegador com quebra de cache
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const activeLogo = (systemConfig?.logoUrl || '/logo.svg').trim();
+      const cacheBustedUrl = `${activeLogo}${activeLogo.includes('?') ? '&' : '?'}v=2`;
+
+      const existingIcons = document.querySelectorAll("link[rel*='icon'], link[rel='shortcut icon']");
+      if (existingIcons.length > 0) {
+        existingIcons.forEach((el) => {
+          el.setAttribute('href', cacheBustedUrl);
+        });
+      } else {
+        const link = document.createElement('link');
+        link.rel = 'icon';
+        link.type = activeLogo.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
+        link.href = cacheBustedUrl;
+        document.head.appendChild(link);
+      }
+    } catch {}
+  }, [systemConfig?.logoUrl]);
 
   // Register PWA Service Worker
   React.useEffect(() => {
