@@ -12,25 +12,19 @@ import {
   History,
   LogOut,
   Bell,
-  Sliders,
-  Database,
-  ArrowRightLeft
+  Sliders
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/context/ToastContext';
 import { useRouter } from 'next/navigation';
 import { ConfigurableHeaderButtons } from '@/components/ConfigurableHeaderButtons';
-import { TenantSwitcherModal } from '@/components/TenantSwitcherModal';
 import { BrandLogo } from '@/components/BrandLogo';
 
 export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter();
   const { currentUser, isAdmin, logout } = useAuth();
-  const { currentTenant, subdomain } = useTenant();
   const { unreadCount, setIsNotificationDrawerOpen } = useToast();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isTenantSwitcherOpen, setIsTenantSwitcherOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fechar dropdown ao clicar fora
@@ -69,18 +63,6 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
-        {/* Indicador do Banco / Cliente Ativo */}
-        <button
-          type="button"
-          onClick={() => setIsTenantSwitcherOpen(true)}
-          title={`Banco conectado: ${currentTenant?.firebaseConfig?.projectId || 'seati-d0096'} (Clique para alternar cliente)`}
-          className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-outline-variant/60 hover:border-primary/50 bg-surface-container hover:bg-surface-container-high text-xs font-semibold text-on-surface transition-all cursor-pointer"
-        >
-          <Database className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-          <span className="max-w-[120px] truncate">{currentTenant?.nome || subdomain}</span>
-          <ArrowRightLeft className="w-3 h-3 text-on-surface-variant ml-0.5" />
-        </button>
-
         {/* Botões Rápidos Configuráveis */}
         <ConfigurableHeaderButtons />
 
@@ -205,23 +187,6 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
                     </Link>
                   </>
                 )}
-                {/* Alternar Banco / Cliente */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsDropdownOpen(false);
-                    setIsTenantSwitcherOpen(true);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-on-surface hover:bg-surface-container transition-colors cursor-pointer text-left"
-                >
-                  <ArrowRightLeft className="w-4 h-4 text-primary shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate">Alternar Banco / Campanha</p>
-                    <p className="text-[10px] text-on-surface-variant font-mono truncate">
-                      banco: {currentTenant?.firebaseConfig?.projectId || 'seati-d0096'}
-                    </p>
-                  </div>
-                </button>
               </div>
 
               {/* Botão de Encerramento Seguro de Sessão */}
@@ -250,12 +215,6 @@ export const Topbar = React.memo(function Topbar({ onMenuClick }: { onMenuClick?
           )}
         </div>
       </div>
-
-      {/* Modal para Alternar Cliente / Banco */}
-      <TenantSwitcherModal
-        isOpen={isTenantSwitcherOpen}
-        onClose={() => setIsTenantSwitcherOpen(false)}
-      />
     </header>
   );
 });
