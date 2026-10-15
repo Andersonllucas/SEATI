@@ -1,5 +1,5 @@
 // Service Worker for ADTI Progressive Web App (PWA)
-const CACHE_NAME = 'adti-v1';
+const CACHE_NAME = 'adti-v2';
 
 // Static assets to cache for offline availability
 const PRECACHE_ASSETS = [

@@ -23,13 +23,15 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/logo.webp?v=3', type: 'image/webp' },
-      { url: '/pwa-icon?size=32&v=3', sizes: '32x32', type: 'image/png' },
-      { url: '/pwa-icon?size=192&v=3', sizes: '192x192', type: 'image/png' },
+      { url: '/logo.webp?v=5', type: 'image/webp' },
+      { url: '/icon-192.png?v=5', sizes: '192x192', type: 'image/png' },
+      { url: '/pwa-icon?size=32&v=5', sizes: '32x32', type: 'image/png' },
+      { url: '/pwa-icon?size=192&v=5', sizes: '192x192', type: 'image/png' },
     ],
-    shortcut: '/logo.webp?v=3',
+    shortcut: '/logo.webp?v=5',
     apple: [
-      { url: '/logo.webp?v=3', sizes: '180x180', type: 'image/webp' },
+      { url: '/apple-touch-icon.png?v=5', sizes: '180x180', type: 'image/png' },
+      { url: '/logo.webp?v=5', sizes: '180x180', type: 'image/webp' },
     ],
   },
 };

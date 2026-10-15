@@ -9,31 +9,37 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    background_color: '#f8fafc', // bg-background (approx slate-50)
-    theme_color: '#0a3254',      // bg-primary
+    background_color: '#f8fafc',
+    theme_color: '#0a3254',
     icons: [
       {
-        src: '/pwa-icon?size=192&v=2',
+        src: '/icon-192.png?v=5',
         sizes: '192x192',
         type: 'image/png',
         purpose: 'any',
       },
       {
-        src: '/pwa-icon?size=512&v=2',
+        src: '/icon-512.png?v=5',
         sizes: '512x512',
         type: 'image/png',
         purpose: 'any',
       },
       {
-        src: '/pwa-icon?size=512&v=2',
+        src: '/icon-512.png?v=5',
         sizes: '512x512',
         type: 'image/png',
         purpose: 'maskable',
       },
       {
-        src: '/logo.webp?v=3',
+        src: '/logo.webp?v=5',
         sizes: 'any',
         type: 'image/webp',
+        purpose: 'any',
+      },
+      {
+        src: '/logo.png?v=5',
+        sizes: 'any',
+        type: 'image/png',
         purpose: 'any',
       },
     ],
