@@ -32,13 +32,26 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [lembrarMe, setLembrarMe] = useState(true);
+  const [lembrarMe, setLembrarMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [switcherModalOpen, setSwitcherModalOpen] = useState(false);
   const [masterModeActive, setMasterModeActive] = useState(false);
+
+  // Carrega e-mail salvo previamente (se o usuário escolheu lembrar)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('gestao_eleitoral_saved_email');
+        if (saved) {
+          setEmail(saved);
+          setLembrarMe(true);
+        }
+      } catch {}
+    }
+  }, []);
 
   // Secret Master Access: 3 clicks on the logo within 1.5 seconds triggers bank switch modal
   const logoClicksRef = useRef<number[]>([]);
@@ -364,7 +377,7 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
               </div>
 
               {/* Remember checkbox */}
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex flex-col gap-1 pt-1">
                 <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
                   <input
                     type="checkbox"
@@ -374,8 +387,11 @@ export function LoginView({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                     onChange={(e) => setLembrarMe(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-700 text-blue-600 focus:ring-blue-500/30 bg-slate-800 cursor-pointer"
                   />
-                  <span>Permanecer conectado neste navegador</span>
+                  <span>Lembrar meu e-mail neste computador</span>
                 </label>
+                <span className="text-[10px] text-slate-500 pl-6">
+                  Ao fechar o navegador ou a janela, a sessão é encerrada por segurança.
+                </span>
               </div>
 
               {/* Submit Button */}

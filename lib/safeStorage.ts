@@ -1,16 +1,24 @@
 /**
- * Utilitário seguro para armazenamento em navegador (localStorage / sessionStorage)
- * Garante que erros de permissão de iframe, modo anônimo ou SecurityError não causem
- * exceções não capturadas ("Uncaught SecurityError / DOMException").
+ * Utilitário seguro para armazenamento em navegador (sessionStorage)
+ * Garante que a sessão do usuário seja volátil e expire automaticamente
+ * no fechamento da janela ou navegador, conforme a política de segurança da aplicação.
  */
 
 const memoryStore = new Map<string, string>();
 
+// Limpeza preventiva de dados de sessão legados do localStorage
+if (typeof window !== 'undefined') {
+  try {
+    window.localStorage.removeItem('gestao_eleitoral_cached_user');
+    window.localStorage.removeItem('gestao_eleitoral_user_id');
+  } catch {}
+}
+
 export const safeStorage = {
   getItem(key: string): string | null {
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        return window.sessionStorage.getItem(key);
       }
     } catch {
       // Fallback para memória em iframes restritos
@@ -20,8 +28,8 @@ export const safeStorage = {
 
   setItem(key: string, value: string): void {
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(key, value);
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem(key, value);
         return;
       }
     } catch {
@@ -32,8 +40,8 @@ export const safeStorage = {
 
   removeItem(key: string): void {
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(key);
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem(key);
       }
     } catch {
       // Fallback
@@ -43,8 +51,8 @@ export const safeStorage = {
 
   clear(): void {
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.clear();
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.clear();
       }
     } catch {
       // Fallback

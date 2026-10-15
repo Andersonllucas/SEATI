@@ -21,8 +21,12 @@ import {
   Clock,
   Eye,
   EyeOff,
-  KeyRound
+  KeyRound,
+  ArrowLeft
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
+import { safeStorage } from '@/lib/safeStorage';
 import {
   collection,
   addDoc,
@@ -62,6 +66,21 @@ interface EleitorSessaoItem {
 
 export default function CadastroExternoCampoPage() {
   const { currentTenant, subdomain } = useTenant();
+  const { currentUser, isAuthenticated } = useAuth();
+  const router = useRouter();
+
+  // Detecta se a tela foi acessada de dentro do sistema (usuário autenticado/sessão ativa)
+  const [isInternalAccess, setIsInternalAccess] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hasStoredUser = Boolean(
+        safeStorage.getItem('gestao_eleitoral_user_id') ||
+        safeStorage.getItem('gestao_eleitoral_cached_user')
+      );
+      setIsInternalAccess(Boolean((isAuthenticated && currentUser) || hasStoredUser));
+    }
+  }, [isAuthenticated, currentUser]);
 
   // Tab Ativa: 'eleitor' (público sem senha) | 'lideranca' (exige senha cadastrada no sistema)
   const [activeMainTab, setActiveMainTab] = useState<'eleitor' | 'lideranca'>('eleitor');
@@ -703,7 +722,19 @@ export default function CadastroExternoCampoPage() {
       <header className="bg-slate-950/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-lg">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <BrandLogo size="sm" className="shrink-0 shadow-md shadow-black/40" />
+            {isInternalAccess ? (
+              <button
+                type="button"
+                onClick={() => router.push('/')}
+                title="Voltar ao Painel Geral do Sistema"
+                aria-label="Voltar ao Painel Geral do Sistema"
+                className="shrink-0 group cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl transition-all hover:scale-105 active:scale-95"
+              >
+                <BrandLogo size="sm" className="shrink-0 shadow-md shadow-black/40 group-hover:brightness-110" />
+              </button>
+            ) : (
+              <BrandLogo size="sm" className="shrink-0 shadow-md shadow-black/40" />
+            )}
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-white tracking-tight">
@@ -726,6 +757,19 @@ export default function CadastroExternoCampoPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Botão de Retornar ao Sistema (visível apenas quando acessado de dentro do sistema) */}
+            {isInternalAccess && (
+              <button
+                type="button"
+                onClick={() => router.push('/')}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                title="Retornar ao Painel Geral do Sistema"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-primary" />
+                <span className="hidden sm:inline">Voltar ao Painel</span>
+              </button>
+            )}
+
             {/* Botão de Som */}
             <button
               type="button"

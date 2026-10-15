@@ -18,7 +18,9 @@ import {
 import {
   signInWithCustomToken,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  setPersistence,
+  browserSessionPersistence
 } from 'firebase/auth';
 import { getActiveDb, getActiveAuth, getCentralDb } from '@/lib/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -195,15 +197,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.removeItem('gestao_eleitoral_logged_out');
         } catch {}
       } else {
-        const isLoggedOut = localStorage.getItem('gestao_eleitoral_logged_out') === 'true';
+        // Sessão 100% volátil: verifica apenas no sessionStorage da janela atual
+        const isLoggedOut = safeStorage.getItem('gestao_eleitoral_logged_out') === 'true';
         if (!isLoggedOut) {
-          const cached = localStorage.getItem('gestao_eleitoral_cached_user');
+          const cached = safeStorage.getItem('gestao_eleitoral_cached_user');
           if (cached) {
-            const parsed = JSON.parse(cached);
-            if (parsed) {
-              setCurrentUser(parsed);
-              setIsAuthReady(true);
-            }
+            try {
+              const parsed = JSON.parse(cached);
+              if (parsed) {
+                setCurrentUser(parsed);
+                setIsAuthReady(true);
+              }
+            } catch {}
           }
         }
       }
@@ -298,9 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 status: 'Ativo'
               };
               setCurrentUser(fallbackUser);
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(fallbackUser));
-              }
+              safeStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(fallbackUser));
             }
           } else {
             // Firebase Auth sem sessão: verifica se há sessão de suporte master ativa para este cliente
@@ -695,10 +698,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
         }
 
-        // 2. Se o servidor retornou um Custom Token, tenta autenticar no Firebase Auth
+        // 2. Se o servidor retornou um Custom Token, autentica no Firebase Auth com persistência de sessão (morre ao fechar o navegador)
         if (data.customToken) {
           try {
             const targetAuth = activeAuth || getActiveAuth();
+            await setPersistence(targetAuth, browserSessionPersistence).catch(() => {});
             await signInWithCustomToken(targetAuth, data.customToken);
           } catch (customTokenErr) {
             console.warn('Aviso de sessão Firebase Auth, autenticando em modo seguro local:', customTokenErr);
@@ -708,8 +712,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const authenticatedUser: AppUser = data.user;
         setCurrentUser(authenticatedUser);
 
+        // Sessão 100% volátil: salva exclusivamente no sessionStorage
         safeStorage.removeItem('gestao_eleitoral_logged_out');
         safeStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(authenticatedUser));
+        safeStorage.setItem('gestao_eleitoral_user_id', authenticatedUser.id);
+
         if (authenticatedUser.perfil === 'Administrador') {
           const adminData = JSON.stringify({
             id: authenticatedUser.id,
@@ -719,10 +726,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           });
           safeStorage.setItem('adti_admin_master_user', adminData);
         }
-        if (rememberMe) {
-          safeStorage.setItem('gestao_eleitoral_user_id', authenticatedUser.id);
-        } else {
-          safeStorage.removeItem('gestao_eleitoral_user_id');
+
+        // Limpa qualquer vestígio do localStorage para garantir que fechar a janela sempre encerre o login
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem('gestao_eleitoral_cached_user');
+            localStorage.removeItem('gestao_eleitoral_user_id');
+            if (rememberMe) {
+              localStorage.setItem('gestao_eleitoral_saved_email', authenticatedUser.email);
+            } else {
+              localStorage.removeItem('gestao_eleitoral_saved_email');
+            }
+          } catch {}
         }
 
         // Atualização de último acesso
@@ -776,6 +791,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     safeStorage.removeItem('gestao_eleitoral_cached_user');
     safeStorage.removeItem('adti_admin_master_user');
     safeStorage.setItem('gestao_eleitoral_logged_out', 'true');
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('gestao_eleitoral_user_id');
+        localStorage.removeItem('gestao_eleitoral_cached_user');
+      } catch {}
+    }
   }, [currentUser, registrarLog]);
 
   const switchUser = useCallback(

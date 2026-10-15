@@ -160,7 +160,7 @@ export default function AdminMasterPage() {
 
         // Salva o usuário autenticado de suporte master para evitar tela de login do cliente
         if (data.user) {
-          localStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(data.user));
+          sessionStorage.setItem('gestao_eleitoral_cached_user', JSON.stringify(data.user));
           sessionStorage.setItem('gestao_eleitoral_user_id', data.user.id);
         }
 
