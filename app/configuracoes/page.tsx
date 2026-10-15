@@ -1295,7 +1295,7 @@ function ConfiguracoesContent() {
                       Tela de Login
                     </div>
                     <div className="mt-3">
-                      <BrandLogo customSrc={logoUrl || '/logo.svg'} size="lg" className="shadow-lg shadow-blue-900/50" />
+                      <BrandLogo customSrc={logoUrl || '/logo.webp'} size="lg" className="shadow-lg shadow-blue-900/50" />
                     </div>
                     <span className="text-[11px] font-bold text-white mt-2 truncate max-w-[130px]">
                       {systemConfig?.nomeCampanha || 'SEATI'}
@@ -1308,7 +1308,7 @@ function ConfiguracoesContent() {
                       Barra Lateral
                     </div>
                     <div className="mt-3">
-                      <BrandLogo customSrc={logoUrl || '/logo.svg'} size="sm" className="shadow-md shadow-black/20" />
+                      <BrandLogo customSrc={logoUrl || '/logo.webp'} size="sm" className="shadow-md shadow-black/20" />
                     </div>
                     <span className="text-[11px] font-bold text-slate-100 mt-2 truncate max-w-[130px]">
                       Menu & Topo

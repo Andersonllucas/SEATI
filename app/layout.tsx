@@ -23,13 +23,13 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/logo.svg?v=2', type: 'image/svg+xml' },
-      { url: '/pwa-icon?size=32&v=2', sizes: '32x32', type: 'image/png' },
-      { url: '/pwa-icon?size=192&v=2', sizes: '192x192', type: 'image/png' },
+      { url: '/logo.webp?v=3', type: 'image/webp' },
+      { url: '/pwa-icon?size=32&v=3', sizes: '32x32', type: 'image/png' },
+      { url: '/pwa-icon?size=192&v=3', sizes: '192x192', type: 'image/png' },
     ],
-    shortcut: '/logo.svg?v=2',
+    shortcut: '/logo.webp?v=3',
     apple: [
-      { url: '/apple-touch-icon.png?v=2', sizes: '180x180', type: 'image/png' },
+      { url: '/logo.webp?v=3', sizes: '180x180', type: 'image/webp' },
     ],
   },
 };

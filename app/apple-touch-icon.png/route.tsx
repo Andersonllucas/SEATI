@@ -44,176 +44,140 @@ export async function GET() {
           >
             {/* Corner Viewfinder Scanner Brackets */}
             <path
-              d="M 54 136 L 54 84 A 30 30 0 0 1 84 54 L 136 54"
+              d="M 58 136 L 58 88 A 30 30 0 0 1 88 58 L 136 58"
               stroke="#0f4c64"
               strokeWidth="18"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
             <path
-              d="M 376 54 L 428 54 A 30 30 0 0 1 458 84 L 458 136"
+              d="M 376 58 L 424 58 A 30 30 0 0 1 454 88 L 454 136"
               stroke="#0f4c64"
               strokeWidth="18"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
             <path
-              d="M 54 376 L 54 428 A 30 30 0 0 0 84 458 L 136 458"
+              d="M 58 376 L 58 424 A 30 30 0 0 0 88 454 L 136 454"
               stroke="#0f4c64"
               strokeWidth="18"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
             <path
-              d="M 376 458 L 428 458 A 30 30 0 0 0 458 428 L 458 376"
+              d="M 376 454 L 424 454 A 30 30 0 0 0 454 424 L 454 376"
               stroke="#0f4c64"
               strokeWidth="18"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
 
-            {/* Central Biometric Ridges */}
+            {/* Central Biometric Ridges - Complete Loops, No Void */}
             <path
-              d="M 248 274 C 248 238 264 238 264 274 L 264 304"
+              d="M 248 270 C 248 238, 264 238, 264 270 L 264 365 C 264 380, 248 380, 248 365 Z"
               stroke="#0284c7"
-              strokeWidth="13"
+              strokeWidth="12"
               strokeLinecap="round"
             />
-            <circle cx="264" cy="304" r="6" fill="#0284c7" />
+            <circle cx="256" cy="242" r="5" fill="#38bdf8" />
 
             <path
-              d="M 233 274 C 233 218 279 218 279 274 L 279 336"
-              stroke="#0369a1"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="279" cy="336" r="6" fill="#0369a1" />
-
-            <path
-              d="M 218 280 C 218 198 294 198 294 280 L 294 366"
-              stroke="#0284c7"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="218" cy="280" r="6" fill="#38bdf8" />
-
-            <path
-              d="M 203 286 C 203 178 309 178 309 286 L 309 388"
-              stroke="#0c4a6e"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="309" cy="388" r="6" fill="#0284c7" />
-
-            <path
-              d="M 188 292 C 188 158 324 158 324 292 L 324 354"
-              stroke="#0e7490"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="324" cy="354" r="6" fill="#0e7490" />
-
-            <path
-              d="M 173 300 C 173 138 339 138 339 300 L 339 328"
-              stroke="#0284c7"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="339" cy="328" r="6" fill="#0284c7" />
-
-            <path
-              d="M 158 312 C 158 120 354 120 354 312 L 354 340"
-              stroke="#0369a1"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="158" cy="312" r="6" fill="#0284c7" />
-
-            {/* Upper Arches */}
-            <path
-              d="M 170 186 C 206 132 306 132 342 186"
-              stroke="#0284c7"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="170" cy="186" r="6" fill="#38bdf8" />
-            <circle cx="342" cy="186" r="6" fill="#38bdf8" />
-
-            <path
-              d="M 190 156 C 224 116 288 116 322 156"
+              d="M 234 275 C 234 220, 278 220, 278 275 L 278 382 C 278 402, 234 402, 234 382 Z"
               stroke="#0369a1"
               strokeWidth="12"
               strokeLinecap="round"
             />
+            <circle cx="278" cy="330" r="5" fill="#0284c7" />
+
+            <path
+              d="M 220 280 C 220 202, 292 202, 292 280 L 292 398 C 292 422, 220 422, 220 398 Z"
+              stroke="#0284c7"
+              strokeWidth="12"
+              strokeLinecap="round"
+            />
+            <circle cx="220" cy="310" r="5" fill="#38bdf8" />
+
+            <path
+              d="M 206 285 C 206 184, 306 184, 306 285 L 306 414 C 306 440, 206 440, 206 414 Z"
+              stroke="#0c4a6e"
+              strokeWidth="12"
+              strokeLinecap="round"
+            />
+            <circle cx="306" cy="360" r="5" fill="#0284c7" />
+
+            <path
+              d="M 192 290 C 192 166, 320 166, 320 290 L 320 426 C 320 456, 192 456, 192 426 Z"
+              stroke="#0e7490"
+              strokeWidth="12"
+              strokeLinecap="round"
+            />
+            <circle cx="192" cy="370" r="5" fill="#38bdf8" />
+
+            <path
+              d="M 178 295 C 178 148, 334 148, 334 295 L 334 430 C 334 466, 178 466, 178 430 Z"
+              stroke="#0284c7"
+              strokeWidth="12"
+              strokeLinecap="round"
+            />
+
+            <path
+              d="M 164 300 C 164 130, 348 130, 348 300 L 348 424 C 348 472, 164 472, 164 424 Z"
+              stroke="#0369a1"
+              strokeWidth="12"
+              strokeLinecap="round"
+            />
+
+            {/* Upper Cap */}
+            <path
+              d="M 168 180 C 196 128, 316 128, 344 180"
+              stroke="#0284c7"
+              strokeWidth="11"
+              strokeLinecap="round"
+            />
+            <circle cx="168" cy="180" r="5" fill="#38bdf8" />
+            <circle cx="344" cy="180" r="5" fill="#38bdf8" />
 
             {/* Left Flank */}
             <path
-              d="M 143 328 C 143 270 148 214 176 168"
+              d="M 136 330 C 134 250, 142 188, 172 142"
               stroke="#0e7490"
-              strokeWidth="13"
+              strokeWidth="11"
               strokeLinecap="round"
             />
-            <circle cx="143" cy="328" r="6" fill="#0e7490" />
+            <circle cx="136" cy="330" r="5" fill="#0284c7" />
 
             <path
-              d="M 130 350 C 128 290 134 220 162 170"
+              d="M 124 354 C 120 286, 128 214, 156 166"
               stroke="#0284c7"
-              strokeWidth="12"
+              strokeWidth="11"
               strokeLinecap="round"
             />
-            <circle cx="130" cy="350" r="6" fill="#0284c7" />
-
-            <path
-              d="M 120 380 C 114 310 120 236 150 184"
-              stroke="#0c4a6e"
-              strokeWidth="12"
-              strokeLinecap="round"
-            />
-            <circle cx="120" cy="380" r="6" fill="#0e7490" />
 
             {/* Right Flank */}
             <path
-              d="M 368 336 C 368 274 362 216 336 168"
+              d="M 376 330 C 378 250, 370 188, 340 142"
               stroke="#0e7490"
-              strokeWidth="13"
+              strokeWidth="11"
               strokeLinecap="round"
             />
-            <circle cx="368" cy="336" r="6" fill="#0e7490" />
+            <circle cx="376" cy="330" r="5" fill="#0284c7" />
 
             <path
-              d="M 382 354 C 384 290 376 220 348 170"
+              d="M 388 354 C 392 286, 384 214, 356 166"
               stroke="#0284c7"
-              strokeWidth="12"
+              strokeWidth="11"
               strokeLinecap="round"
             />
-            <circle cx="382" cy="354" r="6" fill="#0284c7" />
 
-            <path
-              d="M 394 380 C 398 310 390 236 360 184"
-              stroke="#0c4a6e"
-              strokeWidth="12"
-              strokeLinecap="round"
-            />
-            <circle cx="394" cy="380" r="6" fill="#0e7490" />
+            {/* Circuit Traces */}
+            <line x1="264" y1="210" x2="264" y2="185" stroke="#0284c7" strokeWidth="8" />
+            <circle cx="264" cy="185" r="4.5" fill="#38bdf8" />
 
-            {/* Delta Base Arches */}
-            <path
-              d="M 186 434 C 220 454 292 454 326 434"
-              stroke="#0284c7"
-              strokeWidth="13"
-              strokeLinecap="round"
-            />
-            <circle cx="186" cy="434" r="6" fill="#0284c7" />
-            <circle cx="326" cy="434" r="6" fill="#0284c7" />
+            <line x1="220" y1="230" x2="196" y2="230" stroke="#0284c7" strokeWidth="7" />
+            <circle cx="196" cy="230" r="4" fill="#38bdf8" />
 
-            {/* Micro Circuit Nodes */}
-            <path d="M 203 336 L 203 372" stroke="#0284c7" strokeWidth="10" strokeLinecap="round" />
-            <circle cx="203" cy="336" r="5" fill="#38bdf8" />
-            <circle cx="203" cy="372" r="5" fill="#0284c7" />
-
-            <path d="M 246 364 L 246 414" stroke="#0284c7" strokeWidth="10" strokeLinecap="round" />
-            <circle cx="246" cy="364" r="5" fill="#38bdf8" />
-            <circle cx="246" cy="414" r="5" fill="#0284c7" />
+            <line x1="292" y1="230" x2="316" y2="230" stroke="#0284c7" strokeWidth="7" />
+            <circle cx="316" cy="230" r="4" fill="#38bdf8" />
           </svg>
         </div>
       </div>

@@ -64,11 +64,11 @@ export function BrandLogo({
   // 1. Explicit prop customSrc (if passed)
   // 2. systemConfig.logoUrl (saved in tenant firestore settings)
   // 3. currentTenant.logoUrl (multi-tenant registry config)
-  // 4. Default public file /logo.svg
+  // 4. Default public file /logo.webp
   const configuredSrc =
     customSrc !== undefined
       ? customSrc
-      : (systemConfig?.logoUrl?.trim() || currentTenant?.logoUrl?.trim() || '/logo.svg');
+      : (systemConfig?.logoUrl?.trim() || currentTenant?.logoUrl?.trim() || '/logo.webp');
 
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState<string | null>(configuredSrc || null);
@@ -109,13 +109,13 @@ export function BrandLogo({
         src={currentSrc}
         alt={brandAlt}
         onError={() => {
-          // If custom URL or /logo.svg failed, try /logo.png once before showing fallback
-          if (currentSrc === '/logo.svg') {
+          // If custom URL or /logo.webp failed, try /logo.png once before showing fallback
+          if (currentSrc === '/logo.webp') {
             setCurrentSrc('/logo.png');
-          } else if (currentSrc !== '/logo.svg' && currentSrc !== '/logo.png') {
-            setCurrentSrc('/logo.svg');
-          } else {
+          } else if (currentSrc === '/logo.png') {
             setHasError(true);
+          } else {
+            setCurrentSrc('/logo.webp');
           }
         }}
         className={`object-contain w-full h-full pointer-events-none drop-shadow-sm ${

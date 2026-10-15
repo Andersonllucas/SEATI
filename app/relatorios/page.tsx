@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import Link from 'next/link';
 import {
   Printer,
   Download,
+  BarChart3,
   FileSpreadsheet,
   FileText,
   RotateCcw,
@@ -808,6 +810,15 @@ export default function RelatoriosPage() {
 
           {/* BOTÕES DE AÇÃO LINEARES */}
           <div className="flex items-center gap-2 flex-nowrap overflow-x-auto py-0.5 shrink-0">
+            <Link
+              href="/relatorios-graficos"
+              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap shrink-0"
+              title="Abrir página dedicada de relatórios gráficos com rankings, comparações e quebras de votos"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-blue-600" />
+              <span>Relatórios Gráficos</span>
+            </Link>
+
             <button
               type="button"
               onClick={handlePrint}

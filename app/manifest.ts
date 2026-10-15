@@ -31,9 +31,9 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: 'maskable',
       },
       {
-        src: '/logo.svg?v=2',
+        src: '/logo.webp?v=3',
         sizes: 'any',
-        type: 'image/svg+xml',
+        type: 'image/webp',
         purpose: 'any',
       },
     ],

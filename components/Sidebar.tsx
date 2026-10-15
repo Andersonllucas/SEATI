@@ -19,7 +19,8 @@ import {
   Globe,
   Share2,
   UserCheck,
-  ShieldCheck
+  ShieldCheck,
+  BarChart3
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useCampaignUI } from '@/context/CampaignUIContext';
@@ -148,6 +149,7 @@ export const Sidebar = React.memo(function Sidebar({ onNavigate }: { onNavigate?
         title: 'Inteligência & Gestão',
         items: [
           { href: '/relatorios', icon: Printer, label: 'Central de Relatórios', badge: 'PDF / Excel', badgeVariant: 'slate' },
+          { href: '/relatorios-graficos', icon: BarChart3, label: 'Relatórios Gráficos', badge: 'Gráficos', badgeVariant: 'emerald' },
           { href: '/importacao', icon: FileDown, label: 'Importação de Dados' },
           { href: '/configuracoes', icon: Settings, label: 'Configurações Gerais' },
           ...(isAdminMaster

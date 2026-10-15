@@ -31,8 +31,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const activeLogo = (systemConfig?.logoUrl || '/logo.svg').trim();
-      const cacheBustedUrl = `${activeLogo}${activeLogo.includes('?') ? '&' : '?'}v=2`;
+      const activeLogo = (systemConfig?.logoUrl || '/logo.webp').trim();
+      const cacheBustedUrl = `${activeLogo}${activeLogo.includes('?') ? '&' : '?'}v=3`;
 
       const existingIcons = document.querySelectorAll("link[rel*='icon'], link[rel='shortcut icon']");
       if (existingIcons.length > 0) {
@@ -42,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       } else {
         const link = document.createElement('link');
         link.rel = 'icon';
-        link.type = activeLogo.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
+        link.type = activeLogo.endsWith('.svg') ? 'image/svg+xml' : activeLogo.endsWith('.webp') ? 'image/webp' : 'image/png';
         link.href = cacheBustedUrl;
         document.head.appendChild(link);
       }
