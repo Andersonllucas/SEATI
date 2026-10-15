@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // Prefixo e URLs que não devem passar pela resolução de subdomínio
 const PUBLIC_FILE_PATTERN = /\.(.*)$/;
-const EXCLUDED_PATHS = ['/_next', '/api', '/favicon.ico', '/apple-touch-icon.png', '/tenant-error', '/pwa-icon'];
+const EXCLUDED_PATHS = ['/_next', '/api', '/favicon.ico', '/apple-touch-icon.png', '/tenant-error', '/pwa-icon', '/instalador', '/icon.ico'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

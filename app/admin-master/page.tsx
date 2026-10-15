@@ -223,6 +223,119 @@ export default function AdminMasterPage() {
 
   // Aba ativa do Painel Master (Parte 8)
   const [activeMasterTab, setActiveMasterTab] = useState<'clientes' | 'auditoria' | 'saude' | 'instalador'>('clientes');
+  const [selectedInstallerSubdomain, setSelectedInstallerSubdomain] = useState<string>('seati-d0096');
+
+  // Gerador dinâmico de instalador desktop para o cliente e banco selecionado (.VBS - Método Recomendado 100% Nativo)
+  const downloadInstallerVbs = (subdominio: string, nome?: string) => {
+    const isCustomSubdomain = subdominio && subdominio !== 'admin' && subdominio !== 'localhost';
+    const targetUrl = isCustomSubdomain
+      ? `https://${subdominio.toLowerCase().trim()}.adti.app.br`
+      : (typeof window !== 'undefined' ? window.location.origin : 'https://seati.adti.app.br');
+    const safeName = isCustomSubdomain ? subdominio.toLowerCase().trim() : 'SEATI';
+    const title = nome ? `${nome} (${safeName})` : safeName;
+
+    const vbsText = `' ==============================================================
+'         INSTALADOR SEATI DESKTOP - ${title}
+' ==============================================================
+Option Explicit
+Dim oWS, sDesktop, sPrograms, oLink, sUrl, sName, ret
+
+sUrl = "${targetUrl}"
+sName = "SEATI - ${safeName}"
+
+Set oWS = CreateObject("WScript.Shell")
+
+sDesktop = oWS.SpecialFolders("Desktop")
+sPrograms = oWS.SpecialFolders("Programs")
+
+On Error Resume Next
+
+' 1. Cria atalho na Area de Trabalho
+Set oLink = oWS.CreateShortcut(sDesktop & "\\" & sName & ".lnk")
+oLink.TargetPath = "msedge.exe"
+oLink.Arguments = "--app=" & sUrl
+oLink.WindowStyle = 1
+oLink.Description = "SEATI - ${title}"
+oLink.Save
+
+' 2. Cria atalho no Menu Iniciar
+Set oLink = oWS.CreateShortcut(sPrograms & "\\" & sName & ".lnk")
+oLink.TargetPath = "msedge.exe"
+oLink.Arguments = "--app=" & sUrl
+oLink.WindowStyle = 1
+oLink.Description = "SEATI - ${title}"
+oLink.Save
+
+' 3. Abre o aplicativo na tela
+ret = oWS.Run("msedge.exe --app=" & sUrl, 1, False)
+If ret <> 0 Then
+  oWS.Run sUrl, 1, False
+End If
+
+' 4. Mensagem de Sucesso
+MsgBox "O SEATI (" & sName & ") foi instalado com sucesso!" & vbCrLf & vbCrLf & _
+       "- Atalho criado na sua Area de Trabalho" & vbCrLf & _
+       "- Atalho criado no Menu Iniciar" & vbCrLf & _
+       "- Conectado em: " & sUrl, 64, "SEATI - Instalacao Concluida"
+`;
+
+    const cleanCrlf = vbsText.replace(/\r?\n/g, '\r\n');
+    const blob = new Blob([cleanCrlf], { type: 'text/vbscript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Instalar-SEATI-${safeName}.vbs`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Gerador dinâmico em arquivo de lote (.BAT com CRLF estrito do Windows)
+  const downloadInstallerBat = (subdominio: string, nome?: string) => {
+    const isCustomSubdomain = subdominio && subdominio !== 'admin' && subdominio !== 'localhost';
+    const targetUrl = isCustomSubdomain
+      ? `https://${subdominio.toLowerCase().trim()}.adti.app.br`
+      : (typeof window !== 'undefined' ? window.location.origin : 'https://seati.adti.app.br');
+    const safeName = isCustomSubdomain ? subdominio.toLowerCase().trim() : 'SEATI';
+    const title = nome ? `${nome} (${safeName})` : safeName;
+
+    const batLines = [
+      '@echo off',
+      'chcp 65001 >nul',
+      `title Instalador SEATI Desktop - ${title}`,
+      'color 0b',
+      'echo ============================================================== ',
+      `echo       INSTALADOR DO SISTEMA SEATI - ${title}`,
+      'echo ============================================================== ',
+      'echo.',
+      'echo [1/2] Criando atalho na Area de Trabalho e Menu Iniciar...',
+      `powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $d=[Environment]::GetFolderPath('Desktop'); $s=$ws.CreateShortcut(\\"$d\\SEATI - ${safeName}.lnk\\"); $s.TargetPath='msedge.exe'; $s.Arguments='--app=${targetUrl}'; $s.Description='SEATI - ${title}'; $s.Save(); $p=[Environment]::GetFolderPath('Programs'); $s2=$ws.CreateShortcut(\\"$p\\SEATI - ${safeName}.lnk\\"); $s2.TargetPath='msedge.exe'; $s2.Arguments='--app=${targetUrl}'; $s2.Description='SEATI - ${title}'; $s2.Save()"`,
+      'echo.',
+      'echo [2/2] Abrindo o SEATI agora...',
+      `start msedge.exe --app="${targetUrl}" 2>nul || start "" "${targetUrl}"`,
+      'echo.',
+      'echo ============================================================== ',
+      'echo             INSTALACAO CONCLUIDA COM SUCESSO! ',
+      'echo ============================================================== ',
+      'echo.',
+      `echo  Atalho criado: "SEATI - ${safeName}"`,
+      `echo  Conectado em: ${targetUrl}`,
+      'echo.',
+      'pause'
+    ];
+
+    const cleanCrlf = batLines.join('\r\n') + '\r\n';
+    const blob = new Blob([cleanCrlf], { type: 'application/x-bat;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Instalar-SEATI-${safeName}.bat`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   // Estados do Modal de Restauração de Backup (Parte 8)
   const [isRestoreModalOpen, setIsRestoreModalOpen] = useState<boolean>(false);
@@ -1717,6 +1830,15 @@ export default function AdminMasterPage() {
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
+
+                      <button
+                        onClick={() => downloadInstallerVbs(client.subdominio, client.nome)}
+                        title={`Baixar Instalador Desktop (.vbs) configurado para ${client.nome} (${client.subdominio}.adti.app.br)`}
+                        className="inline-flex items-center gap-1 p-1.5 sm:px-2 sm:py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-primary hover:text-primary/90 text-xs font-semibold transition-colors cursor-pointer border border-outline-variant/50"
+                      >
+                        <Monitor className="w-3.5 h-3.5" />
+                        <span className="hidden md:inline text-[11px]">Instalador Windows</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2030,7 +2152,35 @@ export default function AdminMasterPage() {
                   <div>
                     <h3 className="text-lg font-bold text-on-surface">Instalador Rápido com Atalho Nativo</h3>
                     <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
-                      Ideal para enviar para coordenadores e lideranças. Não precisa instalar nada previamente (funciona em qualquer Windows 10 ou 11 imediatamente).
+                      Gera um instalador personalizado para o cliente e banco selecionado abaixo. Não precisa instalar nada previamente (funciona em qualquer Windows 10 ou 11 imediatamente).
+                    </p>
+                  </div>
+
+                  {/* Seletor do Cliente e Banco */}
+                  <div className="p-3.5 rounded-2xl bg-surface-container border border-outline-variant/60 space-y-2">
+                    <label className="text-xs font-bold text-on-surface flex items-center justify-between">
+                      <span>Cliente / Banco de Dados:</span>
+                      <span className="text-[11px] text-primary font-mono font-semibold">
+                        {selectedInstallerSubdomain}.adti.app.br
+                      </span>
+                    </label>
+                    <select
+                      value={selectedInstallerSubdomain}
+                      onChange={(e) => setSelectedInstallerSubdomain(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-surface-container-high border border-outline-variant text-xs font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                    >
+                      {clients.map((c) => (
+                        <option key={c.id || c.subdominio} value={c.subdominio}>
+                          {c.nome} ({c.subdominio}.adti.app.br)
+                        </option>
+                      ))}
+                      {clients.length === 0 && (
+                        <option value="seati-d0096">SEATI Padrão (seati-d0096.adti.app.br)</option>
+                      )}
+                    </select>
+
+                    <p className="text-[11px] text-on-surface-variant/90 leading-tight">
+                      O atalho no Windows será vinculado diretamente a <strong>https://{selectedInstallerSubdomain}.adti.app.br</strong>.
                     </p>
                   </div>
 
@@ -2050,22 +2200,37 @@ export default function AdminMasterPage() {
                   </div>
                 </div>
 
-                <div className="space-y-3 pt-2">
-                  <a
-                    href="/instalador/Instalar-SEATI-Desktop.bat"
-                    download="Instalar-SEATI-Desktop.bat"
-                    className="w-full py-3 px-4 rounded-2xl bg-primary text-on-primary font-bold text-sm shadow-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                <div className="space-y-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const c = clients.find((cl) => cl.subdominio === selectedInstallerSubdomain);
+                      downloadInstallerVbs(selectedInstallerSubdomain, c?.nome);
+                    }}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-primary text-on-primary font-bold text-sm shadow-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Baixar Instalador Windows (.bat)</span>
-                  </a>
+                    <span>Baixar Instalador Windows (.vbs) • Recomendado</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const c = clients.find((cl) => cl.subdominio === selectedInstallerSubdomain);
+                      downloadInstallerBat(selectedInstallerSubdomain, c?.nome);
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface font-semibold text-xs border border-outline-variant/60 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5 text-on-surface-variant" />
+                    <span>Baixar Instalador Alternativo (.bat)</span>
+                  </button>
 
                   <a
                     href="/instalador/Desinstalar-SEATI-Desktop.bat"
                     download="Desinstalar-SEATI-Desktop.bat"
-                    className="w-full py-2 px-4 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer border border-outline-variant/40"
+                    className="w-full py-2 px-4 rounded-xl bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface text-[11px] font-medium transition-all flex items-center justify-center gap-2 cursor-pointer border border-outline-variant/30 text-center"
                   >
-                    <span>Baixar Desinstalador (.bat)</span>
+                    <span>Baixar Script de Desinstalação</span>
                   </a>
                 </div>
               </div>
