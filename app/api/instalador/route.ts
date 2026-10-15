@@ -25,43 +25,105 @@ export async function GET(request: NextRequest) {
 '         INSTALADOR SEATI DESKTOP - ${title}
 ' ==============================================================
 Option Explicit
-Dim oWS, sDesktop, sPrograms, oLink, sUrl, sName, ret
+Dim oWS, oFS, sDesktop, sPrograms, oLink, sUrl, sName, ret
+Dim edgePath, candidates, p, appDir, iconFile
 
 sUrl = "${targetUrl}"
 sName = "SEATI - ${safeName}"
 
 Set oWS = CreateObject("WScript.Shell")
+Set oFS = CreateObject("Scripting.FileSystemObject")
 
 sDesktop = oWS.SpecialFolders("Desktop")
 sPrograms = oWS.SpecialFolders("Programs")
 
+' Procura o caminho absoluto real do Microsoft Edge ou Google Chrome no Windows
+candidates = Array( _
+  oWS.ExpandEnvironmentStrings("%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe"), _
+  oWS.ExpandEnvironmentStrings("%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe"), _
+  oWS.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Microsoft\\Edge\\Application\\msedge.exe"), _
+  oWS.ExpandEnvironmentStrings("%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe"), _
+  oWS.ExpandEnvironmentStrings("%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"), _
+  oWS.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe") _
+)
+
+edgePath = ""
+For Each p In candidates
+  If oFS.FileExists(p) Then
+    edgePath = p
+    Exit For
+  End If
+Next
+
+' Se nao achou nos diretorios tradicionais, tenta ler a chave de registro oficial do Windows
+If edgePath = "" Then
+  On Error Resume Next
+  edgePath = oWS.RegRead("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe\\")
+  On Error Goto 0
+End If
+
+' Se ainda assim nao achar, fallback para msedge.exe
+If edgePath = "" Then edgePath = "msedge.exe"
+
+' Diretorio de dados e icone local
+appDir = oWS.ExpandEnvironmentStrings("%LOCALAPPDATA%\\SEATI_${safeName}")
+If Not oFS.FolderExists(appDir) Then
+  On Error Resume Next
+  oFS.CreateFolder(appDir)
+  On Error Goto 0
+End If
+iconFile = appDir & "\\seati.ico"
+
+' Baixa o icone oficial do sistema silenciosamente se nao existir
+If Not oFS.FileExists(iconFile) Then
+  On Error Resume Next
+  oWS.Run "curl -s -L -o """ & iconFile & """ """ & sUrl & "/icon.ico""", 0, True
+  On Error Goto 0
+End If
+
 On Error Resume Next
 
-' 1. Cria atalho na Area de Trabalho
+' 1. Cria atalho na Area de Trabalho com o caminho absoluto
 Set oLink = oWS.CreateShortcut(sDesktop & "\\" & sName & ".lnk")
-oLink.TargetPath = "msedge.exe"
+oLink.TargetPath = edgePath
 oLink.Arguments = "--app=" & sUrl
+If oFS.FileExists(edgePath) Then
+  oLink.WorkingDirectory = oFS.GetParentFolderName(edgePath)
+End If
 oLink.WindowStyle = 1
+If oFS.FileExists(iconFile) Then
+  oLink.IconLocation = iconFile & ",0"
+ElseIf oFS.FileExists(edgePath) Then
+  oLink.IconLocation = edgePath & ",0"
+End If
 oLink.Description = "SEATI - ${title}"
 oLink.Save
 
-' 2. Cria atalho no Menu Iniciar
+' 2. Cria atalho no Menu Iniciar com o caminho absoluto
 Set oLink = oWS.CreateShortcut(sPrograms & "\\" & sName & ".lnk")
-oLink.TargetPath = "msedge.exe"
+oLink.TargetPath = edgePath
 oLink.Arguments = "--app=" & sUrl
+If oFS.FileExists(edgePath) Then
+  oLink.WorkingDirectory = oFS.GetParentFolderName(edgePath)
+End If
 oLink.WindowStyle = 1
+If oFS.FileExists(iconFile) Then
+  oLink.IconLocation = iconFile & ",0"
+ElseIf oFS.FileExists(edgePath) Then
+  oLink.IconLocation = edgePath & ",0"
+End If
 oLink.Description = "SEATI - ${title}"
 oLink.Save
 
 ' 3. Abre o aplicativo na tela
-ret = oWS.Run("msedge.exe --app=" & sUrl, 1, False)
+ret = oWS.Run("""" & edgePath & """ --app=" & sUrl, 1, False)
 If ret <> 0 Then
   oWS.Run sUrl, 1, False
 End If
 
 ' 4. Mensagem de Sucesso
 MsgBox "O SEATI (" & sName & ") foi instalado com sucesso!" & vbCrLf & vbCrLf & _
-       "- Atalho criado na sua Area de Trabalho" & vbCrLf & _
+       "- Atalho oficial criado na sua Area de Trabalho" & vbCrLf & _
        "- Atalho criado no Menu Iniciar" & vbCrLf & _
        "- Conectado em: " & sUrl, 64, "SEATI - Instalacao Concluida"
 `;
