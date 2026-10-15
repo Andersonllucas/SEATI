@@ -1,49 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
-import sharp from 'sharp';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const sizeParam = searchParams.get('size') || '512';
 
-  let size = 512;
-  const parsed = parseInt(sizeParam, 10);
-  if (!isNaN(parsed) && parsed > 0 && parsed <= 1024) {
-    size = parsed;
-  }
+  const size = parseInt(sizeParam, 10);
 
   try {
-    const webpPath = path.join(process.cwd(), 'public', 'logo.webp');
-    const pngPath = path.join(process.cwd(), 'public', 'logo.png');
-    const iconSpecificPath = path.join(process.cwd(), 'public', `icon-${size}.png`);
+    const icon192 = path.join(process.cwd(), 'public', 'icon-192.png');
+    const icon512 = path.join(process.cwd(), 'public', 'icon-512.png');
+    const logoPng = path.join(process.cwd(), 'public', 'logo.png');
+    const logoWebp = path.join(process.cwd(), 'public', 'logo.webp');
 
-    // If exact pre-generated size exists, return it directly
-    if (fs.existsSync(iconSpecificPath)) {
-      const buffer = await fs.promises.readFile(iconSpecificPath);
-      return new NextResponse(buffer, {
-        headers: {
-          'Content-Type': 'image/png',
-          'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
-        },
-      });
+    let targetFile = icon512;
+    if (size <= 192 && fs.existsSync(icon192)) {
+      targetFile = icon192;
+    } else if (fs.existsSync(icon512)) {
+      targetFile = icon512;
+    } else if (fs.existsSync(logoPng)) {
+      targetFile = logoPng;
+    } else {
+      targetFile = logoWebp;
     }
 
-    const sourcePath = fs.existsSync(webpPath) ? webpPath : pngPath;
-
-    if (fs.existsSync(sourcePath)) {
-      const sourceBuffer = await fs.promises.readFile(sourcePath);
-      const pngBuffer = await sharp(sourceBuffer)
-        .resize(size, size, {
-          fit: 'contain',
-          background: { r: 255, g: 255, b: 255, alpha: 0 },
-        })
-        .png()
-        .toBuffer();
-
-      return new NextResponse(pngBuffer, {
+    if (fs.existsSync(targetFile)) {
+      const buffer = await fs.promises.readFile(targetFile);
+      const contentType = targetFile.endsWith('.webp') ? 'image/webp' : 'image/png';
+      return new NextResponse(buffer, {
         headers: {
-          'Content-Type': 'image/png',
+          'Content-Type': contentType,
           'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
         },
       });
@@ -51,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     return new NextResponse('Icon not found', { status: 404 });
   } catch (error) {
-    console.error('Error generating PWA icon:', error);
+    console.error('Error serving PWA icon:', error);
     return new NextResponse('Internal Error', { status: 500 });
   }
 }

@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
     'localhost:*'
   ],
   experimental: {
-    optimizePackageImports: ['lucide-react'],
+    optimizePackageImports: ['lucide-react', 'motion', 'xlsx', 'jspdf', 'jspdf-autotable'],
   },
   eslint: {
     ignoreDuringBuilds: true,
