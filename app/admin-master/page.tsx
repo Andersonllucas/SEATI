@@ -75,7 +75,8 @@ import {
   Activity,
   FileText,
   RotateCcw,
-  History
+  History,
+  Monitor
 } from 'lucide-react';
 import { useTenant } from '@/context/TenantContext';
 
@@ -221,7 +222,7 @@ export default function AdminMasterPage() {
   const [exportingSubdomain, setExportingSubdomain] = useState<string | null>(null);
 
   // Aba ativa do Painel Master (Parte 8)
-  const [activeMasterTab, setActiveMasterTab] = useState<'clientes' | 'auditoria' | 'saude'>('clientes');
+  const [activeMasterTab, setActiveMasterTab] = useState<'clientes' | 'auditoria' | 'saude' | 'instalador'>('clientes');
 
   // Estados do Modal de Restauração de Backup (Parte 8)
   const [isRestoreModalOpen, setIsRestoreModalOpen] = useState<boolean>(false);
@@ -1376,6 +1377,18 @@ export default function AdminMasterPage() {
             <Activity className="w-3.5 h-3.5" />
             <span>Diagnóstico de Saúde & Latência</span>
           </button>
+
+          <button
+            onClick={() => setActiveMasterTab('instalador')}
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeMasterTab === 'instalador'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>Instalador Desktop (.EXE)</span>
+          </button>
         </div>
       </div>
 
@@ -1971,6 +1984,174 @@ export default function AdminMasterPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {activeMasterTab === 'instalador' && (
+          <div className="space-y-6 pb-12 animate-in fade-in duration-200">
+            {/* Header do Instalador */}
+            <div className="bg-surface-container-low border border-outline-variant/60 rounded-3xl p-6 sm:p-8 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Monitor className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold font-display text-on-surface">
+                      Instalador Desktop do SEATI
+                    </h2>
+                    <p className="text-xs sm:text-sm text-on-surface-variant mt-0.5">
+                      Distribua o SEATI para computadores Windows como um aplicativo nativo independente com a sua logo.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-700 font-bold text-xs border border-emerald-500/30 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Compatível Windows 10 & 11
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Grid de Opções: Opção 1 e Opção 2 */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Opção 1: Instalador Rápido Windows (Script Direto) */}
+              <div className="bg-surface-container-low border border-outline-variant/60 rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col justify-between space-y-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2.5 py-1 rounded-lg bg-primary/10 text-primary font-bold text-xs uppercase tracking-wider">
+                      Método 1 • Mais Rápido
+                    </span>
+                    <span className="text-xs text-on-surface-variant font-medium">1 Clique no Windows</span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-bold text-on-surface">Instalador Rápido com Atalho Nativo</h3>
+                    <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
+                      Ideal para enviar para coordenadores e lideranças. Não precisa instalar nada previamente (funciona em qualquer Windows 10 ou 11 imediatamente).
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-surface-container border border-outline-variant/40 space-y-2.5 text-xs text-on-surface-variant">
+                    <div className="flex items-center gap-2 font-medium text-on-surface">
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      <span>Cria atalho na <strong>Área de Trabalho</strong> com o ícone oficial da sua logo.</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-medium text-on-surface">
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      <span>Adiciona o programa no <strong>Menu Iniciar</strong> do Windows.</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-medium text-on-surface">
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      <span>Abre em janela limpa e dedicada (sem barra de URL de navegador).</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  <a
+                    href="/instalador/Instalar-SEATI-Desktop.bat"
+                    download="Instalar-SEATI-Desktop.bat"
+                    className="w-full py-3 px-4 rounded-2xl bg-primary text-on-primary font-bold text-sm shadow-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Baixar Instalador Windows (.bat)</span>
+                  </a>
+
+                  <a
+                    href="/instalador/Desinstalar-SEATI-Desktop.bat"
+                    download="Desinstalar-SEATI-Desktop.bat"
+                    className="w-full py-2 px-4 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer border border-outline-variant/40"
+                  >
+                    <span>Baixar Desinstalador (.bat)</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* Opção 2: Gerador de Executável Nativo (.EXE com Electron) */}
+              <div className="bg-surface-container-low border border-outline-variant/60 rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col justify-between space-y-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-700 font-bold text-xs uppercase tracking-wider">
+                      Método 2 • Executável .EXE
+                    </span>
+                    <span className="text-xs text-on-surface-variant font-medium">Electron Builder</span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-bold text-on-surface">Compilação do Instalador .EXE</h3>
+                    <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
+                      A estrutura completa com <strong>Electron</strong> já está criada na pasta <code className="px-1.5 py-0.5 rounded bg-surface-container text-primary font-mono text-[11px]">electron/</code> do projeto.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-slate-950 text-slate-200 font-mono text-xs space-y-2 border border-slate-800">
+                    <div className="text-slate-400 text-[11px]">// 1. Entre na pasta do Electron</div>
+                    <div className="text-emerald-400 font-bold">cd electron</div>
+                    <div className="text-slate-400 text-[11px] pt-1">// 2. Instale as dependências</div>
+                    <div className="text-emerald-400 font-bold">npm install</div>
+                    <div className="text-slate-400 text-[11px] pt-1">// 3. Gere o instalador SEATI-Setup.exe</div>
+                    <div className="text-emerald-400 font-bold">npm run dist:win</div>
+                  </div>
+
+                  <p className="text-[11px] text-on-surface-variant">
+                    * Gera o arquivo <strong>SEATI-Setup-1.0.0.exe</strong> na pasta <code className="font-mono text-primary">electron/dist/</code>.
+                  </p>
+                </div>
+
+                <div className="pt-2">
+                  <a
+                    href="/icon.ico"
+                    download="seati-icon.ico"
+                    className="w-full py-2.5 px-4 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface font-semibold text-xs border border-outline-variant/60 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-primary" />
+                    <span>Baixar Ícone Nativo Windows (icon.ico)</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Guia de Instruções para o Usuário Final */}
+            <div className="bg-surface-container-low border border-outline-variant/60 rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
+              <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
+                <FileText className="w-4 h-4 text-primary" />
+                <span>Como orientar seus líderes e usuários a instalar:</span>
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                <div className="p-4 rounded-2xl bg-surface-container border border-outline-variant/40 space-y-2">
+                  <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary font-bold text-xs flex items-center justify-center">
+                    1
+                  </div>
+                  <h4 className="text-xs font-bold text-on-surface">Envie o Arquivo</h4>
+                  <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                    Mande o arquivo <code className="font-mono text-primary">Instalar-SEATI-Desktop.bat</code> ou o <code className="font-mono text-primary">SEATI-Setup.exe</code> pelo WhatsApp ou pen drive.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-surface-container border border-outline-variant/40 space-y-2">
+                  <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary font-bold text-xs flex items-center justify-center">
+                    2
+                  </div>
+                  <h4 className="text-xs font-bold text-on-surface">Dois Cliques</h4>
+                  <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                    A pessoa dá dois cliques no arquivo no computador dela. O atalho é criado instantaneamente.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-surface-container border border-outline-variant/40 space-y-2">
+                  <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary font-bold text-xs flex items-center justify-center">
+                    3
+                  </div>
+                  <h4 className="text-xs font-bold text-on-surface">Acesso Direto</h4>
+                  <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                    O ícone da sua logo fica na Área de Trabalho e no Menu Iniciar. Ao clicar, o sistema abre em tela limpa.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}
