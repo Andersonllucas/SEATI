@@ -1807,68 +1807,15 @@ MsgBox "O SEATI (" & sName & ") foi instalado com sucesso!" & vbCrLf & vbCrLf & 
                     )}
                   </div>
 
-                  {/* Ações do Card */}
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-outline-variant/30 text-xs">
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => openEditClientModal(client)}
-                        title="Editar configurações deste cliente"
-                        className="p-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => openBootstrapModal(client)}
-                        title="Inicializar / Provisionar banco deste cliente (Admin & Configurações)"
-                        className="p-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors cursor-pointer"
-                      >
-                        <Wand2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleExportBackup(client)}
-                        disabled={exportingSubdomain === client.subdominio}
-                        title="Exportar Backup consolidado do cliente (JSON)"
-                        className="p-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {exportingSubdomain === client.subdominio ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                        ) : (
-                          <Download className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => openRestoreModal(client)}
-                        title="Restaurar Backup do cliente (Disaster Recovery / JSON)"
-                        className="p-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => toggleClientStatus(client)}
-                        title={isAtivo ? 'Desativar este cliente' : 'Ativar este cliente'}
-                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                          isAtivo
-                            ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20'
-                            : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
-                        }`}
-                      >
-                        <Power className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteClient(client)}
-                        title="Remover cliente"
-                        className="p-1.5 rounded-lg bg-error/10 text-error hover:bg-error/20 transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
+                  {/* Ações do Card - Estrutura Limpa em 2 Linhas */}
+                  <div className="space-y-2 pt-2 border-t border-outline-variant/30">
+                    {/* Linha 1: Ações Principais de Acesso e Instalador */}
+                    <div className="grid grid-cols-2 gap-2">
                       <button
                         disabled={enteringClientSubdomain === client.subdominio}
                         onClick={() => handleAccessInCurrentTab(client)}
                         title={`Conectar ao banco de dados e entrar no painel de ${client.nome} (${client.firebaseConfig?.projectId || client.subdominio})`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary/90 text-xs font-semibold transition-colors cursor-pointer shadow-xs disabled:opacity-60"
+                        className="w-full py-2 px-3 rounded-xl bg-primary text-on-primary hover:bg-primary/90 text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                       >
                         {enteringClientSubdomain === client.subdominio ? (
                           <>
@@ -1883,24 +1830,85 @@ MsgBox "O SEATI (" & sName & ") foi instalado com sucesso!" & vbCrLf & vbCrLf & 
                         )}
                       </button>
 
-                      <a
-                        href={`https://${client.subdominio}.adti.app.br`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`Abrir ${client.subdominio}.adti.app.br em nova aba`}
-                        className="inline-flex items-center justify-center p-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface text-xs font-semibold transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-
                       <button
                         onClick={() => downloadInstallerVbs(client.subdominio, client.nome)}
                         title={`Baixar Instalador Desktop (.vbs) configurado para ${client.nome} (${client.subdominio}.adti.app.br)`}
-                        className="inline-flex items-center gap-1 p-1.5 sm:px-2 sm:py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-primary hover:text-primary/90 text-xs font-semibold transition-colors cursor-pointer border border-outline-variant/50"
+                        className="w-full py-2 px-2.5 rounded-xl bg-surface-container hover:bg-surface-container-high text-primary hover:text-primary/90 border border-outline-variant/60 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                       >
-                        <Monitor className="w-3.5 h-3.5" />
-                        <span className="hidden md:inline text-[11px]">Instalador Windows</span>
+                        <Monitor className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Instalador Desktop</span>
                       </button>
+                    </div>
+
+                    {/* Linha 2: Ferramentas Administrativas e de Gestão */}
+                    <div className="flex items-center justify-between gap-1 text-xs pt-0.5">
+                      {/* Gestão: Editar, Provisionar, Backup, Restaurar */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditClientModal(client)}
+                          title="Editar configurações deste cliente"
+                          className="p-1.5 sm:p-2 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/40 transition-colors cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => openBootstrapModal(client)}
+                          title="Inicializar / Provisionar banco deste cliente (Admin & Configurações)"
+                          className="p-1.5 sm:p-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors cursor-pointer"
+                        >
+                          <Wand2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleExportBackup(client)}
+                          disabled={exportingSubdomain === client.subdominio}
+                          title="Exportar Backup consolidado do cliente (JSON)"
+                          className="p-1.5 sm:p-2 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/40 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {exportingSubdomain === client.subdominio ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => openRestoreModal(client)}
+                          title="Restaurar Backup do cliente (Disaster Recovery / JSON)"
+                          className="p-1.5 sm:p-2 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-primary border border-outline-variant/40 transition-colors cursor-pointer"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Abertura Externa e Ações de Status */}
+                      <div className="flex items-center gap-1">
+                        <a
+                          href={`https://${client.subdominio}.adti.app.br`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Abrir https://${client.subdominio}.adti.app.br em nova aba`}
+                          className="p-1.5 sm:p-2 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/40 transition-colors inline-flex items-center justify-center"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                        <button
+                          onClick={() => toggleClientStatus(client)}
+                          title={isAtivo ? 'Desativar este cliente' : 'Ativar este cliente'}
+                          className={`p-1.5 sm:p-2 rounded-xl border transition-colors cursor-pointer ${
+                            isAtivo
+                              ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-500/30'
+                              : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-emerald-500/30'
+                          }`}
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClient(client)}
+                          title="Remover cliente"
+                          className="p-1.5 sm:p-2 rounded-xl bg-error/10 text-error hover:bg-error/20 border border-error/30 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
